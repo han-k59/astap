@@ -74,10 +74,10 @@ begin
   update_text   ('HISTORY 1','  Stacking method LIVE STACKING');
   update_integer('EXPTIME =',' / Total luminance exposure time in seconds.      ' ,round(sum_exp));
   update_text ('CALSTAT =',#39+head.calstat+#39); {calibration status}
-  update_text ('DATE-OBS=',#39+JdToDate(jd_stop)+#39);{give end point exposures}
-  update_float('JD-AVG  =',' / Julian Day of the observation mid-point.       ', jd_sum/counterL);{give midpoint of exposures}
-  date_avg:=JdToDate(jd_sum/counterL); {update date_avg for asteroid annotation}
-  update_text ('DATE-AVG=',#39+date_avg+#39);{give midpoint of exposures}
+  update_text ('DATE-OBS=',#39+JdToDate(jd_start_first)+#39);{give begin date exposures}
+  update_float('JD-AVG  =',' / Julian Day of the observation mid-point.       ',false, jd_sum/counterL);{give midpoint of exposures}
+  head.date_avg:=JdToDate(jd_sum/counterL); {update date_avg for asteroid annotation}
+  update_text ('DATE-AVG=',#39+head.date_avg+#39);{give midpoint of exposures}
   update_integer('LIGH_CNT=',' / Light frames combined.                  ' ,counterL); {for interim lum,red,blue...files.}
   update_integer('DARK_CNT=',' / Darks used for luminance.               ' ,head.dark_count);{for interim lum,red,blue...files. Compatible with master darks}
   update_integer('FLAT_CNT=',' / Flats used for luminance.               ' ,head.flat_count);{for interim lum,red,blue...files. Compatible with master flats}
@@ -85,22 +85,6 @@ begin
 
   mainwindow.memo1.visible:=true;{Show new header again}
 
-end;
-
-
-function load_thefile(filen:string) : boolean;
-var
-   ext1 : string;
-begin
-  ext1:=uppercase(ExtractFileExt(filen));
-
-  if ((ext1='.FIT') or (ext1='.FITS')) then
-    result:= load_fits(filen,true {light},true,true {update memo},0,head,img_loaded)
-  else
-  if check_raw_file_extension(ext1) then {check if extension is from raw file}
-    result:=convert_raw(true{load},false{save},filen,head,img_loaded)
-  else
-    result:=load_tiffpngJPEG(filen,true {light},head,img_loaded);
 end;
 
 
@@ -136,14 +120,15 @@ end;
 
 procedure stack_live(oversize:integer; path :string);{stack live average}
 var
-    fitsX,fitsY,width_max, height_max, old_width, old_height,x_new,y_new,col,binning, counter,total_counter,bad_counter,max_stars :  integer;
-    distance,hfd_min                                                                                                              : double;
+    fitsX,fitsY,width_max, height_max, old_width, old_height,x_new,y_new,col,binning, counter,total_counter,bad_counter,max_stars,process_as_asc :  integer;
+    distance,hfd_min                                                                                                                             : double;
     init, solution, vector_based,waiting,transition_image,colour_correction :boolean;
-    file_ext,filen                    :  string;
+    file_ext,filen,filename_org                 :  string;
     multiply_red,multiply_green,multiply_blue,add_valueR,add_valueG,add_valueB,largest,scaleR,scaleG,scaleB,dum :single; {for colour correction}
     warning  : string;
 var
     rename_counter: integer=0;
+    count         : integer=0;
 
     procedure reset_var;{reset variables  including init:=false}
     begin
@@ -153,10 +138,11 @@ var
       sum_exp:=0;
       sum_temp:=0;
       jd_sum:=0;{sum of Julian midpoints}
-      jd_stop:=0;{end observations in Julian day}
+      jd_start_first:=1E99; {begin observations in Julian day}
+      jd_end_last:=0;{end observations in Julian day}
 
-      dark_exposure:=987654321;{not done indication}
-      dark_temperature:=987654321;
+      light_exposure:=987654321;{not done indication}
+      light_temperature:=987654321;
       flat_filter:='987654321';{not done indication}
     end;
 
@@ -167,24 +153,19 @@ begin
     live_stacking:=true;{to block other instruction like solve button}
     reset_var; {reset variables  including init:=false}
 
-
-
     pause_pressed:=false;
     esc_pressed:=false;
     total_counter:=0;
 
     mainwindow.memo1.visible:=false;{Hide header}
 
-    colour_correction:=((stackmenu1.make_osc_color1.checked) and (stackmenu1.osc_auto_level1.checked));
+    colour_correction:=((process_as_osc>0) and (stackmenu1.osc_auto_level1.checked));
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
-    max_stars:=strtoint2(stackmenu1.max_stars1.text);{maximum star to process, if so filter out brightest stars later}
-    if max_stars=0 then max_stars:=500;{0 is auto for solving. No auto for stacking}
+    max_stars:=strtoint2(stackmenu1.max_stars1.text,500);{maximum star to process, if so filter out brightest stars later}
 
     {Prepare for dark and flats}
     analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{analyse dark tab, by loading=false the loaded img will not be effected. Calstat will not be effected}
     analyse_listview(stackmenu1.listview3,false {light},false {full fits},false{refresh});{analyse flat tab, by loading=false the loaded img will not be effected}
-
-//   (file_available2(path,filename2 {file found}));
 
     {live stacking}
     repeat
@@ -197,7 +178,8 @@ begin
 
           Application.ProcessMessages;
           {load image}
-          if ((esc_pressed) or (load_image(false,false {plot})=false)) then
+          filename_org:=filename2;//remember .cr2 file name
+          if ((esc_pressed) or (load_image(false,false {plot})=false)) then //For .cr2 files filename2 will have extension .fits
           begin
             if esc_pressed=false then memo2_message('Error loading file'); {can't load}
             live_stacking_pause1.font.style:=[];
@@ -224,7 +206,7 @@ begin
           begin
             reset_var; {reset variables including init:=false}
             stackmenu1.memo2.clear;{clear memo2}
-            memo2_message('New exposure time. New stack started');
+            memo2_message('Exposure time changed from '+floattostrF(oldexposure,ffGeneral,5,5)+' to '+floattostrF(head.exposure,ffGeneral,5,5)+' sec. New stack started.');
           end;
           oldexposure:=head.exposure;
 
@@ -232,8 +214,18 @@ begin
           begin
             if init=false then
             begin
+              if stackmenu1.make_osc_color1.checked then
+                process_as_osc:=2 //forced process as OSC images
+              else
+              if ((head_2.naxis3=1) and (head_2.Xbinning=1) and (bayerpat<>'')) then //auto process as OSC images
+                process_as_osc:=1
+              else
+                process_as_osc:=0;//disable demosaicing
+
+              if process_as_asc<>0 then memo2_message('Will demosaic OSC images to colour');
+
               memo1_text:=mainwindow.Memo1.Text;{save fits header first FITS file}
-              if ((bayerpat='') and (make_osc_color1.checked)) then
+              if ((bayerpat='') and (process_as_osc=2 {forced})) then
                 if stackmenu1.bayer_pattern1.Text='auto' then memo2_message('█ █ █ █ █ █ Warning, Bayer colour pattern not in the header! Check colours and if wrong set Bayer pattern manually in tab "stack alignment". █ █ █ █ █ █')
                 else
                 if test_bayer_matrix(img_loaded)=false then  memo2_message('█ █ █ █ █ █ Warning, grayscale image converted to colour! Un-check option "convert OSC to colour". █ █ █ █ █ █');
@@ -241,8 +233,7 @@ begin
 
             apply_dark_and_flat(img_loaded);{apply dark, flat if required, renew if different head.exposure or ccd temp}
 
-            memo2_message('Adding file: '+inttostr(counter+1)+' "'+filename2+'"  to average. Using '+inttostr(head.dark_count)+' darks, '+inttostr(head.flat_count)+' flats, '+inttostr(head.flatdark_count)+' flat-darks') ;
-
+            memo2_message('Adding file: '+inttostr(counter+1)+' "'+filename_org+'"  to average. Using '+inttostr(head.dark_count)+' darks, '+inttostr(head.flat_count)+' flats, '+inttostr(head.flatdark_count)+' flat-darks') ;
 
             Application.ProcessMessages;
             if esc_pressed then exit;
@@ -255,7 +246,7 @@ begin
             else {init is true, second or third image ....}
             if ((old_width<>head.width) or (old_height<>head.height)) then memo2_message('█ █ █ █ █ █  Warning different size image!');
 
-            if make_osc_color1.checked then  demosaic_bayer(img_loaded); {convert OSC image to colour}
+            if process_as_osc>0 then  demosaic_bayer(img_loaded); {convert OSC image to colour}
 
             if init=false then {first image}
             begin
@@ -271,12 +262,12 @@ begin
               width_max:=head.width+oversize*2;
               height_max:=head.height+oversize*2;
 
-              setlength(img_average,head.naxis3,width_max,height_max);
+              setlength(img_average,head.naxis3,height_max,width_max);
               for fitsY:=0 to height_max-1 do
                 for fitsX:=0 to width_max-1 do
                   for col:=0 to head.naxis3-1 do
                   begin
-                    img_average[col,fitsX,fitsY]:=0; {clear img_average}
+                    img_average[col,fitsY,fitsX]:=0; {clear img_average}
                   end;
 
               if colour_correction then
@@ -335,8 +326,8 @@ begin
               sum_exp:=sum_exp+head.exposure;
               sum_temp:=sum_temp+head.set_temperature;
 
-              date_to_jd(head.date_obs,head.exposure);{convert date-obs to jd}
-              if jd_mid>jd_stop then jd_stop:=jd_mid;
+              date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert date-obs to jd}
+              jd_start_first:=min(jd_start,jd_start_first);{find the begin date}
               jd_sum:=jd_sum+jd_mid;{sum julian days of images at midpoint head.exposure.}
 
               vector_based:=true;{no astrometric alignment}
@@ -354,7 +345,7 @@ begin
                     for col:=0 to head.naxis3-1 do {all colors}
                     begin
                       {serial stacking}
-                      img_average[col,x_new,y_new]:=(img_average[col,x_new,y_new]*(counter-1)+ img_loaded[col,fitsX-1,fitsY-1])/counter;{image loaded is already corrected with dark and flat}{NOTE: fits count from 1, image from zero}
+                      img_average[col,y_new,x_new]:=(img_average[col,y_new,x_new]*(counter-1)+ img_loaded[col,fitsY-1,fitsX-1])/counter;{image loaded is already corrected with dark and flat}{NOTE: fits count from 1, image from zero}
                     end;
                   end;
                 end;
@@ -370,20 +361,20 @@ begin
                   x_new:=round(x_new_float);y_new:=round(y_new_float);
                   if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
                   begin
-                    dum:=img_loaded[0,fitsX-1,fitsY-1];
+                    dum:=img_loaded[0,fitsY-1,fitsX-1];
                       if dum<>0 then {signal}
                       begin
                       dum:=(dum+add_valueR)*multiply_red/largest;
                         if dum<0 then dum:=0;
-                       img_average[0,x_new,y_new]:=(img_average[0,x_new,y_new]*(counter-1)+ dum)/counter;
+                       img_average[0,y_new,x_new]:=(img_average[0,y_new,x_new]*(counter-1)+ dum)/counter;
                       end;
                     if head.naxis3>1 then {colour}
                     begin
-                      dum:=img_loaded[1,fitsX-1,fitsY-1];   if dum<>0 then {signal} begin dum:=(dum+add_valueG)*multiply_green/largest; if dum<0 then dum:=0; img_average[1,x_new,y_new]:=(img_average[1,x_new,y_new]*(counter-1)+ dum)/counter;end;
+                      dum:=img_loaded[1,fitsY-1,fitsX-1];   if dum<>0 then {signal} begin dum:=(dum+add_valueG)*multiply_green/largest; if dum<0 then dum:=0; img_average[1,y_new,x_new]:=(img_average[1,y_new,x_new]*(counter-1)+ dum)/counter;end;
                     end;
                     if head.naxis3>2 then {colour}
                     begin
-                      dum:=img_loaded[2,fitsX-1,fitsY-1]; if dum<>0 then {signal} begin dum:=(dum+add_valueB)*multiply_blue/largest; if dum<0 then dum:=0; img_average[2,x_new,y_new]:=(img_average[2,x_new,y_new]*(counter-1)+ dum)/counter;end;
+                      dum:=img_loaded[2,fitsY-1,fitsX-1]; if dum<>0 then {signal} begin dum:=(dum+add_valueB)*multiply_blue/largest; if dum<0 then dum:=0; img_average[2,y_new,x_new]:=(img_average[2,y_new,x_new]*(counter-1)+ dum)/counter;end;
                     end;
                   end;
                 end;
@@ -410,14 +401,14 @@ begin
             stackmenu1.files_live_stacked1.caption:=inttostr(counter)+' stacked, '+inttostr(bad_counter)+ ' failures ' ;{Show progress}
             application.hint:=inttostr(counter)+' stacked, '+inttostr(bad_counter)+ ' failures ' ;{Show progress}
           end; {no transition image}
+
+          filename2:=filename_org;// use orginal filename with orgina extension, e.g. with extension .CR2
           file_ext:=ExtractFileExt(filename2);
           if pos('_@',filename2)=0 then filen:=copy(filename2,1,length(filename2)-length(file_ext))+'_@'+ date_string {function} +file_ext+'_' {mark file with date for SGP since the file name will not change if first file is renamed}
                                    else filen:=copy(filename2,1,length(filename2)-length(file_ext))+file_ext+'_'; {already marked with date}
           if RenameFile(filename2,filen)=false then {mark files as done with file extension+'_', beep if failure}
           begin
-           // if RenameFile(filename2,filen)=false then
             beep;
-
           end;
         finally
         end;
@@ -425,8 +416,8 @@ begin
       else
       begin  {pause or no files}
         if waiting=false then {do this only once}
-          begin
-            if ((pause_pressed) and (counter>0)) then
+        begin
+          if ((pause_pressed) and (counter>0)) then
           begin
             counterL:=counter;
             update_header;
@@ -438,6 +429,14 @@ begin
         waiting:=true;
         //Application.ProcessMessages;
         wait(1000);  {smart sleep}{no new files, wait some time}
+        if count=0 then live_stacking1.caption:='  ▶'
+        else
+        if count=1 then live_stacking1.caption:='▶  '
+        else
+        if count=2 then live_stacking1.caption:=' ▶ ';
+        inc(count);
+        if count>2 then count:=0;
+
       end;
 
     end;{live average}

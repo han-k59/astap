@@ -22,6 +22,7 @@ type
 
   Tform_sqm1 = class(TForm)
     green_message1: TLabel;
+    bortle1: TLabel;
     sqm_applydf1: TCheckBox;
     error_message1: TLabel;
     sqm1: TEdit;
@@ -75,7 +76,7 @@ implementation
 
 var
   site_lat_radians,site_long_radians  : double;
-
+  backup_made                         : boolean;
 
 
 function calculate_sqm(get_bk,get_his : boolean; var pedestal2 : integer) : boolean; {calculate sky background value}
@@ -85,7 +86,7 @@ var
 begin
   form_exist:=form_sqm1<>nil;   {see form_sqm1.FormClose action to make this working reliable}
 
-  bayer:=((bayerpat<>'') and (Xbinning=1));
+  bayer:=((bayerpat<>'') and (head.Xbinning=1));
 
   if form_exist then
   begin
@@ -93,23 +94,27 @@ begin
     begin
       form_sqm1.green_message1.caption:='This OSC image is automatically binned 2x2.'+#10;
       application.processmessages;
-      backup_img; {move viewer data to img_backup}
-      bin_X2X3X4(2);
+      if backup_made=false then //else the backup is already made in applyDF1
+      begin
+        backup_img; {move viewer data to img_backup}
+        backup_made:=true;
+      end;
+      bin_X2X3X4(2); //bin 2x2
     end
     else
-    form_sqm1.green_message1.caption:='';
+      form_sqm1.green_message1.caption:='';
   end;
 
-  if ((flux_magn_offset=0) or (flux_aperture<>99){calibration was for point sources})  then {calibrate and ready for extendend sources}
+  if ((head.mzero=0) or (head.mzero_radius<>99){calibration was for point sources})  then {calibrate and ready for extendend sources}
   begin
     annulus_radius:=14;{calibrate for extended objects using full star flux}
-    flux_aperture:=99;{calibrate for extended objects}
+    head.mzero_radius:=99;{calibrate for extended objects}
     plot_and_measure_stars(true {calibration},false {plot stars},false{report lim magnitude});
   end;
   result:=false;
-  if flux_magn_offset>0 then
+  if head.mzero>0 then
   begin
-    if get_bk then get_background(0,img_loaded,get_his {histogram},false {calculate also noise level} ,{var}cblack,star_level);
+    if get_bk then get_background(0,img_loaded,get_his {histogram},false {calculate also noise level} ,{var}bck);
 
     if (pos('D',head.calstat)>0) then
     begin
@@ -118,6 +123,13 @@ begin
         if form_exist then form_sqm1.green_message1.caption:=form_sqm1.error_message1.caption+'Dark already applied! Pedestal value ignored.'+#10 else memo2_message('Dark already applied! Pedestal value ignored.');
         pedestal2:=0; {prevent wrong values}
       end;
+//      if pos('P',head.calstat)>0 then
+//      begin
+//        result:=false;//invalid
+//        if form_exist then form_sqm1.error_message1.caption:=form_sqm1.error_message1.caption+'During calibration a pedestal was added. CALSTAT=P. Invalid result!!'+#10;
+//        warning_str:=warning_str+'Invalid result, CALSTAT=P';
+//        exit;
+//      end;
     end
     else
     if pedestal2=0 then
@@ -128,7 +140,7 @@ begin
          warning_str:=warning_str+'Pedestal value missing!';
        end;
 
-    if pedestal2>=cblack then
+    if pedestal2>=bck.backgr then
     begin
       if form_exist then form_sqm1.error_message1.caption:=form_sqm1.error_message1.caption+'Too high pedestal value!'+#10 else
       begin
@@ -139,7 +151,8 @@ begin
       pedestal2:=0; {prevent errors}
     end;
 
-    sqmfloat:=flux_magn_offset-ln((cblack-pedestal2)/sqr(head.cdelt2*3600){flux per arc sec})*2.511886432/ln(10);
+    sqmfloat:=head.mzero - ln((bck.backgr-pedestal2-head.pedestal)/sqr(head.cdelt2*3600){flux per arc sec})*2.5/ln(10) ;// +head.pedestal was the value added calibration calibration
+
     calculate_az_alt(1 {force calculation from ra, dec} ,head,{out}az,alt);
 
     centalt:=inttostr(round(alt));{for reporting in menu sqm1}
@@ -152,12 +165,38 @@ begin
     end;
   end;
 
-  if bayer then
+  if backup_made then
   begin
     restore_img;
+    backup_made:=false;
   end;
 end;
 
+
+function bortle(sqm: double): string;
+begin
+  //https://en.wikipedia.org/wiki/Bortle_scale
+  //https://www.cleardarksky.com/lp/ChrSprPkPAlp.html
+  if sqm>21.99 then result:='Bortle 1, excellent dark-sky site'
+  else
+  if sqm>21.89 then result:='Bortle 2, truly dark site'
+  else
+  if sqm>21.69 then result:='Bortle 3, dark rural sky'
+  else
+  if sqm>21.25 then result:='Bortle 4, rural sky'
+  else
+  if sqm>20.49 then result:='Bortle 4.5, rural/suburban sky'
+  else
+  if sqm>19.50 then result:='Bortle 5, suburban sky'
+  else
+  if sqm>18.94 then result:='Bortle 6, bright suburban sky'
+  else
+  if sqm>18.38 then result:='Bortle=7, suburban/urban sky'
+  else
+  if sqm>17.80 then result:='Bortle 8, city sky'
+  else
+  result:='Bortle 9, inner-city sky';
+end;
 
 procedure display_sqm;
 var
@@ -169,12 +208,13 @@ begin
     update_hist:=false;
     error_message1.caption:='';
 
-    date_to_jd(head.date_obs,head.exposure);{convert date-OBS to jd_start and jd_mid}
+    date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert date-OBS to jd_start and jd_mid}
 
     if jd_start<=2400000 then {no date, found year <1858}
     begin
-      error_message1.caption:='Error converting date obs.'+#10;
+      error_message1.caption:='Error converting DATE-OBS.'+#10;
       sqm1.caption:='?';
+      bortle1.caption:='';
       exit;
     end;
 
@@ -182,6 +222,7 @@ begin
     begin
       error_message1.caption:=error_message1.caption+'Can not process colour images!!'+#10;
       sqm1.caption:='?';
+      bortle1.caption:='';
       exit;
     end;
 
@@ -190,6 +231,12 @@ begin
     begin
       analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{analyse dark tab, by loading=false the loaded img will not be effected. Calstat will not be effected}
       analyse_listview(stackmenu1.listview3,false {light},false {full fits},false{refresh});{analyse flat tab, by loading=false the loaded img will not be effected}
+
+      if  form_sqm1<>nil then   {see form_sqm1.FormClose action to make this working reliable}
+      begin
+        backup_img;
+        backup_made:=true;//required in calculateSQM for 2x2 bining OSC
+      end;
       apply_dark_and_flat(img_loaded);{apply dark, flat if required, renew if different head.exposure or ccd temp}
 
       if pos('D',head.calstat)>0  then {status of dark application}
@@ -209,13 +256,15 @@ begin
     begin
       if centalt='0' then error_message1.caption:=error_message1.caption+'Could not retrieve or calculate altitude. Enter the default geographic location'+#10;
       sqm1.caption:='?';
+      bortle1.caption:='';
       exit;
     end;
 
     {report}
-    background1.caption:=inttostr(round(cblack));
+    background1.caption:=inttostr(round(bck.backgr));
     altitude1.caption:=centalt;
-    sqm1.caption:=floattostrF(sqmfloat,ffFixed,0,2)
+    sqm1.caption:=floattostrF(sqmfloat,ffFixed,0,2);
+    bortle1.caption:=bortle(sqmfloat);
   end;
 end;
 
@@ -314,7 +363,6 @@ end;
 procedure Tform_sqm1.FormClose(Sender: TObject; var CloseAction: TCloseAction);
 begin
   set_some_defaults;
-
   CloseAction := caFree; {required for later testing if form exists, https://wiki.freepascal.org/Testing,_if_form_exists}
   Form_sqm1 := nil;
 end;
@@ -323,6 +371,7 @@ end;
 procedure Tform_sqm1.FormShow(Sender: TObject);{han.k}
 begin
   esc_pressed:=false;{reset from cancel}
+  backup_made:=false;
 
   sqm_applyDF1.checked:=sqm_applyDF;
   date_obs1.Text:=head.date_obs;

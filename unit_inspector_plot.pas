@@ -14,18 +14,23 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, LCLintf, StdCtrls,
   Buttons, math, astap_main, unit_stack, unit_annotation,
-  clipbrd, ActnList; {for copy to clipboard}
+  clipbrd, ExtCtrls,{for copy to clipboard}
+  unit_gaussian_blur ;
 
 type
 
   { Tform_inspection1 }
 
   Tform_inspection1 = class(TForm)
-    Action1: TAction;
-    Action2: TAction;
-    Action3: TAction;
-    ActionList1: TActionList;
+    background_contour1: TBitBtn;
     bayer_label1: TLabel;
+    bin_factor1: TComboBox;
+    gradations1: TComboBox;
+    GroupBox4: TGroupBox;
+    Label1: TLabel;
+    grid_size1: TComboBox;
+    Label2: TLabel;
+    Label3: TLabel;
     to_clipboard1: TCheckBox;
     show_distortion1: TBitBtn;
     aberration_inspector1: TBitBtn;
@@ -47,14 +52,17 @@ type
     vectors1: TCheckBox;
     voronoi1: TCheckBox;
     procedure aberration_inspector1Click(Sender: TObject);
-    procedure Action1Execute(Sender: TObject);
     procedure background_values1Click(Sender: TObject);
+    procedure background_contour1Click(Sender: TObject);
+    procedure bin_factor1Change(Sender: TObject);
     procedure close_button1Click(Sender: TObject);
     procedure contour1Change(Sender: TObject);
     procedure extra_stars1Change(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure FormKeyPress(Sender: TObject; var Key: char);
     procedure FormShow(Sender: TObject);
+    procedure gradations1Change(Sender: TObject);
+    procedure grid_size1Change(Sender: TObject);
     procedure help_uncheck_outliers1Click(Sender: TObject);
     procedure roundness1Click(Sender: TObject);
     procedure measuring_angle1Change(Sender: TObject);
@@ -75,8 +83,8 @@ var
   form_inspection1: Tform_inspection1;
 
 
-type
-  hfd_array   = array of array of integer;
+//type
+//  hfd_array   = array of array of integer;
 
 var
   contour_check: boolean=false;
@@ -88,9 +96,13 @@ var
   measuring_angle : string='0';
   insp_left: integer=100;
   insp_top: integer=100;
+  inspector_binning: integer=1; //index
+  inspector_grid_size: integer=30;
+  inspector_gradations: integer=10;
 
 
 procedure CCDinspector(snr_min: double; triangle : boolean; measuring_angle: double);
+
 
 implementation
 {$R *.lfm}
@@ -98,6 +110,7 @@ implementation
 var
    executed : integer; {1 image changed (refresh required), 2 array changed(restore required)}
 
+   toClipboard1: boolean=false;
 
 function fnmodulo2(x,range: double):double;   {specifiy range=2*pi fore -pi..pi or range=360 for -180.. 180}
 begin
@@ -114,7 +127,7 @@ end;
 
 
 
-procedure CCDinspector(snr_min: double; triangle : boolean; measuring_angle: double);
+procedure CCDinspector(snr_min: double; triangle : boolean; measuring_angle: double{;x1,y1,x2,y2 : integer});
 var
  fitsX,fitsY,size,radius, i,j,starX,starY, retries,max_stars,x_centered,y_centered,starX2,starY2,len,
  nhfd,nhfd_outer_ring,fontsize,text_height,text_width,n,m,xci,yci,sqr_radius,left_margin,
@@ -123,10 +136,11 @@ var
  nhfd_13,nhfd_23,nhfd_33,
  x_11,x_21,x_31,y_11,y_21,y_31,
  x_12,x_22,x_32,y_12,y_22,y_32,
- x_13,x_23,x_33,y_13,y_23,y_33         : integer;
+ x_13,x_23,x_33,y_13,y_23,y_33,
+ oldNaxis3, dummy                       : integer;
 
  hfd1,star_fwhm,snr,flux,xc,yc, median_worst,median_best,scale_factor, detection_level,
- hfd_min,tilt_value, aspect,theangle,theradius,screw1,screw2,screw3,sqrradius,
+ hfd_min,tilt_value, aspect,theangle,theradius,screw1,screw2,screw3,sqrradius,raM,decM,
  hfd_median, median_outer_ring,
  median_11, median_21, median_31,
  median_12, median_22, median_32,
@@ -136,31 +150,33 @@ var
  hfdlist_12,hfdlist_22,hfdlist_32,
  hfdlist_13,hfdlist_23,hfdlist_33     : array of double;
 
- starlistXY    :array of array of integer;
- mess1,mess2,hfd_value,hfd_arcsec      : string;
- Save_Cursor:TCursor;
+ starlistXY    :array of array of double;
+ mess1,mess2,hfd_value,hfd_arcsec,report,rastr,decstr,magstr : string;
+
  Fliph, Flipv,restore_req  : boolean;
  img_bk,img_sa                         : image_array;
-
+ style: TTextStyle;
+ data_max: single;
 begin
   if head.naxis=0 then exit; {file loaded?}
-  Save_Cursor := Screen.Cursor;
-  Screen.Cursor := crHourglass;    { Show hourglass cursor }
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
   restore_req:=false;
+  oldNaxis3:=head.naxis3;//for case it is converted to mono
+
+
   if head.naxis3>1 then {colour image}
   begin
-    img_bk:=img_loaded; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
-    setlength(img_bk,head.naxis3,head.width,head.height);{force a duplication}
+    img_bk:=duplicate(img_loaded);//fastest way to duplicate an image
     convert_mono(img_loaded,head);
     get_hist(0,img_loaded);{get histogram of img_loaded and his_total. Required to get correct background value}
+
     restore_req:=true;
   end
   else
   if (bayerpat<>'') then {raw Bayer image}
   begin
-    img_bk:=img_loaded; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
-    setlength(img_bk,head.naxis3,head.width,head.height);{force a duplication}
+    img_bk:=duplicate(img_loaded);//fastest way to duplicate an image
     check_pattern_filter(img_loaded);
     get_hist(0,img_loaded);{get histogram of img_loaded and his_total. Required to get correct background value}
     restore_req:=true;
@@ -199,29 +215,38 @@ begin
     median_33:=0;
 
     SetLength(hfdlist,len);{set array length on a starting value}
-    SetLength(starlistXY,2,len);{x,y positions}
+    SetLength(starlistXY,3,len);{x,y positions}
 
-    setlength(img_sa,1,head.width,head.height);{set length of image array}
+    setlength(img_sa,1,head.height,head.width);{set length of image array}
 
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
-    get_background(0,img_loaded,{cblack=0} false{histogram is already available},true {calculate noise level},{var}cblack,star_level);{calculate background level from peek histogram}
+    get_background(0,img_loaded,{cblack=0} false{histogram is already available},true {calculate noise level},{out}bck);{calculate background level from peek histogram}
 
-    detection_level:=max(3.5*noise_level[0],star_level); {level above background. Start with a high value}
-    retries:=2; {try up to three times to get enough stars from the image}
+    data_max:=head.datamax_org-1;
+
+    retries:=3; {try up to four times to get enough stars from the image}
     repeat
+      if retries=3 then
+        begin if bck.star_level >30*bck.noise_level then detection_level:=bck.star_level  else retries:=2;{skip} end;//stars are dominant
+      if retries=2 then
+        begin if bck.star_level2>30*bck.noise_level then detection_level:=bck.star_level2 else retries:=1;{skip} end;//stars are dominant
+      if retries=1 then
+        begin detection_level:=30*bck.noise_level; end;
+      if retries=0 then
+        begin detection_level:= 7*bck.noise_level; end;
       nhfd:=0;{set counters at zero}
 
       for fitsY:=0 to head.height-1 do
         for fitsX:=0 to head.width-1  do
-          img_sa[0,fitsX,fitsY]:=-1;{mark as star free area}
+          img_sa[0,fitsY,fitsX]:=-1;{mark as star free area}
 
       for fitsY:=0 to head.height-1-1  do
       begin
         for fitsX:=0 to head.width-1-1 do
         begin
-          if (( img_sa[0,fitsX,fitsY]<=0){area not occupied by a star}  and (img_loaded[0,fitsX,fitsY]- cblack>detection_level){star}) then {new star}
+          if (( img_sa[0,fitsY,fitsX]<=0){area not occupied by a star}  and (img_loaded[0,fitsY,fitsX]- bck.backgr>detection_level){star}) then {new star}
           begin
-            HFD(img_loaded,fitsX,fitsY,14 {annulus radius},99 {flux aperture restriction}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
+            HFD(img_loaded,fitsX,fitsY,14 {annulus radius},99 {flux aperture restriction},0 {adu_e}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
 
             if ((hfd1<=30) and (snr>snr_min {30}) and (hfd1>hfd_min) ) then
             begin
@@ -237,28 +262,29 @@ begin
                 j:=n+yci;
                 i:=m+xci;
                 if ((j>=0) and (i>=0) and (j<head.height) and (i<head.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
-                  img_sa[0,i,j]:=1;
+                  img_sa[0,j,i]:=1;
               end;
 
-              if ((img_loaded[0,xci  ,yci]<head.datamax_org-1) and
-                  (img_loaded[0,xci-1,yci]<head.datamax_org-1) and
-                  (img_loaded[0,xci+1,yci]<head.datamax_org-1) and
-                  (img_loaded[0,xci  ,yci-1]<head.datamax_org-1) and
-                  (img_loaded[0,xci  ,yci+1]<head.datamax_org-1) and
+              if ((img_loaded[0,yci,  xci  ]<data_max) and
+                  (img_loaded[0,yci,  xci-1]<data_max) and
+                  (img_loaded[0,yci,  xci+1]<data_max) and
+                  (img_loaded[0,yci-1,xci  ]<data_max) and
+                  (img_loaded[0,yci+1,xci  ]<data_max) and
 
-                  (img_loaded[0,xci-1,yci-1]<head.datamax_org-1) and
-                  (img_loaded[0,xci-1,yci+1]<head.datamax_org-1) and
-                  (img_loaded[0,xci+1,yci-1]<head.datamax_org-1) and
-                  (img_loaded[0,xci+1,yci+1]<head.datamax_org-1)  ) then {not saturated}
+                  (img_loaded[0,yci-1,xci-1]<data_max) and
+                  (img_loaded[0,yci+1,xci-1]<data_max) and
+                  (img_loaded[0,yci-1,xci+1]<data_max) and
+                  (img_loaded[0,yci+1,xci+1]<data_max)  ) then {not saturated}
               begin
                 {store values}
                 hfdlist[nhfd]:=hfd1;
-                starlistXY[0,nhfd]:=xci; {store star position in image coordinates, not FITS coordinates}
-                starlistXY[1,nhfd]:=yci;
+                starlistXY[0,nhfd]:=xc; {store star position in image coordinates, not FITS coordinates}
+                starlistXY[1,nhfd]:=yc;
+                starlistXY[2,nhfd]:=flux;
                 inc(nhfd); if nhfd>=length(hfdlist) then
                 begin
                   SetLength(hfdlist,nhfd+max_stars); {adapt length if required and store hfd value}
-                  SetLength(starlistXY,2,nhfd+max_stars);{adapt array size if required}
+                  SetLength(starlistXY,3,nhfd+max_stars);{adapt array size if required}
                 end;
 
               end;
@@ -268,17 +294,13 @@ begin
       end;
 
       dec(retries);{prepare for trying with lower detection level}
-      if detection_level<=7*noise_level[0] then retries:= -1 {stop}
-      else
-      detection_level:=max(6.999*noise_level[0],min(30*noise_level[0],detection_level*6.999/30)); {very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop}
-
     until ((nhfd>=max_stars) or (retries<0));{reduce detection level till enough stars are found. Note that faint stars have less positional accuracy}
 
     if restore_req then {raw Bayer image or colour image}
     begin
       memo2_message('Restoring image');
-      img_loaded:=nil;
-      img_loaded:=img_bk; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
+      img_loaded:=duplicate(img_bk);//fastest way to duplicate an image
+      img_bk:=nil;
       get_hist(0,img_loaded);{get histogram of img_loaded and his_total}
     end;
 
@@ -325,8 +347,8 @@ begin
         hfd1:=hfdlist[i];
         size:=round(5*hfd1);
 
-        starX:=starlistXY[0,i];
-        starY:=starlistXY[1,i];
+        starX:=round(starlistXY[0,i]);
+        starY:=round(starlistXY[1,i]);
 
         starX2:=starX;
         starY2:=starY;
@@ -368,9 +390,9 @@ begin
           begin
             if  sqrradius>=sqr(0.25)*(sqr(head.width div 2)+sqr(head.height div 2))  then {outside center}
             begin
-              if ( (abs(fnmodulo2(theangle-screw1,360))<30) and (theradius<head.height div 2) ) then begin  hfdlist_11[nhfd_11] :=hfd1; inc(nhfd_11);if nhfd_11>=length(hfdlist_11) then SetLength(hfdlist_11,nhfd_11+100);end;{sector 1}
-              if ( (abs(fnmodulo2(theangle-screw2,360))<30) and (theradius<head.height div 2) ) then begin  hfdlist_21[nhfd_21]:=hfd1;  inc(nhfd_21);if nhfd_21>=length(hfdlist_21) then SetLength(hfdlist_21,nhfd_21+100);end;{sector 2}
-              if ( (abs(fnmodulo2(theangle-screw3,360))<30) and (theradius<head.height div 2) ) then begin  hfdlist_31[nhfd_31]:=hfd1;  inc(nhfd_31);if nhfd_31>=length(hfdlist_31) then SetLength(hfdlist_31,nhfd_31+100);end;{sector 3}
+              if ( (abs(fnmodulo2(theangle-screw1,360))<30) and (theradius<head.height div 2) ) then begin  hfdlist_11[nhfd_11] :=hfd1; inc(nhfd_11);if nhfd_11>=length(hfdlist_11) then SetLength(hfdlist_11,nhfd_11+1000);end;{sector 1}
+              if ( (abs(fnmodulo2(theangle-screw2,360))<30) and (theradius<head.height div 2) ) then begin  hfdlist_21[nhfd_21]:=hfd1;  inc(nhfd_21);if nhfd_21>=length(hfdlist_21) then SetLength(hfdlist_21,nhfd_21+1000);end;{sector 2}
+              if ( (abs(fnmodulo2(theangle-screw3,360))<30) and (theradius<head.height div 2) ) then begin  hfdlist_31[nhfd_31]:=hfd1;  inc(nhfd_31);if nhfd_31>=length(hfdlist_31) then SetLength(hfdlist_31,nhfd_31+1000);end;{sector 3}
             end
             else
             begin  hfdlist_22[nhfd_22]:=hfd1;  inc(nhfd_22);end;{round center}
@@ -476,6 +498,7 @@ begin
         x_31:=round(+median_31*scale_factor+head.width/2);  y_31:=round(-median_31*scale_factor+head.height/2);
 
         x_12:=round(-median_12*scale_factor+head.width/2);  y_12:=round(+head.height/2);
+        x_22:=head.width div 2;                             y_22:=head.height div 2;
         x_32:=round(+median_32*scale_factor+head.width/2);  y_32:=round(+head.height/2);
 
         x_13:=round(-median_13*scale_factor+head.width/2);  y_13:=round(+median_13*scale_factor+head.height/2);
@@ -488,7 +511,7 @@ begin
         flip_xy(fliph,flipv,x_31,y_31);
 
         flip_xy(fliph,flipv,x_12,y_12); {from array to image coordinates}
-        flip_xy(fliph,flipv,x_22,y_22); {from array to image coordinates}
+        // flip x_22, y_22 is not required since they are in the middle.
         flip_xy(fliph,flipv,x_32,y_32); {from array to image coordinates}
 
         flip_xy(fliph,flipv,x_13,y_13); {from array to image coordinates}
@@ -544,8 +567,6 @@ begin
         image1.Canvas.textout(x_13,y_13,floattostrF(median_13,ffFixed,0,2));
         image1.Canvas.textout(x_23,y_23,floattostrF(median_23,ffFixed,0,2));
         image1.Canvas.textout(x_33,y_33,floattostrF(median_33,ffFixed,0,2));
-
-        image1.Canvas.textout(head.width div 2,head.height div 2,floattostrF(median_22,ffFixed,0,2));
       end
       else
       begin
@@ -563,6 +584,9 @@ begin
       text_height:=mainwindow.image1.Canvas.textheight('T');{the correct text height, also for 4k with "make everything bigger"}
 
       left_margin:=min(head.width div 20,round(fontsize*2));{twice font size but not more then 5% of width. Required for small images}
+
+      image1.Canvas.Brush.Style:=bssolid; //Bsclear;
+      image1.Canvas.Brush.Color:=clBlack;
       image1.Canvas.textout(left_margin,head.height-text_height,mess2);{median HFD and tilt indication}
 
       memo2_message(mess2);{for stacking live}
@@ -587,15 +611,15 @@ begin
   starlistXY:=nil;
 
   img_sa:=nil;{free mem}
-
-  Screen.Cursor:= Save_Cursor;
+  Screen.Cursor:=crDefault;
 end;
 
 
-procedure filter_hfd(var mean,min_value,max_value : single; nr : integer; hfd_values: hfd_array); {filter array of hfd values}
+procedure filter_hfd(var mean,min_value,max_value : single; nr : integer; hfd_values: star_list); {filter array of hfd values}
 var
-  i,j,nr_closest,nr_second_closest,a,b,c,dummy:  integer;
+  i,j,nr_closest,nr_second_closest  :  integer;
   closest_distance,second_closest_distance,distance_sqr   : single;
+  a,b,c,dummy : double;
 
 begin
 
@@ -641,9 +665,6 @@ begin
 
     hfd_values[2,i]:=b;  {hfd*100, place median value in this cell}
 
-//    if b=701 then
-//     beep;
-
     if max_value<b then max_value:=b;
     if min_value>b then min_value:=b;
      mean:=mean+b;
@@ -652,21 +673,22 @@ begin
  {useful length is nr}
 end;
 
-procedure voronoi_plot(min_value,max_value : single; nr:integer;hfd_values: hfd_array);
+procedure voronoi_plot(min_value,max_value : single; nr:integer;hfd_values: star_list);
 var
-    i,size,fitsx,fitsY,col,x,y,x2,y2,w,h,scaledown:  integer;
+    i,size,fitsx,fitsY,x,y,x2,y2,w,h,scaledown:  integer;
     img_hfd: image_array;
     zeros_left : boolean;
+    col        : double;
 
 begin
   scaledown:=1+ head.width div 1000;
   w:=(head.width div scaledown)+1;
   h:=(head.height div scaledown)+1;
 
-  setlength(img_hfd,1,w,h);{set length of image array}
+  setlength(img_hfd,1,h,w);{set length of image array}
   for fitsY:=0 to h-1  do
     for fitsX:=0 to w-1 do
-      img_hfd[0,fitsX,fitsY]:=0;{clear array}
+      img_hfd[0,fitsY,fitsX]:=0;{clear array}
 
 
   size:=0;
@@ -676,16 +698,16 @@ begin
     begin
       col:=hfd_values[2,i];
 
-      for x:=-size to size do
       for y:=-size to size do
+      for x:=-size to size do
       if round(sqrt(sqr(x)+sqr(y)))=size then
       begin
-        x2:=hfd_values[0,i] div scaledown + x;
-        y2:=hfd_values[1,i] div scaledown + y;
+        x2:=round(hfd_values[0,i]/scaledown) + x;
+        y2:=round(hfd_values[1,i]/scaledown) + y;
         if ((x2>=0) and (x2<w) and (y2>=0) and (y2<h)) then
-          if  img_hfd[ 0,x2,y2]=0 then {not used yet}
+          if  img_hfd[0,y2,x2]=0 then {not used yet}
           begin
-            img_hfd[ 0,x2,y2]:=col;
+            img_hfd[0,y2,x2]:=col;
             zeros_left:=true;
           end;
       end;
@@ -693,24 +715,24 @@ begin
     inc(size);
   until ((zeros_left=false) or (size>h/5));
 
-  if head.naxis>1 then setlength(img_loaded,1,head.width,head.height);
+  if head.naxis>1 then setlength(img_loaded,1,head.height,head.width);
   head.naxis3:=1;
   for fitsY:=0 to head.height-1  do
     for fitsX:=0 to head.width-1 do
-      img_loaded[0,fitsX,fitsY]:={img_loaded[0,fitsX,fitsY]}+img_hfd[0,fitsX div scaledown,fitsY div scaledown];
+      img_loaded[0,fitsY,fitsX]:={img_loaded[0,fitsY,fitsX]}+img_hfd[0,fitsY div scaledown,fitsX div scaledown];
 
   img_hfd:=nil;{free memory}
 
   use_histogram(img_loaded,true {update}); {plot histogram, set sliders}
 
-  cblack:=min_value-5;
+  bck.backgr:=min_value-5;
   cwhite:=max_value+5;
   mainwindow.minimum1.position:=round(min_value-5);{+5, -5 for very flat fields}
   mainwindow.maximum1.position:=round(max_value+5);
  end;
 
 
-procedure contour_plot(mean: single; nr:integer;hfd_values: hfd_array);
+procedure contour_plot(mean: single; nr:integer;hfd_values: star_list);
 var
     i,fitsx,fitsY,x,y,w,h,x2,y2,scaledown : integer;
     img_hfd: image_array;
@@ -722,39 +744,38 @@ begin
   w:=(head.width div scaledown)+1;
   h:=(head.height div scaledown)+1;
 
-  setlength(img_hfd,1,w,h);{set length of image array}
+  setlength(img_hfd,1,h,w);{set length of image array}
   for fitsY:=0 to h-1  do
     for fitsX:=0 to w-1 do
-      img_hfd[0,fitsX,fitsY]:=0;{clear array}
+      img_hfd[0,fitsY,fitsX]:=0;{clear array}
 
   max_value:=0;
   min_value:=65535;
 
-  pixels_per_star:=w*h/nr;
+  pixels_per_star:=w*h/nr;// average surface per star in pixels
 
-  factor:=2*sqrt(pixels_per_star); {take the square root to get calculate the average distance in pixels between the stars/measuring points}
-  for x:=0 to w-1 do
-  for y:=0 to h-1 do
+  factor:=2*sqrt(pixels_per_star); //take the square root to get calculate the average distance in pixels between the stars/measuring points
+  for y:=0 to h-1 do  //move in y
+  for x:=0 to w-1 do  //move in x
   begin
-    cols:=mean;
+    cols:=mean; // background value
     sum_influence:=0;
-    for i:=0 to nr-1 do {go through all points}
+    for i:=0 to nr-1 do //go through all HFD points and adapt the local luminance depending on all HFD values of the stars. The closer HFD points have more influence
     begin
-      x2:=hfd_values[0,i] div scaledown;
-      y2:=hfd_values[1,i] div scaledown;
+      x2:=round(hfd_values[0,i]/ scaledown);
+      y2:=round(hfd_values[1,i]/ scaledown);
       distance:=sqrt(sqr(x2-x)+sqr(y2-y));
       influence:=factor/(factor+distance);
-      sum_influence:=sum_influence+influence;
-      cols:=cols+hfd_values[2,i]*influence;
+      sum_influence:=sum_influence+influence;// sum of all influences for position x,y.
+      cols:=cols+hfd_values[2,i]*influence; //adapt the luminance at position x, y by the HFD value at position i in list.
     end;
-    cols:=cols/sum_influence;
+    cols:=cols/sum_influence; //scale the luminance value.
     if max_value<cols then max_value:=cols;
     if min_value>cols then min_value:=cols;
-    img_hfd[ 0,x,y]:=cols;
-
+    img_hfd[0,y,x]:=cols; //set the pixel in the contour plot
   end;
 
-  if head.naxis>1 then setlength(img_loaded,1,head.width,head.height);
+  if head.naxis>1 then setlength(img_loaded,1,head.height,head.width);
   head.naxis3:=1;
 
   {introduce rounding to show layers}
@@ -763,14 +784,14 @@ begin
   {convert back}
   for fitsY:=0 to head.height-1  do
     for fitsX:=0 to head.width-1 do
-      img_loaded[0,fitsX,fitsY]:=(1/step_adjust)*round(step_adjust*img_hfd[0,fitsX div scaledown,fitsY div scaledown]);
+      img_loaded[0,fitsY,fitsX]:=(1/step_adjust)*round(step_adjust*img_hfd[0,fitsY div scaledown,fitsX div scaledown]);
 
 
   img_hfd:=nil;{free memory}
 
   use_histogram(img_loaded,true {update}); {plot histogram, set sliders}
 
-  cblack:=min_value-5;
+  bck.backgr:=min_value-5;
   cwhite:=max_value+5;
   mainwindow.minimum1.position:=round(min_value-5);{+5, -5 for very flat fields}
   mainwindow.maximum1.position:=round(max_value+5);
@@ -793,10 +814,10 @@ var
     x_frac :=frac(x1);
     y_frac :=frac(y1);
     try
-      result:=         (img[0,x_trunc  ,y_trunc  ]) * (1-x_frac)*(1-y_frac);{pixel left top, 1}
-      result:=result + (img[0,x_trunc+1,y_trunc  ]) * (  x_frac)*(1-y_frac);{pixel right top, 2}
-      result:=result + (img[0,x_trunc  ,y_trunc+1]) * (1-x_frac)*(  y_frac);{pixel left bottom, 3}
-      result:=result + (img[0,x_trunc+1,y_trunc+1]) * (  x_frac)*(  y_frac);{pixel right bottom, 4}
+      result:=         (img[0,y_trunc  ,x_trunc   ]) * (1-x_frac)*(1-y_frac);{pixel left top, 1}
+      result:=result + (img[0,y_trunc  ,x_trunc+1 ]) * (  x_frac)*(1-y_frac);{pixel right top, 2}
+      result:=result + (img[0,y_trunc+1,x_trunc   ]) * (1-x_frac)*(  y_frac);{pixel left bottom, 3}
+      result:=result + (img[0,y_trunc+1,x_trunc+1 ]) * (  x_frac)*(  y_frac);{pixel right bottom, 4}
     except
     end;
   end;
@@ -876,7 +897,8 @@ procedure plot_vector(x,y,r,orientation : double);
 var sinO,cosO,xstep,ystep              : double;
     wd                                 : integer;
 begin
- wd:=max(1,head.height div 1000);
+  wd:=max(1,head.height div 1000);
+  mainwindow.image1.Canvas.Pen.mode:=pmXor;
   mainwindow.image1.canvas.Pen.Color := clred;
   mainwindow.image1.canvas.Pen.width := wd;
 
@@ -904,10 +926,10 @@ end;
 
 procedure CCDinspector_analyse(detype: char; aspect,values,vectors: boolean);
 var
- fitsX,fitsY,size,radius, i, j,nhfd,retries,max_stars,n,m,xci,yci,sqr_radius,orientation,starX,starY,x2,y2,font_luminance     : integer;
- hfd1,star_fwhm,snr,flux,xc,yc,detection_level,med                                                                : double;
- mean, min_value,max_value : single;
- hfd_values  : hfd_array; {array of integers}
+ fitsX,fitsY,size,radius, i, j,nhfd,retries,max_stars,n,m,xci,yci,sqr_radius,orientation,starX,starY,x2,y2,font_luminance : integer;
+ hfd1,star_fwhm,snr,flux,xc,yc,detection_level,med : double;
+ mean, min_value,max_value,data_max : single;
+ hfd_values  : star_list; {array of aray of doubles}
  hfds        : array of double;
  Fliphorizontal, Flipvertical: boolean;
  mess: string;
@@ -919,27 +941,35 @@ begin
   max_stars:=1000;
 
   SetLength(hfd_values,4,4000);{will contain x,y,hfd}
-  setlength(img_sa,1,head.width,head.height);{set length of image array}
+  setlength(img_sa,1,head.height,head.width);{set length of image array}
 
-  get_background(0,img_loaded,false{ calculate histogram},true {calculate noise level},{var}cblack,star_level);{calculate background level from peek histogram}
+  get_background(0,img_loaded,false{ calculate histogram},true {calculate noise level},{out}bck);{calculate background level from peek histogram}
 
-  detection_level:=max(3.5*noise_level[0],star_level); {level above background. Start with a high value}
+  data_max:=head.datamax_org-1;
 
-  retries:=2; {try up to three times to get enough stars from the image}
+  retries:=3; {try up to four times to get enough stars from the image}
   repeat
-    nhfd:=0;{set counters at zero}
+    if retries=3 then
+      begin if bck.star_level >30*bck.noise_level then detection_level:=bck.star_level  else retries:=2;{skip} end;//stars are dominant
+    if retries=2 then
+      begin if bck.star_level2>30*bck.noise_level then detection_level:=bck.star_level2 else retries:=1;{skip} end;//stars are dominant
+    if retries=1 then
+      begin detection_level:=30*bck.noise_level; end;
+    if retries=0 then
+      begin detection_level:= 7*bck.noise_level; end;
 
+    nhfd:=0;{set counters at zero}
     for fitsY:=0 to head.height-1 do
       for fitsX:=0 to head.width-1  do
-        img_sa[0,fitsX,fitsY]:=-1;{mark as star free area}
+        img_sa[0,fitsY,fitsX]:=-1;{mark as star free area}
 
     for fitsY:=0 to head.height-1-1  do
     begin
       for fitsX:=0 to head.width-1-1 do
       begin
-        if (( img_sa[0,fitsX,fitsY]<=0){area not occupied by a star} and (img_loaded[0,fitsX,fitsY]- cblack>detection_level){star}) then {new star}
+        if (( img_sa[0,fitsY,fitsX]<=0){area not occupied by a star} and (img_loaded[0,fitsY,fitsX]- bck.backgr>detection_level){star}) then {new star}
         begin
-          HFD(img_loaded,fitsX,fitsY,14{annulus radius},99 {flux aperture restriction}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
+          HFD(img_loaded,fitsX,fitsY,14{annulus radius},99 {flux aperture restriction},0 {adu_e}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
           if (hfd1>=1.3) {not a hotpixel} and (snr>30) and (hfd1<99) then
           begin
 
@@ -954,31 +984,31 @@ begin
                 j:=n+yci;
                 i:=m+xci;
                 if ((j>=0) and (i>=0) and (j<head.height) and (i<head.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
-                  img_sa[0,i,j]:=1;
+                  img_sa[0,j,i]:=1;
               end;
 
             if aspect then measure_star_aspect(img_loaded,xc,yc,round(hfd1*1.5),{out} hfd1 {aspect},orientation);{store the star aspect in hfd1}
 
             {store values}
             if hfd1<>999 then
-            if ( ((img_loaded[0,round(xc),round(yc)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc-1),round(yc)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc+1),round(yc)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc),round(yc-1)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc),round(yc+1)]<head.datamax_org-1) and
+            if ( ((img_loaded[0,round(yc),round(xc)]<data_max) and
+                  (img_loaded[0,round(yc-1),round(xc)]<data_max) and
+                  (img_loaded[0,round(yc+1),round(xc)]<data_max) and
+                  (img_loaded[0,round(yc),round(xc-1)]<data_max) and
+                  (img_loaded[0,round(yc),round(xc+1)]<data_max) and
 
-                  (img_loaded[0,round(xc-1),round(yc-1)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc-1),round(yc+1)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc+1),round(yc-1)]<head.datamax_org-1) and
-                  (img_loaded[0,round(xc+1),round(yc+1)]<head.datamax_org-1)){not saturated}
+                  (img_loaded[0,round(yc-1),round(xc-1)]<data_max) and
+                  (img_loaded[0,round(yc-1),round(xc+1)]<data_max) and
+                  (img_loaded[0,round(yc+1),round(xc-1)]<data_max) and
+                  (img_loaded[0,round(yc+1),round(xc+1)]<data_max)){not saturated}
                   or ((aspect))  )
                   then
             begin
               if nhfd>=length(hfd_values)-1 then
-                  SetLength(hfd_values,4,nhfd+500);{adapt length if required}
-              hfd_values[0,nhfd]:=round(xc);
-              hfd_values[1,nhfd]:=round(yc);
-              hfd_values[2,nhfd]:=trunc(hfd1*100);{star aspect}
+                  SetLength(hfd_values,4,nhfd+2000);{adapt length if required}
+              hfd_values[0,nhfd]:=xc;
+              hfd_values[1,nhfd]:=yc;
+              hfd_values[2,nhfd]:=hfd1*1000;{hfd or star aspect * 1000}
               hfd_values[3,nhfd]:=orientation;    {star orientation 0..179}
               inc(nhfd);
 
@@ -989,10 +1019,6 @@ begin
     end;
 
     dec(retries);{prepare for trying with lower detection level}
-    if detection_level<=7*noise_level[0] then retries:= -1 {stop}
-    else
-    detection_level:=max(6.999*noise_level[0],min(30*noise_level[0],detection_level*6.999/30)); {very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop}
-
   until ((nhfd>=max_stars) or (retries<0));{reduce dection level till enough stars are found. Note that faint stars have less positional accuracy}
 
   img_sa:=nil;{free mem}
@@ -1009,7 +1035,7 @@ begin
      font_luminance:=100;
   end
   else
-  font_luminance:=round((cwhite-cblack)/4+cblack);
+  font_luminance:=round((cwhite-bck.backgr)/4+bck.backgr);
 
 
   if detype='V' then voronoi_plot(min_value,max_value,nhfd,hfd_values)
@@ -1026,9 +1052,9 @@ begin
    begin
      if values then
      begin
-       if Fliphorizontal     then starX:=head.width-hfd_values[0,i]   else starX:=hfd_values[0,i];
-       if Flipvertical       then starY:=head.height-hfd_values[1,i] else starY:=hfd_values[1,i];
-       annotation_to_array(floattostrf(hfd_values[2,i]/100 {aspect}, ffgeneral, 2,1){text},true{transparent},round(img_loaded[0,starX,starY]+font_luminance){luminance},size,starX+round(hfd_values[2,i]/30),starY,img_loaded);{string to image array as annotation. Text should be far enough of stars since the text influences the HFD measurement.}
+       if Fliphorizontal     then starX:=head.width-round(hfd_values[0,i])  else starX:=round(hfd_values[0,i]);
+       if Flipvertical       then starY:=head.height-round(hfd_values[1,i]) else starY:=round(hfd_values[1,i]);
+       annotation_to_array(floattostrf(hfd_values[2,i]/1000 {aspect}, ffgeneral, 3,2){text},true{transparent},round(img_loaded[0,starY,starX]+font_luminance){luminance},size,starX+round(hfd_values[2,i]/300),starY,img_loaded);{string to image array as annotation. Text should be far enough of stars since the text influences the HFD measurement.}
      end;
      hfds[i]:=hfd_values[2,i];
   end;
@@ -1044,7 +1070,7 @@ begin
   else
   begin
      mess:='10% of the HFD measurements is worse or equal then ';
-     mess:=mess+floattostrf(med/100 , ffgeneral, 2,1);
+     mess:=mess+floattostrf(med/1000 , ffgeneral, 2,1);
   end;
   memo2_message(mess);
   annotation_to_array(mess,true {transparent},65535,size*2 {size},5,10+size*2*9,img_loaded); {report median value}
@@ -1054,7 +1080,7 @@ begin
   if ((aspect) and (vectors)) then
   for i:=0 to nhfd-1 do {plot rectangles later since the routine can be run three times to find the correct detection_level and overlapping rectangle could occur}
   begin
-    plot_vector(hfd_values[0,i],hfd_values[1,i],50*(hfd_values[2,i]/100-1) {aspect},hfd_values[3,i]*pi/180);
+    plot_vector(hfd_values[0,i],hfd_values[1,i],50*(hfd_values[2,i]/1000-1) {aspect},hfd_values[3,i]*pi/180);
   end;
   hfd_values:=nil;
 end;
@@ -1063,14 +1089,13 @@ end;
 procedure Tform_inspection1.roundness1Click(Sender: TObject);
 var
   j: integer;
-  Save_Cursor:TCursor;
   demode : char;
   aspect : boolean;
 begin
-  Save_Cursor := Screen.Cursor;
-  screen.Cursor := crHourglass;    { Show hourglass cursor }
-
   form_inspection1.undo_button1Click(nil);{undo if required}
+
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+
   backup_img;
   executed:=2;{restore required to undo}
 
@@ -1124,10 +1149,9 @@ begin
   update_integer('DATAMIN =',' / Minimum data value                             ' ,0);
   update_integer('DATAMAX =',' / Maximum data value                             ' ,round(cwhite));
   update_text   ('COMMENT 1','  Written by ASTAP, Astrometric STAcking Program. www.hnsky.org');
-  if demode='V'  then update_text   ('COMMENT G','  Grey values indicate measured values * 100');
+  if demode='V'  then update_text   ('COMMENT G','  Grey values indicate measured values * 1000');
 
-
-  Screen.Cursor := Save_Cursor;  { Always restore to normal }
+  Screen.Cursor:=crDefault;  { Always restore to normal }
 end;
 
 procedure Tform_inspection1.measuring_angle1Change(Sender: TObject);
@@ -1141,15 +1165,16 @@ var
   stars_measured,i :integer;
   report : string;
 begin
+  toClipboard1:=to_Clipboard1.checked;
   form_inspection1.undo_button1Click(nil);{undo if required}
   executed:=1;{only refresh required to undo}
 
   if calculate_undisturbed_image_scale then
     measure_distortion(true {plot},stars_measured);{measure or plot distortion}
 
-  if to_clipboard1.checked then
+  if toClipboard1 then
   begin
-    report:='x database'+#9+'y database'+#9+'x measured'#9+'y measured'+#10;
+    report:='x database'+#9+'y database'+#9+'x measured'+#9+'y measured'+#10;
     for i:=0 to length(distortion_data[0])-1 do
     report:=report+floattostr(distortion_data[0,i])+#9+floattostr(distortion_data[1,i])+#9+floattostr(distortion_data[2,i])+#9+floattostr(distortion_data[3,i])+#10;
     Clipboard.AsText:=report;
@@ -1230,31 +1255,31 @@ begin
   insp_left:=left;
   insp_top:=top;
   mainwindow.setfocus;
+  toclipboard1:=to_clipboard1.checked;
 end;
 
 
 procedure Tform_inspection1.background_values1Click(Sender: TObject);
 var
- tx,ty,fontsize,halfstepX,halfstepY,stepX,stepY: integer;
- X,Y,stepsizeX,stepsizeY,median,median_center,factor          : double;
- Save_Cursor:TCursor;
- img_bk                                    : image_array;
- Flipvertical, Fliphorizontal, restore_req  : boolean;
- detext  : string;
+  tx,ty,fontsize,halfstepX,halfstepY,stepX,stepY,fx,fy: integer;
+  X,Y,stepsizeX,stepsizeY,median,median_center,factor : double;
+  img_bk                                     : image_array;
+  Flipvertical, Fliphorizontal, restore_req  : boolean;
+  detext  : string;
 begin
   if head.naxis=0 then exit; {file loaded?}
 
   form_inspection1.undo_button1Click(nil);{undo if required}
-  executed:=1;{only refresh required to undo}
 
-  Save_Cursor := Screen.Cursor;
-  Screen.Cursor := crHourglass;    { Show hourglass cursor }
+  executed:=1;{only refresh required to undo}
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
   restore_req:=false;
+
+
   if head.naxis3>1 then {colour image}
   begin
-    img_bk:=img_loaded; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
-    setlength(img_bk,head.naxis3,head.width,head.height);{force a duplication to a backup image}
+    img_bk:=duplicate(img_loaded);
     convert_mono(img_loaded,head);
     get_hist(0,img_loaded);{get histogram of img_loaded and his_total. Required to get correct background value}
     restore_req:=true;{restore original image later}
@@ -1262,8 +1287,7 @@ begin
   else
   if bayerpat<>'' then {raw Bayer image}
   begin
-    img_bk:=img_loaded; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
-    setlength(img_bk,head.naxis3,head.width,head.height);{force a duplication to a backup image}
+    img_bk:=duplicate(img_loaded);
     check_pattern_filter(img_loaded);
     get_hist(0,img_loaded);{get histogram of img_loaded and his_total. Required to get correct background value}
     restore_req:=true; {restore original image later}
@@ -1295,13 +1319,13 @@ begin
     halfstepY:=round(stepsizeY/2);
 
     median_center:=median_background(img_loaded,0{color},trunc(stepsizeX){size},trunc(stepsizeY),head.width div 2,head.height div 2);{find median value of an area at position x,y with sizeX,sizeY}
-
     Y:=halfstepY;
     repeat
 
       X:=halfstepX;
       repeat
         median:=median_background(img_loaded,0{color},trunc(stepsizeX){size},trunc(stepsizeY),round(X),round(Y));{find median value of an area at position x,y with sizeX,sizeY}
+
         factor:=median/median_center;
         if abs(1-factor)>0.03 then image1.Canvas.font.color:=$00A5FF {dark orange} else image1.Canvas.font.color:=clYellow;
         detext:=floattostrf(factor, ffgeneral, 3,3);
@@ -1317,7 +1341,6 @@ begin
         mainwindow.image1.Canvas.textout(tX,tY,detext);{add as text}
 
         X:=X+stepsizeX;
-
       until X>=head.width-1;
 
       Y:=Y+stepsizeY;
@@ -1326,18 +1349,78 @@ begin
     if restore_req then {restore backup image for raw Bayer image or colour image}
     begin
       memo2_message('Restoring image');
-      img_loaded:=nil;
-      img_loaded:=img_bk; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
+      img_loaded:=duplicate(img_bk);//fastest way to duplicate an image
       get_hist(0,img_loaded);{get histogram of img_loaded and his_total}
+      img_bk:=nil;//free mem
     end;
   end;
-  Screen.Cursor:= Save_Cursor;
+  Screen.Cursor:=crDefault;
+end;
+
+procedure Tform_inspection1.background_contour1Click(Sender: TObject);
+var
+  fx,fy                       : integer;
+  high_level,low_level,srange : double;
+  img_bk                      : image_array;
+begin
+  if head.naxis=0 then exit; {file loaded?}
+
+  form_inspection1.undo_button1Click(nil);{undo if required}
+
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+
+  backup_img;
+
+
+  case inspector_binning of
+    1: bin_X2X3X4(2);
+    2: bin_X2X3X4(3);
+    3: bin_X2X3X4(4);
+  end;
+
+  img_bk:=duplicate(img_loaded);
+
+  apply_most_common(img_bk, img_loaded,head.datamax_org,inspector_grid_size);  {apply most common filter on first array and place result in second array}
+
+  gaussian_blur2(img_loaded, inspector_grid_size *2 {4 * strtofloat2(most_common_filter_radius1.Text)});
+
+
+  use_histogram(img_loaded,true {update}); {plot histogram, set sliders}
+
+  //find low and high level
+  high_level:=0;
+  low_level:=9999999;
+  for fy:=0 to (head.height-1) div 50 do
+    for fx:=0 to (head.width-1) div 50 do
+   begin
+     high_level:=max(high_level,img_loaded[0,fy*50,fx*50]);
+     low_level:=min(low_level,img_loaded[0,fy*50,fx*50]);
+   end;
+
+  for fy:=0 to head.height-1 do
+    for fx:=0 to head.width-1 do
+      img_loaded[0,fy,fx]:= low_level +  ((high_level-low_level)/inspector_gradations)*round( (img_loaded[0,fy,fx]-low_level)*inspector_gradations/(high_level-low_level));
+
+  srange:=high_level-low_level;
+  mainwindow.maximum1.position:=round(high_level+0.1*srange); //set sliders again since  use_histogram doesn't work that well for blurred image.
+  mainwindow.minimum1.position:=round(low_level-0.05*srange);
+
+  plot_fits(mainwindow.image1, False, True);{plot real}
+
+  img_bk:=nil;//free mem
+
+  Screen.Cursor:=crDefault;
+end;
+
+procedure Tform_inspection1.bin_factor1Change(Sender: TObject);
+begin
+  inspector_binning:=bin_factor1.itemindex;
 end;
 
 
 procedure Tform_inspection1.aberration_inspector1Click(Sender: TObject);
-var fitsX,fitsY,col, widthN,heightN                : integer;
-    Save_Cursor:TCursor;
+var
+   fitsX,fitsY,col, widthN,heightN                : integer;
 var  {################# initialised variables #########################}
    side :integer=250;
 const
@@ -1345,8 +1428,7 @@ const
 begin
   if head.naxis<>0 then
   begin
-   Save_Cursor := Screen.Cursor;
-   Screen.Cursor := crHourglass;    { Show hourglass cursor }
+   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
    form_inspection1.undo_button1Click(nil);{undo if required}
    backup_img;
@@ -1357,48 +1439,29 @@ begin
 
    widthN:=3*side+2*gap;
    heightN:=widthN;
-   setlength(img_temp,head.naxis3,widthN,heightN);{set length of image array}
+   setlength(img_temp,head.naxis3,heightN,widthN);{set length of image array}
 
    for col:=0 to head.naxis3-1 do
     for fitsY:=0 to heightN-1 do
       for fitsX:=0 to widthN-1 do {clear img_temp for the gaps}
-         img_temp[col,fitsX,fitsY]:=0;
+         img_temp[col,fitsY,fitsX]:=0;
 
 
    for col:=0 to head.naxis3-1 do
    for fitsY:=0 to side-1 do
      for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX,fitsY]:=img_loaded[col,fitsX,fitsY];
+        img_temp[col,fitsY,fitsX]:=img_loaded[col,fitsY,fitsX];
 
    for col:=0 to head.naxis3-1 do
    for fitsY:=0 to side-1 do
      for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX+side+gap,fitsY]:=img_loaded[col,fitsX+(head.width div 2)-(side div 2),fitsY];
-
-
-   for col:=0 to head.naxis3-1 do
-   for fitsY:=0 to side-1 do
-     for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX+2*(side+gap),fitsY]:=img_loaded[col,fitsX+head.width-side,fitsY];
-
-
+        img_temp[col,fitsY,fitsX+side+gap]:=img_loaded[col,fitsY,fitsX+(head.width div 2)-(side div 2)];
 
 
    for col:=0 to head.naxis3-1 do
    for fitsY:=0 to side-1 do
      for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX,fitsY+(side+gap)]:=img_loaded[col,fitsX,fitsY +(head.height div 2) - (side div 2) ];
-
-   for col:=0 to head.naxis3-1 do
-   for fitsY:=0 to side-1 do
-     for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX+side+gap,fitsY+(side+gap)]:=img_loaded[col,fitsX+(head.width div 2)-(side div 2),fitsY +(head.height div 2) - (side div 2) ];
-
-
-   for col:=0 to head.naxis3-1 do
-   for fitsY:=0 to side-1 do
-     for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX+2*(side+gap),fitsY+(side+gap)]:=img_loaded[col,fitsX+head.width-side,fitsY +(head.height div 2) - (side div 2) ];
+        img_temp[col,fitsY,fitsX+2*(side+gap)]:=img_loaded[col,fitsY,fitsX+head.width-side];
 
 
 
@@ -1406,21 +1469,42 @@ begin
    for col:=0 to head.naxis3-1 do
    for fitsY:=0 to side-1 do
      for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX,fitsY+2*(side+gap)]:=img_loaded[col,fitsX,fitsY + head.height - side];
+        img_temp[col,fitsY+(side+gap),fitsX]:=img_loaded[col,fitsY +(head.height div 2) - (side div 2) ,fitsX];
 
    for col:=0 to head.naxis3-1 do
    for fitsY:=0 to side-1 do
      for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX+side+gap,fitsY+2*(side+gap)]:=img_loaded[col,fitsX+(head.width div 2)-(side div 2),fitsY + head.height - side];
+        img_temp[col,fitsY+(side+gap),fitsX+side+gap]:=img_loaded[col,fitsY +(head.height div 2) - (side div 2) ,fitsX+(head.width div 2)-(side div 2)];
 
 
    for col:=0 to head.naxis3-1 do
    for fitsY:=0 to side-1 do
      for fitsX:=0 to side-1 do {copy corner}
-        img_temp[col,fitsX+2*(side+gap),fitsY+2*(side+gap)]:=img_loaded[col,fitsX+head.width-side,fitsY + head.height - side];
+        img_temp[col,fitsY+(side+gap),fitsX+2*(side+gap)]:=img_loaded[col,fitsY +(head.height div 2) - (side div 2) ,fitsX+head.width-side];
 
 
-//   setlength(img_loaded,head.naxis3,head.width,head.height);{set length of image array}
+
+
+   for col:=0 to head.naxis3-1 do
+   for fitsY:=0 to side-1 do
+     for fitsX:=0 to side-1 do {copy corner}
+        img_temp[col,fitsY+2*(side+gap),fitsX]:=img_loaded[col,fitsY + head.height - side,fitsX];
+
+   for col:=0 to head.naxis3-1 do
+   for fitsY:=0 to side-1 do
+     for fitsX:=0 to side-1 do {copy corner}
+        img_temp[col,fitsY+2*(side+gap),fitsX+side+gap]:=img_loaded[col,fitsY + head.height - side,fitsX+(head.width div 2)-(side div 2)];
+
+
+   for col:=0 to head.naxis3-1 do
+   for fitsY:=0 to side-1 do
+     for fitsX:=0 to side-1 do {copy corner}
+        img_temp[col,fitsY+2*(side+gap),fitsX+2*(side+gap)]:=img_loaded[col,fitsY + head.height - side,fitsX+head.width-side];
+
+
+
+
+//   setlength(img_loaded,head.naxis3,head.height,head.width);{set length of image array}
 //   img_loaded[0]:=img_temp[0];
 //   if head.naxis3>1 then img_loaded[1]:=img_temp[1];
 //   if head.naxis3>2 then img_loaded[2]:=img_temp[2];
@@ -1451,15 +1535,9 @@ begin
    plot_fits(mainwindow.image1,true,true);
    image_move_to_center:=true;
 
-   Screen.Cursor:=Save_Cursor;
+   Screen.Cursor:=crDefault;
   end;
 end;
-
-procedure Tform_inspection1.Action1Execute(Sender: TObject);
-begin
-
-end;
-
 
 
 procedure Tform_inspection1.FormKeyPress(Sender: TObject; var Key: char);
@@ -1496,6 +1574,22 @@ begin
   triangle1.checked:=three_corners;
   extra_stars1.checked:=extra_stars;
   measuring_angle1.text:=measuring_angle;
+
+  to_clipboard1.checked:=toclipboard1;
+
+  bin_factor1.itemindex:=inspector_binning;
+  grid_size1.text:=inttostr(inspector_grid_size);
+  gradations1.text:=inttostr(inspector_gradations);
+end;
+
+procedure Tform_inspection1.gradations1Change(Sender: TObject);
+begin
+  inspector_gradations:=strtoint(gradations1.Text);
+end;
+
+procedure Tform_inspection1.grid_size1Change(Sender: TObject);
+begin
+  inspector_grid_size:=strtoint(grid_size1.Text);
 end;
 
 

@@ -1,7 +1,7 @@
 unit unit_star_database;
 {HNSKY reads star databases type .290 and 1476}
 
-{Copyright (C) 2017, 2021 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017, 2023 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -137,7 +137,7 @@ function open_database(telescope_dec: double; area290: integer): boolean; {open 
 {Magnitude: The stars are sorted with an accuracy of 0.1 magnitude. Prior to each group a special record is written where RA is $FFFFFF and DEC contains the magnitude}
 
 type
-  hnskyhdr290_6 = packed record  {G16 for storing Rp-Bp. This format is the same as 290_5 but Gaia color information added in an extra shortint}
+  hnskyhdr1476_6 = packed record  {G16 for storing Rp-Bp. This format is the same as 290_5 but Gaia color information added in an extra shortint}
              ra7 : byte; {The RA is stored as a 3 bytes word. The DEC position is stored as a two's complement (=standard), three bytes integer. The resolution of this three byte storage will be for RA: 360*60*60/((256*256*256)-1) = 0.077 arc seconds. For the DEC value it will be: 90*60*60/((128*256*256)-1) = 0.039 arc seconds.}
              ra8 : byte;
              ra9 : byte;
@@ -145,7 +145,7 @@ type
              dec8: byte;
              B_R: shortint;{Gaia Bp-Rp}
    end;
-  hnskyhdr290_5 = packed record  {Most compact format, used for Gaia}
+  hnskyhdr1476_5 = packed record  {Most compact format, used for Gaia}
               ra7 : byte;
               ra8 : byte;
               ra9 : byte;
@@ -166,7 +166,7 @@ type
 // is preceding containing the DEC9 value stored at location DEC7. Since the stars are already sorted in 290 areas, the number of DEC9 values is already limited by a factor 18.
 // 1476-5 header-record example: FF FF FF 20 06 This indicates the following records have a DEC9 value of 20 -128 offset and a magnitude of (06 - 16)/10 equals -1.0 (new method, +16 offset).
 //
-//The shorter records methods become only space efficient for very large star collection of a few million stars. In these large collections many stars can be found with the same magnitude and DEC9 shortint. The Gaia database is only issued in the 1476-5 format of 5 bytes per star. or in an older format 290-6 (V17) or 290-5. The 290-6 has one more byte for the colour information. This is documented in the HNSKY planetarium program help file.
+//The shorter records methods become only space efficient for very large star collection of a few million stars. In these large collections many stars can be found with the same magnitude and DEC9 shortint. The Gaia database is only issued in the 1476-5 format of 5 bytes per star. or in an older format 290-6 (G05) or 290-5. The 290-6 has one more byte for the colour information. This is documented in the HNSKY planetarium program help file.
 
 //So the record sequence will be as follows:
 //
@@ -194,7 +194,7 @@ var {################# initialised variables #########################}
 
 implementation
 
-uses astap_main, unit_stack {for memo2_message};
+uses forms,astap_main, unit_stack {for memo2_message};
 
 var {################# initialised variables #########################}
 
@@ -2121,8 +2121,8 @@ var {################# initialised variables #########################}
 var {################# initialised variables #########################}
    record_size:integer=11;{default}
 var
-  p6        : ^hnskyhdr290_6;       { pointer to hnsky record }
-  p5        : ^hnskyhdr290_5;       { pointer to hnsky record }
+  p6        : ^hnskyhdr1476_6;       { pointer to hnsky record }
+  p5        : ^hnskyhdr1476_5;       { pointer to hnsky record }
   dec9_storage: shortint;
 
   buf2: array[1..11] of byte;  {read buffer stars}
@@ -2759,12 +2759,13 @@ end;
 function select_star_database(database:string;fov:double): boolean; {select a star database, report false if none is found}
 var
   typ : ansichar;
+  warning : boolean;
 begin
   result:=true;
+  warning:=false; //warning for old database
   database_type:=1476;{type .1476 database}
   database:=lowercase(database);
-
-  typ:=database[1];
+  if length(database)>0 then typ:=database[1] else typ:='a';
 
   if typ<>'a' then {manual setting}
   begin
@@ -2773,12 +2774,11 @@ begin
       if fileexists( database_path+database+'_0101.001') then begin name_database:=database; {try preference}database_type:=001;exit; end
     end
     else
-    if typ='h' then
+    if typ in ['d','v','h'] then //d80,v50, h18
     begin
       if fileexists( database_path+database+'_0101.1476') then begin name_database:=database; {try preference}  exit; end;
-    end
-    else
-    if typ in ['v','g'] then
+    end; // no else since there is a v50 and v17!!
+    if typ in ['v','g'] then//v17, g18
     begin
       if fileexists( database_path+database+'_0101.290') then begin name_database:=database; {try preference}database_type:=290;exit; end
     end;
@@ -2786,22 +2786,47 @@ begin
 
   if fov>20 then
   begin
-    if fileexists( database_path+'w08_0101.001') then begin name_database:='w08';database_type:=001; end
+    if fileexists( database_path+'w08_0101.001') then begin name_database:='w08';database_type:=001; exit; end
     else
     memo2_message('Could not find w08 star database. Will try with an other database.');
-  end
+  end;
+
+  if ((fov>6) and (fileexists( database_path+'g05_0101.290'))) then begin name_database:='g05'; database_type:=290; end //preference for G05 for large FOV
   else
-  if fileexists( database_path+'h18_0101.1476') then begin name_database:='h18'; end
+  if ((fov>6) and (fileexists( database_path+'v05_0101.290'))) then begin name_database:='v05'; database_type:=290; end
   else
-  if fileexists( database_path+'g18_0101.290') then begin name_database:='g18'; database_type:=290; end
+  if ((fov>6) and (fileexists( database_path+'v17_0101.290'))) then begin name_database:='v17'; database_type:=290; warning:=true; end //preference for V17 for large FOV
   else
-  if fileexists( database_path+'h17_0101.1476') then begin name_database:='h17'; end
+  if fileexists( database_path+'d80_0101.1476') then begin name_database:='d80'; end //for tiny field of view
   else
-  if fileexists( database_path+'g17_0101.290') then begin name_database:='g17'; database_type:=290; end
+  if fileexists( database_path+'d50_0101.1476') then begin name_database:='d50'; end
   else
-  if fileexists( database_path+'v17_0101.290') then begin name_database:='v17'; database_type:=290; end
+  if fileexists( database_path+'v50_0101.1476') then begin name_database:='v50'; end //photometry database
   else
-  result:=false;
+  if fileexists( database_path+'d20_0101.1476') then begin name_database:='d20'; end
+  else
+  if fileexists( database_path+'d05_0101.1476') then begin name_database:='d05'; end
+  else
+  if fileexists( database_path+'g05_0101.290') then begin name_database:='g05'; database_type:=290; end
+  else
+  if fileexists( database_path+'v05_0101.290') then begin name_database:='v05'; database_type:=290; end
+  else
+  if fileexists( database_path+'h18_0101.1476') then begin name_database:='h18';warning:=true; end //old database sorted on magnitude
+  else
+  if fileexists( database_path+'g18_0101.290') then begin name_database:='g18';warning:=true; database_type:=290; end //old database sorted on magnitude
+  else
+  if fileexists( database_path+'h17_0101.1476') then begin name_database:='h17'; warning:=true;end // old database sorted on magnitude
+  else
+  if fileexists( database_path+'v17_0101.290') then begin name_database:='v17'; database_type:=290;warning:=true; end //old database sorted on magnitude
+  else
+  if fileexists( database_path+'g17_0101.290') then begin name_database:='g17'; database_type:=290;warning:=true; end //old database sorted on magnitude
+  else
+  begin
+    application.messagebox(pchar('No star database found!'+#13+'Download and install one star database.'), pchar('ASTAP error:'),0);
+    result:=false;
+  end;
+
+  if warning then warning_str:='Old database!'; //first potential warning. No add required
 end;
 
 
@@ -2950,7 +2975,7 @@ begin
               else
               begin {normal record without magnitude}
                 ra2:= ra_raw*(pi*2  /((256*256*256)-1));
-                dec2:=((dec9_storage shl 16)+(dec8 shl 8)+dec7)*(pi*0.5/((128*256*256)-1));// dec2:=(dec7+(dec8 shl 8)+(dec9 shl 16))*(pi*0.5/((128*256*256)-1)); {FPC compiler makes mistake, but dec7 behind}
+                dec2:=((dec9_storage shl 16)+(dec8 shl 8)+dec7)*(pi*0.5/((128*256*256)-1));// dec2:=(dec7+(dec8 shl 8)+(dec9 shl 16))*(pi*0.5/((128*256*256)-1)); {FPC compiler makes mistake, put dec7 behind}
                 Bp_Rp:=b_r;{gaia (Bp-Rp)*10}    {color information}
               end;
             end;

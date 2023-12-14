@@ -11,7 +11,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, math,
-  clipbrd, ExtCtrls, Menus;
+  clipbrd, ExtCtrls, Menus, Buttons;
 
 type
 
@@ -19,7 +19,15 @@ type
 
   Tform_aavso1 = class(TForm)
     baa_style1: TCheckBox;
+    delta_bv1: TEdit;
     Image_photometry1: TImage;
+    Label10: TLabel;
+    Label11: TLabel;
+    Label9: TLabel;
+    name_variable1: TComboBox;
+    name_variable2: TEdit;
+    magnitude_slope1: TEdit;
+    report_error1: TLabel;
     MenuItem1: TMenuItem;
     name_check1: TComboBox;
     PopupMenu1: TPopupMenu;
@@ -30,7 +38,6 @@ type
     Label2: TLabel;
     Label4: TLabel;
     Label5: TLabel;
-    name_variable1: TEdit;
     Label6: TLabel;
     Label8: TLabel;
     Label3: TLabel;
@@ -44,6 +51,7 @@ type
     procedure name_check1Change(Sender: TObject);
     procedure name_check1DropDown(Sender: TObject);
     procedure name_variable1Change(Sender: TObject);
+    procedure name_variable1DropDown(Sender: TObject);
     procedure report_to_clipboard1Click(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure FormShow(Sender: TObject);
@@ -56,7 +64,7 @@ type
 var
   form_aavso1: Tform_aavso1;
 
-const
+var
   obscode       : string='';
   abbreviation_check : string='';
   name_check_IAU : string='';
@@ -65,6 +73,9 @@ const
   delim_pos  : integer=0;
   to_clipboard  : boolean=true;
   baa_style  : boolean=true;
+  aavso_filter_index: integer=0;
+  delta_bv : double=0;
+  magnitude_slope    : double=0;
 
 var
   aavso_report : string;
@@ -81,7 +92,8 @@ uses astap_main,
 
 var
   jd_min,jd_max,magn_min,magn_max : double;
-  w,h,bspace  :integer;
+  w,h,bspace,column_var,column_check  :integer;
+
 
 
 function floattostr3(x:double):string;
@@ -98,6 +110,9 @@ begin
     abbreviation_check:=name_check1.text;
     delim_pos:=delimiter1.itemindex;
     baa_style:=baa_style1.checked;
+    aavso_filter_index:=filter1.itemindex;
+    delta_bv:=strtofloat2(form_aavso1.delta_bv1.text);
+    magnitude_slope:=strtofloat2(form_aavso1.magnitude_slope1.text);
   end;
 end;
 
@@ -105,19 +120,32 @@ end;
 procedure Tform_aavso1.report_to_clipboard1Click(Sender: TObject);
 var
     c  : integer;
-    err,err_message,snr_str,airmass_str, delim,fn,fnG,detype,baa_extra,magn_type: string;
+    err,err_message,snr_str,airmass_str, delim,fn,fnG,detype,baa_extra,magn_type,filter_used: string;
     stdev_valid : boolean;
-    snr_value,err_by_snr   : double;
+    snr_value,err_by_snr  : double;
     PNG: TPortableNetworkGraphic;{FPC}
+
+
+    function transform_magn(mag: string):string;
+    var
+       m : double;
+    begin
+      m:=strtofloat2(mag);
+      str(m+delta_bv*magnitude_slope:5:3,result);
+    end;
 
 begin
   get_info;
 
   stdev_valid:=(photometry_stdev>0.0001);
   if stdev_valid then
-    err_message:='max(StDev:2/SNR) used for MERR.'
+    err_message:='MERR:=max(StDev:2/SNR).'
   else
-    err_message:='2/SNR used for MERR.';
+    err_message:='MERR:=2/SNR.';
+
+  delta_bv:=strtofloat2(form_aavso1.delta_bv1.text);
+  magnitude_slope:=strtofloat2(form_aavso1.magnitude_slope1.text);
+
 
   delim:=delimiter1.text;
   if delim='tab' then delim:=#9;
@@ -136,7 +164,7 @@ begin
   end;
   aavso_report:= '#TYPE='+detype+#13+#10+
                  '#OBSCODE='+obscode+#13+#10+
-                 '#SOFTWARE=ASTAP, photometry version 1.0'+#13+#10+
+                 '#SOFTWARE=ASTAP, v'+astap_version+#13+#10+
                  '#DELIM='+delimiter1.text+#13+#10+
                  '#DATE=JD'+#13+#10+
                  '#OBSTYPE=CCD'+#13+#10+
@@ -149,7 +177,7 @@ begin
    begin
      if listview7.Items.item[c].checked then
      begin
-       snr_str:=listview7.Items.item[c].subitems.Strings[P_snr];
+       snr_str:=listview7.Items.item[c].subitems.Strings[column_var+1 {P_snr}];
        if snr_str<>'' then  snr_value:=strtoint(snr_str) else snr_value:=0;
        if snr_value<>0 then
          err_by_snr:=2 {1.087}/strtoint(snr_str)
@@ -169,24 +197,35 @@ begin
        airmass_str:=listview7.Items.item[c].subitems.Strings[P_airmass];
        if airmass_str='' then  airmass_str:='na' else airmass_str:=stringreplace(airmass_str,',','.',[]);
 
-       if pos('v',name_database)>0 then magn_type:=', photometry transformed to Johnson-V. ' else magn_type:=' using BM magnitude. ';
+       if reference_database1.itemindex=0 then //local database
+         if pos('v',name_database)>0 then magn_type:=', transformed to Johnson-V. ' else magn_type:=' using BM magnitude. '
+       else  //online database
+         magn_type:=', transformed '+stackmenu1.reference_database1.text;
 
        if snr_str<>'' then
-       aavso_report:= aavso_report+ name_var+delim+
-                      StringReplace(listview7.Items.item[c].subitems.Strings[P_jd_mid],',','.',[])+delim+
-                      StringReplace(listview7.Items.item[c].subitems.Strings[P_magn1],',','.',[])+delim+
-                      err+
-                      delim+copy(filter1.text,1,2)+delim+
-                     'NO'+delim+
-                     'STD'+delim+
-                     'ENSEMBLE'+delim+
-                     'na'+delim+
-                     abbreviation_check+delim+
-                     stringreplace(listview7.Items.item[c].subitems.Strings[P_magn2],',','.',[])+delim+
-                     airmass_str+delim+
-                     'na'+delim+ {group}
-                     abbreviation_var_IAU+delim+
-                     'Ensemble of Gaia eDR3 stars'+magn_type+err_message+#13+#10;
+       begin
+         if filter1.itemindex=0 then
+           filter_used:=listview7.Items.item[c].subitems.Strings[P_filter] //take from header
+         else
+           filter_used:=copy(filter1.text,1,2);//manual input
+         aavso_report:= aavso_report+ name_var+delim+
+                        StringReplace(listview7.Items.item[c].subitems.Strings[P_jd_mid],',','.',[])+delim+
+//                        StringReplace(listview7.Items.item[c].subitems.Strings[P_magn1],',','.',[])+delim+
+                        transform_magn(listview7.Items.item[c].subitems.Strings[column_var{P_magn1}])+delim+
+                        err+
+                        delim+filter_used+delim+
+                       'NO'+delim+
+                       'STD'+delim+
+                       'ENSEMBLE'+delim+
+                       'na'+delim+
+                       abbreviation_check+delim+
+                       stringreplace(listview7.Items.item[c].subitems.Strings[column_check{P_magn2}],',','.',[])+delim+
+                       airmass_str+delim+
+                       'na'+delim+ {group}
+                       abbreviation_var_IAU+delim+
+                       'Ensemble of Gaia DR3 stars'+magn_type+' '+err_message+#13+#10;
+
+       end;
      end;
    end;
 
@@ -227,7 +266,7 @@ begin
   if jd_min=0 then exit;
   w2:=image_photometry1.width;
   h2:=image_photometry1.height;
-  form_aavso1.caption:= floattostrf(jd_min+(jd_max-jd_min)*((x*w/w2)-bspace)/(w-bspace*2),ffFixed,12,5)+', '+floattostrf(magn_min+(magn_max-magn_min)*(((y*h/h2))-bspace)/(h-bspace*2),ffFixed,5,3);
+  form_aavso1.caption:= floattostrF(jd_min+(jd_max-jd_min)*((x*w/w2)-bspace)/(w-bspace*2),ffFixed,12,5)+', '+floattostrf(magn_min+(magn_max-magn_min)*(((y*h/h2))-bspace)/(h-bspace*2),ffFixed,5,3);
 end;
 
 procedure Tform_aavso1.MenuItem1Click(Sender: TObject);
@@ -241,17 +280,72 @@ begin
 end;
 
 procedure Tform_aavso1.name_check1DropDown(Sender: TObject);
+var
+  i: integer;
 begin
-  if name_check1.items.count=0 then
-  begin
-    name_check1.items.add(abbreviation_check);
-    name_check1.items.add(name_check_IAU);
-  end;
+  name_check1.items.clear;
+
+  name_check1.items.add(mainwindow.Shape_alignment_marker2.HINT);
+  name_check1.items.add(abbreviation_check);//the last name
+  name_check1.items.add(name_check_IAU);// created from position
+
+
+  for i:=p_nr_varmax+1 to p_nr do
+    if odd(i-p_nr_varmax) then
+      name_check1.items.add(stackmenu1.listview7.Column[i].Caption);
 end;
+
 
 procedure Tform_aavso1.name_variable1Change(Sender: TObject);
 begin
   plot_graph;
+end;
+
+
+procedure Tform_aavso1.name_variable1DropDown(Sender: TObject);
+var
+  i: integer;
+begin
+  name_variable1.items.clear;
+
+  name_variable1.items.add(mainwindow.Shape_alignment_marker1.HINT);
+  name_variable1.items.add(object_name);//from header
+  name_variable1.items.add(name_var);
+
+  for i:=p_nr_norm+1 to p_nr do
+    if odd(i-p_nr_norm) then
+      name_variable1.items.add(stackmenu1.listview7.Column[i].Caption);
+end;
+
+function find_correct_var_column : integer;
+var
+  i: integer;
+//  s1,s2: string;
+begin
+  for i:=p_nr_norm+1 to p_nr_varmax do
+  begin
+  //  s1:=form_aavso1.name_variable1.text;
+  //  s2:=stackmenu1.listview7.Column[i].Caption;
+    if ((odd(i-p_nr_norm)) and (form_aavso1.name_variable1.text=stackmenu1.listview7.Column[i].Caption)) then
+    begin
+      result:=i-1;
+      exit;
+    end;
+  end;
+  result:=P_magn1;
+end;
+
+function find_correct_check_column : integer;
+var
+  i: integer;
+begin
+  for i:=p_nr_varmax+1 to p_nr do
+    if ((odd(i-p_nr_varmax)) and (form_aavso1.name_check1.text=stackmenu1.listview7.Column[i].Caption)) then
+    begin
+      result:=i-1;
+      exit;
+    end;
+  result:=P_magn2;
 end;
 
 
@@ -307,6 +401,8 @@ begin
   bspace:=2*mainwindow.image1.Canvas.textheight('T');{{border space graph. Also for 4k with "make everything bigger"}
   wtext:=mainwindow.image1.Canvas.textwidth('12.3456');
 
+  column_var:= find_correct_var_column;
+  column_check:=find_correct_check_column;
   setlength(data,4, stackmenu1.listview7.items.count);
   with stackmenu1 do
   for c:=0 to listview7.items.count-1 do {retrieve data from listview}
@@ -321,7 +417,7 @@ begin
         jd_min:=min(jd_min,data[0,c]);
       end;
 
-      dum:=(listview7.Items.item[c].subitems.Strings[P_magn1]);{var star}
+      dum:=(listview7.Items.item[c].subitems.Strings[column_var]);{var star}
       if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then  data[1,c]:=strtofloat(dum) else data[1,c]:=0;
       if data[1,c]<>0 then
       begin
@@ -329,7 +425,7 @@ begin
         magn_min:=min(magn_min,data[1,c]);
       end;
 
-      dum:=(listview7.Items.item[c].subitems.Strings[P_magn2]);{chk star}
+      dum:=(listview7.Items.item[c].subitems.Strings[column_check]);{chk star}
       if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then  data[2,c]:=strtofloat(dum) else data[2,c]:=0;
       if data[2,c]<>0 then
       begin
@@ -355,7 +451,19 @@ begin
 
   magn_min:=trunc(magn_min*100)/100; {add some rounding}
   magn_max:=trunc(magn_max*100)/100;
+  if magn_max-magn_min<0.3 then begin magn_max:=0.15+(magn_max+magn_min)/2; magn_min:=-0.15+(magn_max+magn_min)/2;;end;//minimum range
+
   range:=magn_max-magn_min;
+
+
+  if range<-98 then
+  begin
+    form_aavso1.report_error1.visible:=true;
+    exit;
+  end
+  else
+  form_aavso1.report_error1.visible:=false;
+
   magn_max:=magn_max + range*0.05;  {faint star, bottom}
   magn_min:=magn_min - range*0.05; {bright star, top}
 
@@ -417,7 +525,7 @@ begin
       y1:= round(bspace+(h-bspace*2)*c/nrmarkY); {y scale has bspace pixels below and above space}
       bmp.canvas.moveto(x1,y1);
       bmp.canvas.lineto(x1-5,y1);
-      bmp.canvas.textout(5,y1,floattostrf(magn_min+(magn_max-magn_min)*c/nrmarkY,ffFixed,5,3));
+      bmp.canvas.textout(5,y1,floattostrF(magn_min+(magn_max-magn_min)*c/nrmarkY,ffFixed,5,3));
     end;
 
 
@@ -479,20 +587,28 @@ begin
   else
   name_variable1.text:=name_var;
 
-  if length(mainwindow.Shape_alignment_marker2.HINT)>2 then abbreviation_check:=mainwindow.Shape_alignment_marker2.HINT;
-  name_check1.text:=abbreviation_check;
 
-  if head.filter_name<>'' then filter1.text:=head.filter_name else  filter1.itemindex:=0 {TC};
+  if length(mainwindow.Shape_alignment_marker2.HINT)>2 then name_check1.text:=mainwindow.Shape_alignment_marker2.HINT
+  else
+  name_check1.text:=abbreviation_check;
 
   delimiter1.itemindex:=delim_pos;
   baa_style1.checked:=baa_style;
-  Comparison1.Text:=name_database;
+  if stackmenu1.reference_database1.itemindex=0 then
+    Comparison1.Text:=name_database
+  else
+  Comparison1.Text:=stackmenu1.reference_database1.text;
+
+  filter1.itemindex:=aavso_filter_index;
+
+  form_aavso1.delta_bv1.text:=floattostrF(delta_bv,ffFixed,5,3);
+  form_aavso1.magnitude_slope1.text:=floattostrF(magnitude_slope,ffFixed,5,3);
+
 
   aavso_report:='';
-
   plot_graph;
-
 end;
+
 
 end.
 

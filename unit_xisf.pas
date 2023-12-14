@@ -171,8 +171,14 @@ begin
     message1:=trim(copy(aline,b,c-b)); {remove spaces and crlf}
     val(message1,attachment,error2);{get data block}
   end;
-  if ((a=0) or (error2<>0)) then begin close_fits_file; mainwindow.error_label1.caption:='Error'; mainwindow.error_label1.visible:=true;
-     mainwindow.statusbar1.panels[7].text:='Can not read this format, no attachment'; head.naxis:=0; exit; end;
+  if ((a=0) or (error2<>0)) then
+  begin
+    close_fits_file;
+    mainwindow.error_label1.caption:='Error!. Can not read this format, no attachment';
+    mainwindow.error_label1.visible:=true;
+    head.naxis:=0;
+    exit;
+  end;
 
   a:=posex('sampleFormat=',aline,start_image);
   if a>0 then
@@ -188,8 +194,15 @@ begin
     if message1='UInt32' then nrbits:=32 else
     error2:=1;
   end;
-  if ((a=0) or (error2<>0)) then begin close_fits_file;mainwindow.error_label1.enabled:=true;
-     mainwindow.statusbar1.panels[7].text:=('Can not read this format.'); mainwindow.Memo1.visible:=true;  head.naxis:=0; exit; end;
+  if ((a=0) or (error2<>0)) then
+  begin
+    close_fits_file;
+    mainwindow.error_label1.caption:='Can not read this format.';
+    mainwindow.error_label1.enabled:=true;
+    mainwindow.Memo1.visible:=true;
+    head.naxis:=0;
+    exit;
+  end;
 
   if nrbits=8 then  begin head.datamin_org:=0;head.datamax_org:=255; {8 bits files} end
     else {16, -32 files} begin head.datamin_org:=0;head.datamax_org:=$FFFF;end;{not always specified. For example in skyview. So refresh here for case brightness is adjusted}
@@ -224,9 +237,14 @@ begin
 
   {update memo keywords and variables for floats}
   extract_double_keyword('CD1_1',head.cd1_1);{extract float value from XML header and add keyword to FITS memo header, ignoring comments.}
-  extract_double_keyword('CD1_2',head.cd1_2);
-  extract_double_keyword('CD2_1',head.cd2_1);
-  extract_double_keyword('CD2_2',head.cd2_2);
+  if head.cd1_1<>0 then
+  begin
+    extract_double_keyword('CD1_2',head.cd1_2);
+    extract_double_keyword('CD2_1',head.cd2_1);
+    extract_double_keyword('CD2_2',head.cd2_2);
+    extract_double_keyword('CRPIX1',head.crpix1);
+    extract_double_keyword('CRPIX2',head.crpix2);
+  end;
 
   extract_double_keyword('CCD-TEMP',set_temp);
   extract_double_keyword('SET-TEMP',set_temp);
@@ -235,10 +253,13 @@ begin
   extract_double_keyword('EXPTIME ',head.exposure);
   extract_double_keyword('EXPOSURE',head.exposure);
 
-  extract_double_keyword('CROTA1',head.crota1);
-  extract_double_keyword('CROTA2',head.crota2);
-  extract_double_keyword('CDELT1',head.cdelt1);
   extract_double_keyword('CDELT2',head.cdelt2);
+  if head.cdelt2<>0 then
+  begin
+    extract_double_keyword('CROTA1',head.crota1);
+    extract_double_keyword('CROTA2',head.crota2);
+    extract_double_keyword('CDELT1',head.cdelt1);
+  end;
 
   extract_double_keyword('FOCALLEN',focallen);
   extract_double_keyword('PRESSURE',pressure);
@@ -250,11 +271,11 @@ begin
   extract_double_keyword('AOCAMBT',focus_temp);
 
 
-  extract_double_keyword('XPIXSZ',xpixsz);
+  extract_double_keyword('XPIXSZ',head.xpixsz);
 
   if head.cd1_1=0  then {try to retrieve pixel scale head.cdelt2. Else will be calculated in new_to_old_WCS procedure from the CD matrix}
   begin
-    if ((focallen<>0) and (xpixsz<>0)) then head.cdelt2:=180/(pi*1000)*xpixsz/focallen; {use maxim DL key word}
+    if ((focallen<>0) and (head.xpixsz<>0)) then head.cdelt2:=180/(pi*1000)*head.xpixsz/focallen; {use maxim DL key word}
 
     if head.cdelt2=0 then begin extract_double_keyword('SCALE',head.cdelt2); head.cdelt2:=head.cdelt2/3600 {scale is in arcsec/pixel }  end;{use sgp file keyword}
 
@@ -275,7 +296,7 @@ begin
   head.ra0:=head.ra0*pi/180; {degrees -> radians}
   head.dec0:=head.dec0*pi/180;
 
-  cblack:=head.datamin_org;{for case histogram is not called}
+  bck.backgr:=head.datamin_org;{for case histogram is not called}
   cwhite:=head.datamax_org;
 
 
@@ -366,7 +387,7 @@ begin
   if head.width>i then
   begin
     sysutils.beep;
-     mainwindow.statusbar1.panels[7].text:='Too wide XISF file !!!!!';
+    mainwindow.error_label1.caption:='Too wide XISF file !!!!!';
     mainwindow.error_label1.visible:=true;
     close_fits_file;
     head.naxis:=0;{failure}
@@ -374,29 +395,29 @@ begin
   end
   else
   begin {buffer wide enough, read image data block}
-    setlength(img_loaded2,head.naxis3,head.width,head.height);
+    setlength(img_loaded2,head.naxis3,head.height,head.width);
     for k:=1 to head.naxis3 do {do all colors}
     begin
-      For i:=0 to head.height-1 do
+      For i:=head.height-1 downto 0 do //XISF is top-down
       begin
         try reader.read(fitsbuffer,head.width*round(abs(nrbits/8)));except; head.naxis:=0;{failure} end; {read file info}
 
         for j:=0 to head.width-1 do
         begin
           if nrbits=16 then {16 bit FITS}
-           img_loaded2[k-1,j,i]:=fitsbuffer2[j]
+           img_loaded2[k-1,i,j]:=fitsbuffer2[j]
           else
           if nrbits=-32 then {4 byte floating point  FITS image}
-            img_loaded2[k-1,j,i]:=65535*fitsbufferSINGLE[j]{store in memory array, scale from 0..1 to 0..65535}
+            img_loaded2[k-1,i,j]:=65535*fitsbufferSINGLE[j]{store in memory array, scale from 0..1 to 0..65535}
           else
           if nrbits=8  then
-            img_loaded2[k-1,j,i]:=(fitsbuffer[j])
+            img_loaded2[k-1,i,j]:=(fitsbuffer[j])
           else
           if nrbits=-64 then {8 byte, floating point bit FITS image}
-            img_loaded2[k-1,j,i]:=65535*fitsbufferDouble[j]{store in memory array, scale from 0..1 to 0..65535}
+            img_loaded2[k-1,i,j]:=65535*fitsbufferDouble[j]{store in memory array, scale from 0..1 to 0..65535}
           else
           if nrbits=+32 then {4 byte, +32 bit FITS image}
-            img_loaded2[k-1,j,i]:=fitsbuffer4[j]/65535;{scale to 0..64535 float}
+            img_loaded2[k-1,i,j]:=fitsbuffer4[j]/65535;{scale to 0..64535 float}
         end;
       end;
     end; {colors head.naxis3 times}

@@ -145,11 +145,8 @@ end;
 
 
 procedure Tform_listbox1.ok1Click(Sender: TObject);
-var
-  oldCursor : TCursor;
 begin
-  oldCursor := Screen.Cursor;
-  Screen.Cursor := crHourglass;
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   keyboard_text:=edit1.text;
   if find_object(keyboard_text ,ra_data,dec_data,length_data,width_data,pa_data) {find object in unit u_annotation} then
   begin
@@ -167,7 +164,7 @@ begin
     keyboard_text:=StringReplace(keyboard_text, '*', '',[rfReplaceAll]);{remove wildchard}
     fill_listbox(keyboard_text);{fill listbox with suggestions}
   end;
-  Screen.Cursor := oldCursor;
+  Screen.Cursor:=crDefault;
 end;
 
 

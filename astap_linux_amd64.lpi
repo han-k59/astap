@@ -103,7 +103,9 @@
       <Unit11>
         <Filename Value="unit_inspector_plot.pas"/>
         <IsPartOfProject Value="True"/>
+        <ComponentName Value="form_inspection1"/>
         <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
       </Unit11>
       <Unit12>
         <Filename Value="unit_hjd.pas"/>
@@ -126,6 +128,8 @@
     <Linking>
       <Debugging>
         <GenerateDebugInfo Value="False"/>
+        <RunWithoutDebug Value="True"/>
+        <DebugInfoType Value="dsDwarf2Set"/>
         <UseExternalDbgSyms Value="True"/>
       </Debugging>
       <Options>
@@ -135,6 +139,9 @@
       </Options>
     </Linking>
     <Other>
+      <ConfigFile>
+        <WriteConfigFilePath Value="$(ProjOutDir)\fpclaz.cfg"/>
+      </ConfigFile>
       <CustomOptions Value="-XX
 -Si
 -vh"/>

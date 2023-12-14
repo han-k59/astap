@@ -77,7 +77,7 @@ const
    maxcount_asteroid : string='10000';
    maxmag_asteroid : string='17';
    mpcorb_path : string='MPCORB.DAT';
-   cometels_path : string='CometEls.txt';
+   cometels_path : string='*.txt';
    font_follows_diameter:boolean=false;
    showfullnames: boolean=true;
    showmagnitude: boolean=false;
@@ -315,13 +315,6 @@ begin
   val(st,result,error2);
 end;
 
-
-function fnmodulo(x,range: double):double;
-begin
-  {range should be 2*pi or 24 hours or 0 .. 360}
-  result:=range*frac(x/range);
-  if result<0 then result:=result+range;   {do not like negative numbers}
-end;
 
 function deltaT_calc(jd: double) : double; {delta_T in days}
 var
@@ -613,16 +606,13 @@ begin
   mainwindow.image1.Canvas.font.size:=fontsize;
   str(max(1,fontsize/12):0:1,fontsize_str); {store font size for header annotations}
 
-  if date_avg<>'' then
-    date_to_jd(date_avg,0 {head.exposure}){convert date-AVG to jd_mid be using head.exposure=0}
-  else
-    date_to_jd(head.date_obs,head.exposure);{convert date-OBS to jd_start and jd_mid}
+  date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert date-OBS to jd_start and jd_mid}
 
   if jd_start<=2400000 then {no date, found year <1858}
   begin
-    mainwindow.error_label1.caption:=('Error converting date-obs or date-avg from the FITS header');
+    mainwindow.error_label1.caption:=('Error converting DATE-OBS or DATE-AVG from the file header!');
     mainwindow.error_label1.visible:=true;
-    memo2_message(filename2+ ' Error converting date-obs or date-avg from the FITS header');
+    memo2_message(filename2+ ' Error converting DATE-OBS or DATE-AVG from the file header!');
     exit;
   end;
 
@@ -730,7 +720,7 @@ begin
     if midpoint=false then
       head.date_obs:=date_obs1.Text
     else
-      date_avg:=date_obs1.Text;
+      head.date_avg:=date_obs1.Text;
 
     annotation_color:=ColorBox1.selected;
     annotation_diameter:=form_asteroids1.annotation_size2.Position div 2;
@@ -741,9 +731,6 @@ end;
 procedure Tform_asteroids1.annotate_asteroids1Click(Sender: TObject); {han.k}
 var maxcount : integer;
     maxmag   : double;
-    Save_Cursor: TCursor;
-
-
 begin
   set_some_defaults;
 
@@ -768,10 +755,9 @@ begin
   mpcorb_path:=form_asteroids1.mpcorb_path1.caption;
   cometels_path:=form_asteroids1.mpcorb_path2.caption;
 
-  Save_Cursor := Screen.Cursor;
-  Screen.Cursor := crHourglass;    { Show hourglass cursor }
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   plot_mpcorb(maxcount,maxmag,add_annotations);
-  Screen.Cursor:= Save_Cursor;
+  Screen.Cursor:=crDefault;
 
   form_asteroids1.close;   {normal this form is not loaded}
   mainwindow.setfocus;
@@ -823,9 +809,9 @@ end;
 
 procedure Tform_asteroids1.file_to_add2Click(Sender: TObject);
 begin
-  OpenDialog1.Title := 'Select CometEls.txt to use';
+  OpenDialog1.Title := 'Select AllCometEls.txt to use';
   OpenDialog1.Options := [ofFileMustExist,ofHideReadOnly];
-  opendialog1.Filter := 'CometEls.txt file (Com*.txt)|Com*.txt';
+  opendialog1.Filter := 'AllCometEls.txt file (*.txt)|*.txt';
   if opendialog1.execute then
   begin
     mpcorb_path2.caption:=OpenDialog1.Files[0];
@@ -858,11 +844,11 @@ begin
   test_mpcorb;
   mpcorb_path2.caption:=cometels_path;
   test_cometels;
-  if date_avg<>'' then
+  if head.date_avg<>'' then
   begin
      date_label1.caption:='DATE_AVG';
      label_start_mid1.caption:='Midpoint of the observation';
-     date_obs1.Text:=date_avg;
+     date_obs1.Text:=head.date_avg;
      midpoint:=true;
   end
   else
