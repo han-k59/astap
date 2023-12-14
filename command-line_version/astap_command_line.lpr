@@ -60,16 +60,17 @@ begin
     '-f  filename  {fits, tiff, png, jpg files}'+#10+
     '-r  radius_area_to_search[degrees]'+#10+      {changed}
     '-z  downsample_factor[0,1,2,3,4] {Downsample prior to solving. 0 is auto}'+#10+
-    '-fov diameter_field[degrees]'+#10+   {changed}
-    '-ra  center_right ascension[hours]'+#10+
+    '-fov diameter_field[degrees] {enter zero for auto}'+#10+   {changed}
+    '-ra  center_right_ascension[hours]'+#10+
     '-spd center_south_pole_distance[degrees]'+#10+
-    '-s  max_number_of_stars  {default 500, 0 is auto}'+#10+
+    '-s  max_number_of_stars  {default 500}'+#10+
     '-t  tolerance  {default 0.007}'+#10+
     '-m  minimum_star_size["]  {default 1.5}'+#10+
     '-check apply[y/n] {Apply check pattern filter prior to solving. Use for raw OSC images only when binning is 1x1}' +#10+
     '-speed mode[auto/slow] {Slow is forcing reading a larger area from the star database (more overlap) to improve detection}'+#10+
     '-o  file {Name the output files with this base path & file name}'+#10+
     '-d  path {specify a path to the star database}'+#10+
+    '-D  abbreviation {Specify a star database [d80,d50,..]}'+#10+
     '-analyse snr_min {Analyse only and report median HFD and number of stars used}'+#10+
     '-extract snr_min {As -analyse but additionally write a .csv file with the detected stars info}'+#10+
     '-log   {Write the solver log to file}'+#10+
@@ -149,7 +150,11 @@ begin
     end;{analyse fits and report HFD value}
 
     if hasoption('d') then
-         database_path:=GetOptionValue('d')+DirectorySeparator; {specify a different database path}
+      database_path:=GetOptionValue('d')+DirectorySeparator; {specify a different database path}
+    if hasoption('D') then
+      star_database1:=GetOptionValue('D'); {specify a different database}
+
+
 
     if ((file_loaded) and (solve_image(img_loaded ))) then {find plate solution, filename2 extension will change to .fit}
     begin
@@ -236,6 +241,8 @@ var
   Application: Tastap;
 
 //{$R *.res}
+
+{$R *.res}
 
 begin
   Application:=Tastap.Create(nil);
