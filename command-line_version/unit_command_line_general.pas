@@ -1,4 +1,10 @@
 unit unit_command_line_general;
+{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
+ email: han.k.. at...hnsky.org
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 
 {$mode objfpc}{$H+}
 
@@ -15,7 +21,7 @@ uses
 
 
 var {################# initialised variables #########################}
-  astap_version: string='2022.09.17';
+  astap_version: string='2024.01.25';
   ra1  : string='0';
   dec1 : string='0';
   search_fov1    : string='0';{search FOV}
@@ -54,11 +60,12 @@ type
 
   var
      histogram : array[0..2,0..65535] of integer;{red,green,blue,count}
-     his_total_red, his_total_green,his_total_blue,r_aperture : integer; {histogram number of values}
+     r_aperture : integer; {histogram number of values}
      histo_peak_position : integer;
-     his_mean,noise_level : array[0..2] of integer;
+     his_mean : array[0..2] of integer;
+     noise_level : array[0..2] of double;
      esc_pressed, fov_specified {, last_extension }: boolean;
-     star_level  : double;
+     star_level,star_level2  : double;
      exposure,focallen,equinox : double;
      cblack, cwhite,
      gain   :double; {from FITS}
@@ -143,10 +150,9 @@ function strtofloat2(s:string): double;{works with either dot or komma as decima
 function floattostrF2(const x:double; width1,decimals1 :word): string;
 procedure analyse_fits(img : image_array;snr_min:double;report:boolean;out star_counter : integer; out backgr, hfd_median : double); {find background, number of stars, median HFD}
 procedure HFD(img: image_array;x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);{calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions}
-procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out background, starlevel: double); {get background and star level from peek histogram}
+procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out background, star_level, star_level2: double); {get background and star level from peek histogram}
 function prepare_ra(rax:double; sep:string):string; {radialen to text, format 24: 00 00.0 }
 function prepare_dec(decx:double; sep:string):string; {radialen to text, format 90d 00 00}
-procedure new_to_old_WCS;{convert new style FITsS to old style}
 procedure write_astronomy_wcs;
 procedure write_ini(solution:boolean);{write solution to ini file}
 function load_image2 : boolean; {load fits or PNG, BMP, TIF}
@@ -345,48 +351,6 @@ begin
 end;
 
 
-procedure new_to_old_WCS;{convert new style FITS to old style, revison 2022}
-begin
-  // https://www.aanda.org/articles/aa/full/2002/45/aah3860/aah3860.right.html
-  // Representations of World Coordinates in FITS paper II aah3860
-
-  // formula 191
-  if cd2_1>0 then crota1:=arctan2(cd2_1,cd1_1)*180/pi
-  else
-  if cd2_1<0 then crota1:=arctan2(-cd2_1,-cd1_1)*180/pi
-  else
-  crota1:=0;
-
-  if cd1_2>0 then crota2:=arctan2(-cd1_2,cd2_2)*180/pi
-  else
-  if cd1_2<0 then crota2:=arctan2(cd1_2,-cd2_2)*180/pi
-  else
-  crota2:=0;
-
-
-  // https://www.aanda.org/articles/aa/full/2002/45/aah3860/aah3860.right.html
-  // Representations of World Coordinates in FITS paper II aah3860
-  // Formula 193 improved for crota close to or equal to +90 or -90 degrees
-  // Calculate cdelt1, cdelt2 values using the longest side of the triangle
-  if abs(cd1_1)>abs(cd2_1) then
-  begin
-    cdelt1:=+cd1_1/cos(crota1*pi/180);
-    cdelt2:=+cd2_2/cos(crota2*pi/180);
-  end
-  else
-  begin
-    cdelt1:=+cd2_1/sin(crota1*pi/180);
-    cdelt2:=-cd1_2/sin(crota2*pi/180);
-  end;
-
-  //bring angles within the same area so that they are about equal
-  if crota2-crota1<-90 then begin crota2:=crota2+180; cdelt2:=-cdelt2;end
-  else
-  if crota2-crota1>+90 then begin crota1:=crota1+180; cdelt1:=-cdelt1;end;
-end;
-
-
-
 procedure write_astronomy_wcs;
 var
   TheFile4 : tfilestream;
@@ -474,24 +438,11 @@ var
   aline,empthy_line    : array[0..80] of ansichar;{79 required but a little more to have always room}
   header    : array[0..2880] of ansichar;
 
-
      procedure close_fits_files;
      begin
         Reader.free;
         TheFile3.free;
         TheFile4.free;
-     end;
-
-     Function validate_double:double;{read values}
-     var t :string[20];
-         r,err : integer;
-         x     :double;
-     begin
-       t:='';
-       for r:=I+10 to I+29 do
-       if header[r]<>' ' then t:=t+header[r];
-       val(t,x,err);
-       validate_double:=x;
      end;
 begin
 
@@ -583,8 +534,8 @@ begin
 
   {get dimensions directly from array}
   naxis3_local:=length(img);{nr colours}
-  width5:=length(img[0]);{width}
-  height5:=length(img[0,0]);{length}
+  width5:=length(img[0,0]);{width}
+  height5:=length(img[0]);{length}
   if naxis3_local=1 then dimensions:=2 else dimensions:=3; {number of dimensions or colours}
 
   filename2:=filen2;
@@ -636,7 +587,7 @@ begin
   begin
     for j:=0 to width5-1 do
     begin
-      dum:=round(img[k,j,i])-bzero2;{save all colors}
+      dum:=round(img[k,i,j])-bzero2;{save all colors}
       { value  - bzero              result  shortint    word
        ($0000  - $8000) and $FFFF = $8000 (-32768       32768 )  note  $0000 - $8000 ==>  $FFFF8000. Highest bits are skipped
        ($0001  - $8000) and $FFFF = $8001 (-32767       32769 )  note  $0001 - $8000 ==>  $FFFF8001. Highest bits are skipped
@@ -743,19 +694,20 @@ const
         TheFile3.free;
      end;
 
-     Function validate_double:double;{read floating point or integer values}
-     var t : string[20];
+     function validate_double:double;{read floating point or integer values}
+     var t : string[21];
          r,err : integer;
      begin
        t:='';
        r:=I+10;{position 11 equals 10}
-       while ((header[r]<>'/') and (r<=I+29) {pos 30}) do {'/' check is strictly not necessary but safer}
-       begin  {read 20 characters max, position 11 to 30 in string, position 10 to 29 in pchar}
+       while ((header[r]<>'/') and (r<=I+30) {pos 31}) do {'/' check is strictly not necessary but safer. Read up to position 31 so one more then fits standard since CFITSIO could write for minus values up to position 31. A violation of FITS standard 4}
+       begin  {read 20 characters max, position 11 to 31 in string, position 10 to 30 in pchar}
          if header[r]<>' ' then t:=t+header[r];
          inc(r);
        end;
        val(t,result,err);
      end;
+
 
      Function get_string:string;{read string values}
      var  r: integer;
@@ -1012,7 +964,7 @@ begin
       exit;
     end;
 
-    setlength(img_loaded2,naxis3,width2,height2);
+    setlength(img_loaded2,naxis3,height2,width2);
 
     if nrbits=16 then
     for k:=0 to naxis3-1 do {do all colors}
@@ -1024,7 +976,7 @@ begin
         begin
           word16:=swap(fitsbuffer2[i]);{move data to wo and therefore sign_int}
           col_float:=int_16*bscale + bzero; {save in col_float for measuring measured_max}
-          img_loaded2[k,i,j]:=col_float;
+          img_loaded2[k,j,i]:=col_float;
           if col_float>measured_max then measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
         end;
       end;
@@ -1041,7 +993,7 @@ begin
           x_longword:=swapendian(fitsbuffer4[i]);{conversion 32 bit "big-endian" data, x_single  : single absolute x_longword; }
           col_float:=x_single*bscale+bzero; {int_IEEE, swap four bytes and the read as floating point}
           if isNan(col_float) then col_float:=measured_max;{not a number prevent errors, can happen in PS1 images with very high floating point values}
-          img_loaded2[k,i,j]:=col_float;{store in memory array}
+          img_loaded2[k,j,i]:=col_float;{store in memory array}
           if col_float>measured_max then measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
         end;
       end;
@@ -1055,7 +1007,7 @@ begin
         try reader.read(fitsbuffer,width2);except; end; {read file info}
         for i:=0 to width2-1 do
         begin
-          img_loaded2[k,i,j]:=(fitsbuffer[i]*bscale + bzero);
+          img_loaded2[k,j,i]:=(fitsbuffer[i]*bscale + bzero);
         end;
       end;
     end {colors naxis3 times}
@@ -1067,9 +1019,9 @@ begin
       for i:=0 to width2-1 do
       begin
         rgbdummy:=fitsbufferRGB[i];{RGB fits with naxis1=3, treated as 24 bits coded pixels in 2 dimensions}
-        img_loaded2[0,i,j]:=rgbdummy[0];{store in memory array}
-        img_loaded2[1,i,j]:=rgbdummy[1];{store in memory array}
-        img_loaded2[2,i,j]:=rgbdummy[2];{store in memory array}
+        img_loaded2[0,j,i]:=rgbdummy[0];{store in memory array}
+        img_loaded2[1,j,i]:=rgbdummy[1];{store in memory array}
+        img_loaded2[2,j,i]:=rgbdummy[2];{store in memory array}
       end;
     end
     else
@@ -1083,7 +1035,7 @@ begin
         begin
           col_float:=(swapendian(fitsbuffer4[i])*bscale+bzero)/(65535);{scale to 0..64535 or 0..1 float}
                          {Tricky do not use int64 for BZERO,  maxim DL writes BZERO value -2147483647 as +2147483648 !!}
-          img_loaded2[k,i,j]:=col_float;{store in memory array}
+          img_loaded2[k,j,i]:=col_float;{store in memory array}
           if col_float>measured_max then measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
         end;
       end;
@@ -1099,7 +1051,7 @@ begin
         begin
           x_qword:=swapendian(fitsbuffer8[i]);{conversion 64 bit "big-endian" data, x_double    : double absolute x_int64;}
           col_float:=x_double*bscale + bzero; {int_IEEE, swap four bytes and the read as floating point}
-          img_loaded2[k,i,j]:=col_float;{store in memory array}
+          img_loaded2[k,j,i]:=col_float;{store in memory array}
           if col_float>measured_max then measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
         end;
       end;
@@ -1116,7 +1068,7 @@ begin
         for k:=0 to naxis3-1 do {do all colors}
           for j:=0 to height2-1 do
             for i:=0 to width2-1 do
-              img_loaded2[k,i,j]:= img_loaded2[k,i,j]*scalefactor;
+              img_loaded2[k,j,i]:= img_loaded2[k,j,i]*scalefactor;
         datamax_org:=65535;
       end
       else  datamax_org:=measured_max;
@@ -1463,7 +1415,7 @@ begin
 
     if ((key='SECPIX2 =') or
         (key='PIXSCALE=') or
-        (key='SCALE   =')) then begin if cdelt2=0 then cdelt2:=read_float/3600; end {no head.cdelt1/2 found yet, use alternative, image scale arcseconds per pixel}
+        (key='SCALE   =')) then begin if cdelt2=0 then cdelt2:=read_float/3600; end {no cdelt1/2 found yet, use alternative, image scale arcseconds per pixel}
     else
 
     if key='DATE-OBS=' then date_obs:=read_string else
@@ -1677,7 +1629,7 @@ begin
     end
     else
     begin {not too large}
-      setlength(img_loaded2,naxis3,width2,height2);
+      setlength(img_loaded2,naxis3,height2,width2);
       begin
         For i:=0 to height2-1 do
         begin
@@ -1688,19 +1640,19 @@ begin
             if color7=false then {gray scale without bayer matrix applied}
             begin
               if nrbits=8 then  {8 BITS, mono 1x8bits}
-                img_loaded2[0,j,i]:=fitsbuffer[j]{RGB fits with naxis1=3, treated as 48 bits coded pixels}
+                img_loaded2[0,i,j]:=fitsbuffer[j]{RGB fits with naxis1=3, treated as 48 bits coded pixels}
               else
               if nrbits=16 then {big endian integer}
-                img_loaded2[0,j,i]:=swap(fitsbuffer2[j])
+                img_loaded2[0,i,j]:=swap(fitsbuffer2[j])
               else {PFM 32 bits grayscale}
               if pfm then
               begin
                 if range<0 then {little endian floats}
-                  img_loaded2[0,j,i]:=fitsbuffersingle[j]*65535/(-range) {PFM little endian float format. if nrbits=-1 then range 0..1. If nrbits=+1 then big endian with range 0..1 }
+                  img_loaded2[0,i,j]:=fitsbuffersingle[j]*65535/(-range) {PFM little endian float format. if nrbits=-1 then range 0..1. If nrbits=+1 then big endian with range 0..1 }
                 else
                 begin {big endian floats}
                   x_longword:=swapendian(fitsbuffer4[j]);{conversion 32 bit "big-endian" data, x_single  : single absolute x_longword; }
-                  img_loaded2[0,j,i]:=x_single*65535/range;
+                  img_loaded2[0,i,j]:=x_single*65535/range;
                 end;
               end;
             end
@@ -1709,17 +1661,17 @@ begin
               if nrbits=8 then {24 BITS, colour 3x8bits}
               begin
                 rgbdummy:=fitsbufferRGB[j];{RGB fits with naxis1=3, treated as 48 bits coded pixels}
-                img_loaded2[0,j,i]:=rgbdummy[0];{store in memory array}
-                img_loaded2[1,j,i]:=rgbdummy[1];{store in memory array}
-                img_loaded2[2,j,i]:=rgbdummy[2];{store in memory array}
+                img_loaded2[0,i,j]:=rgbdummy[0];{store in memory array}
+                img_loaded2[1,i,j]:=rgbdummy[1];{store in memory array}
+                img_loaded2[2,i,j]:=rgbdummy[2];{store in memory array}
               end
               else
               if nrbits=16 then {48 BITS colour, 3x16 big endian}
               begin {48 bits}
                 rgb16dummy:=fitsbufferRGB16[j];{RGB fits with naxis1=3, treated as 48 bits coded pixels}
-                img_loaded2[0,j,i]:=swap(rgb16dummy[0]);{store in memory array}
-                img_loaded2[1,j,i]:=swap(rgb16dummy[1]);{store in memory array}
-                img_loaded2[2,j,i]:=swap(rgb16dummy[2]);{store in memory array}
+                img_loaded2[0,i,j]:=swap(rgb16dummy[0]);{store in memory array}
+                img_loaded2[1,i,j]:=swap(rgb16dummy[1]);{store in memory array}
+                img_loaded2[2,i,j]:=swap(rgb16dummy[2]);{store in memory array}
               end
               else
               if pfm then
@@ -1727,18 +1679,18 @@ begin
                 if range<0 then {little endian}
                 begin
                   rgb32dummy:=fitsbufferRGB32[j];{RGB fits with naxis1=3, treated as 96 bits coded pixels}
-                  img_loaded2[0,j,i]:=(rgb32dummy[0])*65535/(-range);{store in memory array}
-                  img_loaded2[1,j,i]:=(rgb32dummy[1])*65535/(-range);{store in memory array}
-                  img_loaded2[2,j,i]:=(rgb32dummy[2])*65535/(-range);{store in memory array}
+                  img_loaded2[0,i,j]:=(rgb32dummy[0])*65535/(-range);{store in memory array}
+                  img_loaded2[1,i,j]:=(rgb32dummy[1])*65535/(-range);{store in memory array}
+                  img_loaded2[2,i,j]:=(rgb32dummy[2])*65535/(-range);{store in memory array}
                 end
                 else
                 begin {PFM big-endian float 32 bit colour}
                   x_longword:=swapendian(fitsbuffer4[j*3]);
-                  img_loaded2[0,j,i]:=x_single*65535/(range);
+                  img_loaded2[0,i,j]:=x_single*65535/(range);
                   x_longword:=swapendian(fitsbuffer4[j*3+1]);
-                  img_loaded2[1,j,i]:=x_single*65535/(range);
+                  img_loaded2[1,i,j]:=x_single*65535/(range);
                   x_longword:=swapendian(fitsbuffer4[j*3+2]);
-                  img_loaded2[2,j,i]:=x_single*65535/(range);
+                  img_loaded2[2,i,j]:=x_single*65535/(range);
                 end;
               end;
             end;
@@ -1882,23 +1834,23 @@ begin
 
   width2:=image.width;
   height2:=image.height;
-  setlength(img_loaded2,naxis3,width2,height2);
+  setlength(img_loaded2,naxis3,height2,width2);
 
   if naxis3=3 then
   begin
     For i:=0 to height2-1 do
       for j:=0 to width2-1 do
       begin
-        img_loaded2[0,j,height2-1-i]:=image.Colors[j,i].red;
-        img_loaded2[1,j,height2-1-i]:=image.Colors[j,i].green;
-        img_loaded2[2,j,height2-1-i]:=image.Colors[j,i].blue;
+        img_loaded2[0,height2-1-i,j]:=image.Colors[j,i].red;
+        img_loaded2[1,height2-1-i,j]:=image.Colors[j,i].green;
+        img_loaded2[2,height2-1-i,j]:=image.Colors[j,i].blue;
       end;
   end
   else
   begin
     For i:=0 to height2-1 do
       for j:=0 to width2-1 do
-        img_loaded2[0,j,height2-1-i]:=image.Colors[j,i].red;
+        img_loaded2[0,height2-1-i,j]:=image.Colors[j,i].red;
   end;
 
   if tiff then
@@ -1997,8 +1949,8 @@ begin
   his_total:=0;
   total_value:=0;
   count:=1;{prevent divide by zero}
-  width5:=Length(img[0]);    {width}
-  height5:=Length(img[0][0]); {height}
+  width5:=Length(img[0,0]); {width}
+  height5:=Length(img[0]); {height}
 
   offsetW:=trunc(width5*0.042); {if Libraw is used, ignored unused sensor areas up to 4.2%}
   offsetH:=trunc(height5*0.015); {if Libraw is used, ignored unused sensor areas up to 1.5%}
@@ -2008,7 +1960,7 @@ begin
   begin
     for j:=0+offsetW to width5-1-offsetW do
     begin
-      col:=round(img[colour,j,i]);{red}
+      col:=round(img[colour,i,j]);{red}
       if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
       begin
         inc(histogram[colour,col],1);{calculate histogram}
@@ -2019,21 +1971,14 @@ begin
     end;{j}
   end; {i}
 
-  if colour=0 then his_total_red:=his_total
-  else
-  if colour=1 then his_total_green:=his_total
-  else
-  his_total_blue:=his_total;
-
   his_mean[colour]:=round(total_value/count);
-
 end;
 
 
-procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out background, starlevel: double); {get background and star level from peek histogram}
+procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out background, star_level, star_level2: double); {get background and star level from peek histogram}
 var
-  i, pixels,max_range,above,his_total, fitsX, fitsY,counter,stepsize,width5,height5, iterations : integer;
-  value,sd, sd_old : double;
+  i, pixels,max_range,above, fitsX, fitsY,counter,stepsize,width5,height5, iterations : integer;
+  value,sd, sd_old,factor,factor2 : double;
 begin
   if calc_hist then
              get_hist(colour,img);{get histogram of img_loaded and his_total}
@@ -2059,34 +2004,11 @@ begin
 
   if calc_noise_level then  {find star level and background noise level}
   begin
-    {calculate star level}
-    if ((nrbits=8) or (nrbits=24)) then max_range:= 255 else max_range:=65001 {histogram runs from 65000};{8 or 16 / -32 bit file}
-    i:=max_range;
-    starlevel:=0;
-    above:=0;
-
-    if colour=1 then his_total:=his_total_green
-    else
-    if colour=2 then his_total:=his_total_blue
-    else
-    his_total:=his_total_red;
-
-    while ((starlevel=0) and (i>background+1)) do {find star level 0.003 of values}
-    begin
-       dec(i);
-       above:=above+histogram[colour,i];
-       if above>0.001*his_total then starlevel:=i;
-    end;
-    if starlevel<= background then starlevel:=background+1 {no or very few stars}
-    else
-    starlevel:=starlevel-background-1;{star level above background. Important subtract 1 for saturated images. Otherwise no stars are detected}
-
     {calculate noise level}
-    stepsize:=round(height2/71);{get about 71x71=5000 samples. So use only a fraction of the pixels}
+    width5:=Length(img[0,0]); {width}
+    height5:=Length(img[0]); {height}
+    stepsize:=round(height5/71);{get about 71x71=5000 samples. So use only a fraction of the pixels}
     if odd(stepsize)=false then stepsize:=stepsize+1;{prevent problems with even raw OSC images}
-
-    width5:=Length(img[0]);    {width}
-    height5:=Length(img[0][0]); {height}
 
     sd:=99999;
     iterations:=0;
@@ -2099,7 +2021,7 @@ begin
         fitsY:=15;
         while fitsY<=height5-1-15 do
         begin
-          value:=img[colour,fitsX,fitsY];
+          value:=img[colour,fitsY,fitsX];
           if ((value<background*2) and (value<>0)) then {not an outlier, noise should be symmetrical so should be less then twice background}
           begin
             if ((iterations=0) or (abs(value-background)<=3*sd_old)) then {ignore outliers after first run}
@@ -2115,7 +2037,39 @@ begin
       sd:=sqrt(sd/counter); {standard deviation}
       inc(iterations);
     until (((sd_old-sd)<0.05*sd) or (iterations>=7));{repeat until sd is stable or 7 iterations}
-    noise_level[colour]:= round(sd);   {this noise level is too high for long exposures and if no flat is applied. So for images where center is brighter then the corners.}
+    noise_level[colour]:= sd;   {this noise level is too high for long exposures and if no flat is applied. So for images where center is brighter then the corners.}
+
+
+    {calculate star level}
+    if ((nrbits=8) or (nrbits=24)) then max_range:= 255 else max_range:=65001 {histogram runs from 65000};{8 or 16 / -32 bit file}
+    i:=max_range;
+    star_level:=0;
+    star_level2:=0;
+    above:=0;
+
+    factor:=6*max_stars;//emperical. Number of pixels to test. This produces about 700 stars at hfd=2.25.
+    factor2:=24*max_stars;//emperical. Number of pixels to test. This produces about 700 stars at hfd=4.5.
+
+    while ((star_level=0) and (i>background+1)) do {Find star level. 0.001 of the flux is above star level. If there a no stars this should be all pixels with a value 3.09 * sigma (SD noise) above background}
+    begin
+      dec(i);
+      above:=above+histogram[colour,i];//sum pixels above pixel level i
+      if above>factor then star_level:=i;
+    end;
+    while ((star_level2=0) and (i>background+1)) do {Find star level. 0.001 of the flux is above star level. If there a no stars this should be all pixels with a value 3.09 * sigma (SD noise) above background}
+    begin
+      dec(i);
+      above:=above+histogram[colour,i];//sum pixels above pixel level i
+      if above>factor2 then star_level2:=i;
+    end;
+
+
+    // Clip calculated star level:
+    // 1) above 3.5*noise minimum, but also above background value when there is no noise so minimum is 1
+    // 2) Below saturated level. So subtract 1 for saturated images. Otherwise no stars are detected}
+    star_level:=max(max(3.5*sd,1 {1}), star_level-background-1 {2) below saturation});//star_level is relative to background
+    star_level2:=max(max(3.5*sd,1 {1}), star_level2-background-1 {2) below saturation});//star_level is relative to background
+
   end;
 end;
 
@@ -2125,7 +2079,7 @@ const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
 var
   i,j,r1_square,r2_square,r2, distance,distance_top_value,illuminated_pixels,signal_counter,counter :integer;
-  SumVal, SumValX,SumValY,SumValR, Xg,Yg, r, val,bg,pixel_counter,valmax,mad_bg,sd_bg    : double;
+  SumVal, SumValX,SumValY,SumValR, Xg,Yg, r, val,star_bg,pixel_counter,valmax,mad_bg,sd_bg    : double;
   HistStart,boxed : boolean;
   distance_histogram : array [0..max_ri] of integer;
   background : array [0..1000] of double; {size =3*(2*PI()*(50+3)) assuming rs<=50}
@@ -2141,10 +2095,10 @@ var
       x_frac :=frac(x1);
       y_frac :=frac(y1);
       try
-        result:=         (img[0,x_trunc  ,y_trunc  ]) * (1-x_frac)*(1-y_frac);{pixel left top, 1}
-        result:=result + (img[0,x_trunc+1,y_trunc  ]) * (  x_frac)*(1-y_frac);{pixel right top, 2}
-        result:=result + (img[0,x_trunc  ,y_trunc+1]) * (1-x_frac)*(  y_frac);{pixel left bottom, 3}
-        result:=result + (img[0,x_trunc+1,y_trunc+1]) * (  x_frac)*(  y_frac);{pixel right bottom, 4}
+        result:=         (img[0,y_trunc  ,x_trunc  ]) * (1-x_frac)*(1-y_frac);{pixel left top,    1}
+        result:=result + (img[0,y_trunc  ,x_trunc+1]) * (  x_frac)*(1-y_frac);{pixel right top,   2}
+        result:=result + (img[0,y_trunc+1,x_trunc  ]) * (1-x_frac)*(  y_frac);{pixel left bottom, 3}
+        result:=result + (img[0,y_trunc+1,x_trunc+1]) * (  x_frac)*(  y_frac);{pixel right bottom,4}
       except
       end;
     end;
@@ -2170,14 +2124,14 @@ begin
       distance:=i*i+j*j; {working with sqr(distance) is faster then applying sqrt}
       if ((distance>r1_square) and (distance<=r2_square)) then {annulus, circular area outside rs, typical one pixel wide}
       begin
-        background[counter]:=img[0,x1+i,y1+j];
+        background[counter]:=img[0,y1+j,x1+i];
         //for testing: mainwindow.image1.canvas.pixels[x1+i,y1+j]:=$AAAAAA;
         inc(counter);
       end;
     end;
 
-    bg:=Smedian(background,counter);
-    for i:=0 to counter-1 do background[i]:=abs(background[i] - bg);{fill background with offsets}
+    star_bg:=Smedian(background,counter);
+    for i:=0 to counter-1 do background[i]:=abs(background[i] - star_bg);{fill background with offsets}
     mad_bg:=Smedian(background,counter); //median absolute deviation (MAD)
     sd_bg:=mad_bg*1.4826; {Conversion from mad to sd for a normal distribution. See https://en.wikipedia.org/wiki/Median_absolute_deviation}
     sd_bg:=max(sd_bg,1); {add some value for images with zero noise background. This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net}
@@ -2193,7 +2147,7 @@ begin
       for i:=-rs to rs do
       for j:=-rs to rs do
       begin
-        val:=(img[0,x1+i,y1+j])- bg;
+        val:=(img[0,y1+j,x1+i])- star_bg;
         if val>3.0*sd_bg then
         begin
           SumVal:=SumVal+val;
@@ -2235,7 +2189,7 @@ begin
         distance:=round(sqrt(i*i + j*j)); {distance from gravity center} {modA}
         if distance<=rs then {build histogram for circel with radius rs}
         begin
-          val:=value_subpixel(xc+i,yc+j)-bg;
+          val:=value_subpixel(xc+i,yc+j)-star_bg;
           if val>3.0*sd_bg then {3 * sd should be signal }
           begin
             distance_histogram[distance]:=distance_histogram[distance]+1;{build distance histogram up to circel with diameter rs}
@@ -2267,12 +2221,11 @@ begin
   SumValR:=0;
   pixel_counter:=0;
 
-
   // Get HFD using the aproximation routine assuming that HFD line divides the star in equal portions of gravity:
   for i:=-r_aperture to r_aperture do {Make steps of one pixel}
   for j:=-r_aperture to r_aperture do
   begin
-    Val:=value_subpixel(xc+i,yc+j)-bg; {The calculated center of gravity is a floating point position and can be anyware, so calculate pixel values on sub-pixel level}
+    Val:=value_subpixel(xc+i,yc+j)-star_bg; {The calculated center of gravity is a floating point position and can be anyware, so calculate pixel values on sub-pixel level}
     r:=sqrt(i*i+j*j); {Distance from star gravity center}
     SumVal:=SumVal+Val;{Sumval will be star total star flux}
     SumValR:=SumValR+Val*r; {Method Kazuhisa Miyashita, see notes of HFD calculation method, note calculate HFD over square area. Works more accurate then for round area}
@@ -2349,7 +2302,7 @@ end;
 
 procedure analyse_fits(img : image_array;snr_min:double;report:boolean;out star_counter : integer;out backgr, hfd_median : double); {find background, number of stars, median HFD}
 var
-   fitsX,fitsY,diam,i,j,retries,max_stars,m,n,xci,yci,sqr_diam : integer;
+   fitsX,fitsY,diam,i,j,retries,m,n,xci,yci,sqr_diam : integer;
    hfd1,star_fwhm,snr,flux,xc,yc,detection_level               : double;
    hfd_list                                                    : array of double;
    img_sa                                                      : image_array;
@@ -2358,17 +2311,24 @@ var
 const
    len: integer=1000;
 begin
-  max_stars:=500;
   SetLength(hfd_list,len);{set array length to len}
 
-  get_background(0,img,true,true {calculate background and also star level end noise level},{var}backgr,star_level);
+  get_background(0,img,true,true {calculate background and also star level end noise level},{var}backgr,star_level,star_level2);
 
-  detection_level:=max(3.5*noise_level[0],star_level); {level above background. Start with a high value}
-  retries:=2; {try up to three times to get enough stars from the image}
+  retries:=3; {try up to four times to get enough stars from the image}
 
   if ((backgr<60000) and (backgr>8)) then {not an abnormal file}
   begin
     repeat {try three time to find enough stars}
+      if retries=3 then
+        begin if star_level >30*noise_level[0] then detection_level:=star_level  else retries:=2;{skip} end;//stars are dominant
+      if retries=2 then
+        begin if star_level2>30*noise_level[0] then detection_level:=star_level2 else retries:=1;{skip} end;//stars are dominant
+      if retries=1 then
+        begin detection_level:=30*noise_level[0]; end;
+      if retries=0 then
+        begin detection_level:= 7*noise_level[0]; end;
+
       star_counter:=0;
 
       if report then {write values to file}
@@ -2378,16 +2338,16 @@ begin
         writeln(f,'x,y,hfd,snr,flux');
       end;
 
-      setlength(img_sa,1,width2,height2);{set length of image array}
+      setlength(img_sa,1,height2,width2);{set length of image array}
       for fitsY:=0 to height2-1 do
         for fitsX:=0 to width2-1  do
-          img_sa[0,fitsX,fitsY]:=0;{mark as star free urveyed area}
+          img_sa[0,fitsY,fitsX]:=0;{mark as star free urveyed area}
 
       for fitsY:=0 to height2-1 do
       begin
         for fitsX:=0 to width2-1  do
         begin
-          if (( img_sa[0,fitsX,fitsY]<=0){star free area} and (img[0,fitsX,fitsY]-backgr>detection_level)) then {new star. For analyse used sigma is 5, so not too low.}
+          if (( img_sa[0,fitsY,fitsX]<=0){star free area} and (img[0,fitsY,fitsX]-backgr>detection_level)) then {new star. For analyse used sigma is 5, so not too low.}
           begin
             HFD(img,fitsX,fitsY,14{box size}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
             if ((hfd1<=30) and (snr>snr_min) and (hfd1>0.8) {two pixels minimum} ) then
@@ -2406,7 +2366,7 @@ begin
                   j:=n+yci;
                   i:=m+xci;
                   if ((j>=0) and (i>=0) and (j<height2) and (i<width2) and ( (sqr(m)+sqr(n))<=sqr_diam)) then
-                    img_sa[0,i,j]:=1;
+                    img_sa[0,j,i]:=1;
                 end;
 
 
@@ -2422,10 +2382,7 @@ begin
         end;
       end;
 
-      dec(retries);{In principle not required. Try again with lower detection level}
-      if detection_level<=7*noise_level[0] then retries:= -1 {stop}
-      else
-      detection_level:=max(6.999*noise_level[0],min(30*noise_level[0],detection_level*6.999/30)); {very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop}
+      dec(retries);{Try again with lower detection level}
 
       if report then closefile(f);
 
