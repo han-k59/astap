@@ -1,5 +1,5 @@
 ﻿unit astap_main;
-{Copyright (C) 2017, 2023 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -57,12 +57,12 @@ uses
   LCLVersion, InterfaceBase, LCLPlatformDef,
   SysUtils, Graphics, Forms, strutils, math,
   clipbrd, {for copy to clipboard}
-  Buttons, PopupNotifier, simpleipc,
+  Buttons, PopupNotifier, PairSplitter, simpleipc,
   CustApp, Types, fileutil,
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2023.12.14';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2024.01.24';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 
 type
   { Tmainwindow }
@@ -71,12 +71,26 @@ type
     bin3x3: TMenuItem;
     BitBtn1: TBitBtn;
     boxshape1: TShape;
+    data_range_groupBox1: TGroupBox;
+    dec1: TEdit;
+    dec_label: TLabel;
     error_label1: TLabel;
+    flip_indication1: TLabel;
     FontDialog1: TFontDialog;
+    histogram1: TImage;
+    Image1: TImage;
     image_north_arrow1: TImage;
+    inversemousewheel1: TCheckBox;
+    Label1: TLabel;
+    Label12: TLabel;
+    Label13: TLabel;
+    Label2: TLabel;
+    Label5: TLabel;
+    LabelCheck1: TLabel;
     LabelThree1: TLabel;
     LabelVar1: TLabel;
-    LabelCheck1: TLabel;
+    max2: TEdit;
+    maximum1: TScrollBar;
     Memo1: TMemo;
     Memo3: TMemo;
     menucopy2: TMenuItem;
@@ -121,13 +135,43 @@ type
     export_star_info1: TMenuItem;
     grid_az_alt1: TMenuItem;
     az_alt1: TMenuItem;
+    min2: TEdit;
+    minimum1: TScrollBar;
+    PageControl1: TPageControl;
+    PairSplitter1: TPairSplitter;
+    PairSplitterSide1: TPairSplitterSide;
+    PairSplitterSide2: TPairSplitterSide;
+    Panel1: TPanel;
+    Panel_top_menu1: TPanel;
+    Polynomial1: TComboBox;
+    ra1: TEdit;
+    range1: TComboBox;
+    ra_label: TLabel;
+    rotation1: TLabel;
+    saturation_factor_plot1: TTrackBar;
+    save1: TButton;
+    Shape_alignment_marker1: TShape;
+    Shape_alignment_marker2: TShape;
+    Shape_alignment_marker3: TShape;
+    shape_histogram1: TShape;
+    shape_manual_alignment1: TShape;
+    shape_marker1: TShape;
+    shape_marker2: TShape;
+    shape_marker3: TShape;
+    shape_marker4: TShape;
+    shape_paste1: TShape;
+    solve_button1: TButton;
+    SpeedButton1: TSpeedButton;
     star_profile1: TMenuItem;
     Separator2: TMenuItem;
+    stretch1: TComboBox;
+    TabSheet1: TTabSheet;
+    TabSheet2: TTabSheet;
+    UpDown1: TUpDown;
     vizier_gaia_annotation1: TMenuItem;
     simbad_annotation_deepsky_filtered1: TMenuItem;
     MenuItem36: TMenuItem;
     move_images1: TMenuItem;
-    flip_indication1: TLabel;
     SelectDirectoryDialog1: TSelectDirectoryDialog;
     Separator1: TMenuItem;
     simbad_annotation_star1: TMenuItem;
@@ -156,7 +200,6 @@ type
     MenuItem28: TMenuItem;
     MenuItem29: TMenuItem;
     MenuItem30: TMenuItem;
-    add_sip_check1: TMenuItem;
     add_limiting_magn_check1: TMenuItem;
     batch_overwrite1: TMenuItem;
     convert_to_ppm1: TMenuItem;
@@ -169,21 +212,15 @@ type
     aavso_chart1: TMenuItem;
     N4: TMenuItem;
     MenuItem38: TMenuItem;
-    save1: TButton;
     simbad_query1: TMenuItem;
     positionanddate1: TMenuItem;
     removegreenpurple1: TMenuItem;
-    sip1: TMenuItem;
-    solve_button1: TButton;
     zoomfactorone1: TMenuItem;
     extractred1: TMenuItem;
     extractblue1: TMenuItem;
     extractgreen1: TMenuItem;
     MenuItem24: TMenuItem;
     writepositionshort1: TMenuItem;
-    Shape_alignment_marker2: TShape;
-    Shape_alignment_marker3: TShape;
-    shape_manual_alignment1: TShape;
     sqm1: TMenuItem;
     Rota_mainmenu1: TMenuItem;
     batch_rotate_left1: TMenuItem;
@@ -202,7 +239,6 @@ type
     northeast1: TMenuItem;
     selectfont1: TMenuItem;
     popupmenu_statusbar1: TPopupMenu;
-    shape_marker4: TShape;
     Stretchdrawmenu1: TMenuItem;
     stretch_draw_fits1: TMenuItem;
     show_statistics1: TMenuItem;
@@ -212,7 +248,6 @@ type
     menupaste1: TMenuItem;
     PopupMenu_memo2: TPopupMenu;
     select_all1: TMenuItem;
-    PageControl1: TPageControl;
     save_to_tiff1: TMenuItem;
     extract_pixel_12: TMenuItem;
     MenuItem7: TMenuItem;
@@ -234,26 +269,18 @@ type
     select_all2: TMenuItem;
     set_area1: TMenuItem;
     rotate1: TMenuItem;
-    shape_histogram1: TShape;
-    shape_paste1: TShape;
     submenurotate1: TMenuItem;
     MenuItem19: TMenuItem;
-    shape_marker2: TShape;
-    shape_marker3: TShape;
     solvebytwopositions1: TMenuItem;
     enterposition1: TMenuItem;
     save_settings_as1: TMenuItem;
     settings_menu1: TMenuItem;
-    TabSheet1: TTabSheet;
-    TabSheet2: TTabSheet;
-    UpDown1: TUpDown;
     variable_star_annotation1: TMenuItem;
     clean_up1: TMenuItem;
     preview_demosaic1: TMenuItem;
     PopupNotifier1: TPopupNotifier;
     remove_colour1: TMenuItem;
     Returntodefaultsettings1: TMenuItem;
-    saturation_factor_plot1: TTrackBar;
     savesettings1: TMenuItem;
     MenuItem11: TMenuItem;
     MenuItem12: TMenuItem;
@@ -271,9 +298,6 @@ type
     remove_above1: TMenuItem;
     remove_below1: TMenuItem;
     MenuItem8: TMenuItem;
-    Shape_alignment_marker1: TShape;
-    shape_marker1: TShape;
-    SpeedButton1: TSpeedButton;
     split_osc1: TMenuItem;
     recent7: TMenuItem;
     recent8: TMenuItem;
@@ -293,10 +317,6 @@ type
     star_annotation1: TMenuItem;
     Remove_deep_sky_object1: TMenuItem;
     MenuItem4: TMenuItem;
-    ra1: TEdit;
-    dec1: TEdit;
-    Label1: TLabel;
-    Label2: TLabel;
     MainMenu1: TMainMenu;
     Help: TMenuItem;
     Exit1: TMenuItem;
@@ -308,10 +328,6 @@ type
     ShowFITSheader1: TMenuItem;
     SaveDialog1: TSaveDialog;
     error_get_it: TLabel;
-    ra_label: TLabel;
-    dec_label: TLabel;
-    rotation1: TLabel;
-    inversemousewheel1: TCheckBox;
     LoadFITSPNGBMPJPEG1: TMenuItem;
     SaveasJPGPNGBMP1: TMenuItem;
     batch_add_solution1: TMenuItem;
@@ -327,16 +343,6 @@ type
     N6: TMenuItem;
     Undo1: TMenuItem;
     stretch_draw1: TMenuItem;
-    data_range_groupBox1: TGroupBox;
-    Label12: TLabel;
-    minimum1: TScrollBar;
-    Label13: TLabel;
-    maximum1: TScrollBar;
-    min2: TEdit;
-    max2: TEdit;
-    histogram1: TImage;
-    Label5: TLabel;
-    range1: TComboBox;
     PopupMenu1: TPopupMenu;
     Copyposition1: TMenuItem;
     Copypositionindeg1: TMenuItem;
@@ -349,12 +355,8 @@ type
     ImageList1: TImageList;
     N9: TMenuItem;
     CropFITSimage1: TMenuItem;
-    stretch1: TComboBox;
-    Polynomial1: TComboBox;
     N3: TMenuItem;
     StatusBar1: TStatusBar;
-    Panel1: TPanel;
-    Image1: TImage;
 
     procedure add_marker_position1Click(Sender: TObject);
     procedure annotate_with_measured_magnitudes1Click(Sender: TObject);
@@ -416,7 +418,6 @@ type
     procedure inspection1click(Sender: TObject);
     procedure removegreenpurple1Click(Sender: TObject);
     procedure roundness1Click(Sender: TObject);
-    procedure sip1Click(Sender: TObject);
     procedure sqm1Click(Sender: TObject);
     procedure mountposition1Click(Sender: TObject);
     procedure northeast1Click(Sender: TObject);
@@ -629,7 +630,7 @@ var
   vsp : array of theauid;//for comparison stars AUID
   vsx : array of thevar;//for variable stars AUID
   img_backup      : array of timgbackup;{dynamic so memory can be freed}
-  img_loaded,img_temp,img_dark,img_flat,img_bias,img_average,img_variance,img_buffer,img_final :image_array;
+  img_loaded,img_temp,img_dark,img_flat,img_bias,img_average,img_variance,img_final :image_array;
   head,    {for lights}
   head_2,  {for analysing lights and dark, flats}
   head_ref {for reference light in stacking}
@@ -695,7 +696,7 @@ var {################# initialised variables #########################}
   database_path:string='';{to be set in main}
   bayerpat: string='';{bayer pattern}
   bayerpattern_final :integer=2; {ASI294, ASI071, most common pattern}
-  sip                : boolean=false; {use SIP coefficients}
+  sip               : boolean=false; {use SIP coefficients}
 
   xbayroff: double=0;{additional bayer pattern offset to apply}
   Ybayroff: double=0;{additional bayer pattern offset to apply}
@@ -770,6 +771,7 @@ procedure update_generic(message_key,message_value,message_comment:string);{upda
 procedure update_integer(inpt,comment1:string;x:integer);{update or insert variable in header}
 procedure add_integer(inpt,comment1:string;x:integer);{add integer variable to header}
 procedure update_float(inpt,comment1:string;preserve_comment:boolean;x:double);{update keyword of fits header in memo}
+
 procedure remove_key(inpt:string; all:boolean);{remove key word in header. If all=true then remove multiple of the same keyword}
 
 function fnmodulo (x,range: double):double;
@@ -844,7 +846,7 @@ function fits_tiff_file_name(inp : string): boolean; {fits or tiff file name?}
 function tiff_file_name(inp : string): boolean; {tiff file name?}
 function prepare_IAU_designation(rax,decx :double):string;{radialen to text hhmmss.s+ddmmss  format}
 procedure coordinates_to_celestial(fitsx,fitsy : double; head: Theader; out ram,decm  : double); {fitsX, Y to ra,dec}
-procedure sensor_coordinates_to_celestial(fitsx,fitsy : double; out  ram,decm  : double {fitsX, Y to ra,dec});
+procedure sensor_coordinates_to_celestial(head : theader; fitsx,fitsy : double; out ram,decm  : double) {fitsX, Y to ra,dec};
 procedure celestial_to_pixel(ra_t,dec_t: double; out fitsX,fitsY: double);{ra,dec to fitsX,fitsY}
 procedure show_shape_manual_alignment(index: integer);{show the marker on the reference star}
 procedure write_astronomy_wcs(filen:string);
@@ -868,6 +870,9 @@ procedure calibrate_photometry;
 procedure measure_hotpixels(x1,y1, x2,y2,col : integer; sd,mean:  double; img : image_array; out hotpixel_perc, hotpixel_adu :double);{calculate the hotpixels ratio and average value}
 function duplicate(img:image_array) :image_array;//fastest way to duplicate an image
 procedure annotation_position(aname:string;var ra,dec : double);// calculate ra,dec position of one annotation
+procedure remove_photometric_calibration;//from header
+procedure remove_solution;//remove all solution key words efficient
+
 
 const   bufwide=1024*120;{buffer size in bytes}
 
@@ -929,7 +934,8 @@ var
 implementation
 
 uses unit_dss, unit_stack, unit_tiff,unit_star_align, unit_astrometric_solving, unit_star_database, unit_annotation, unit_thumbnail, unit_xisf,unit_gaussian_blur,unit_inspector_plot,unit_asteroid,
-     unit_astrometry_net, unit_live_stacking, unit_hjd,unit_hyperbola, unit_aavso, unit_listbox, unit_sqm, unit_stars_wide_field,unit_constellations,unit_raster_rotate,unit_download,unit_ephemerides, unit_online_gaia,unit_contour;
+     unit_astrometry_net, unit_live_stacking, unit_hjd,unit_hyperbola, unit_aavso, unit_listbox, unit_sqm, unit_stars_wide_field,unit_constellations,unit_raster_rotate,unit_download,unit_ephemerides, unit_online_gaia,unit_contour
+     ;
 
 {$R astap_cursor.res}   {FOR CURSORS}
 
@@ -1109,14 +1115,14 @@ var {################# initialised variables #########################}
         TheFile.free;
      end;
 
-     Function validate_double:double;{read floating point or integer values}
-     var t : string[20];
+     function validate_double:double;{read floating point or integer values}
+     var t : string[21];
          r,err : integer;
      begin
        t:='';
        r:=I+10;{position 11 equals 10}
-       while ((header[r]<>'/') and (r<=I+29) {pos 30}) do {'/' check is strictly not necessary but safer}
-       begin  {read 20 characters max, position 11 to 30 in string, position 10 to 29 in pchar}
+       while ((header[r]<>'/') and (r<=I+30) {pos 31}) do {'/' check is strictly not necessary but safer. Read up to position 31 so one more then fits standard since CFITSIO could write for minus values up to position 31. A violation of FITS standard 4}
+       begin  {read 20 characters max, position 11 to 31 in string, position 10 to 30 in pchar}
          if header[r]<>' ' then t:=t+header[r];
          inc(r);
        end;
@@ -1423,7 +1429,7 @@ begin
           end; {C}
 
 
-          if ( ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='C') and (header[i+3]='P') and (header[i+4]='I') and (header[i+5]='X')) or     {secpi  x1/2}
+          if ( ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='C') and (header[i+3]='P') and (header[i+4]='I') and (header[i+5]='X')) or     {secpix1/2}
                ((header[i]='S') and (header[i+1]='C')  and (header[i+2]='A') and (header[i+3]='L') and (header[i+4]='E') and (header[i+5]=' ')) or     {SCALE value for SGP files}
                ((header[i]='P') and (header[i+1]='I')  and (header[i+2]='X') and (header[i+3]='S') and (header[i+4]='C') and (header[i+5]='A')) ) then {pixscale}
           begin
@@ -1448,6 +1454,17 @@ begin
             if head.dec0=0 then head.dec0:=dec_mount; {ra telescope, read double value only if crval is not available}
           end;
 
+//          if ((header[i]='F') and (header[i+1]='O')  and (header[i+2]='V')  and (header[i+3]='R') and (header[i+4]='A')) then  {ra}
+//          begin
+//            ra_mount:=validate_double*pi/180;
+//            if head.ra0=0 then head.ra0:=ra_mount; {ra telescope, read double value only if crval is not available}
+//          end;
+//          if ((header[i]='F') and (header[i+1]='O')  and (header[i+2]='V')  and (header[i+3]='D') and (header[i+4]='E')) then  {dec}
+//          begin
+//            dec_mount:=validate_double*pi/180;
+//            if head.dec0=0 then head.dec0:=dec_mount; {ra telescope, read double value only if crval is not available}
+//          end;
+
 
           if ((header[i]='O') and (header[i+1]='B')  and (header[i+2]='J')) then {OBJ}
           begin
@@ -1465,7 +1482,8 @@ begin
                 dec_mount:=dec_radians;
               end
               else {for older MaximDL5}
-              if ((header[i+5]='A') and (header[i+6]='L') and (centalt='')) then centalt:=get_as_string {universal for string and floats}
+              if ((header[i+5]='A') and (header[i+6]='L') and (centalt='')) then
+                                                                            centalt:=get_as_string {universal for string and floats}
               else {for older MaximDL5}
               if ((header[i+5]='A') and (header[i+6]='Z')and (centaz='')) then
                                    centaz:=get_as_string; {universal for string and floats}
@@ -2933,11 +2951,11 @@ begin
   if calc_noise_level then  {find star level and background noise level}
   begin
     {calculate noise level}
-    stepsize:=round(head.height/71);{get about 71x71=5000 samples. So use only a fraction of the pixels}
-    if odd(stepsize)=false then stepsize:=stepsize+1;{prevent problems with even raw OSC images}
-
     width5:=Length(img[0,0]);    {width}
     height5:=Length(img[0]); {height}
+    stepsize:=round(height5/71);{get about 71x71=5000 samples. So use only a fraction of the pixels}
+    if odd(stepsize)=false then stepsize:=stepsize+1;{prevent problems with even raw OSC images}
+
 
     sd:=99999;
     iterations:=0;
@@ -3000,7 +3018,6 @@ begin
     // 2) Below saturated level. So subtract 1 for saturated images. Otherwise no stars are detected}
     back.star_level:= max(max(3.5*sd,1 {1})  ,back.star_level-back.backgr-1 {2) below saturation}); //star_level is relative to background
     back.star_level2:=max(max(3.5*sd,1 {1})  ,back.star_level2-back.backgr-1 {2) below saturation}); //star_level is relative to background
-  // beep;
   end;
 end;
 
@@ -3021,10 +3038,9 @@ begin
   end;
 end;
 
-
-procedure update_float(inpt,comment1:string;preserve_comment:boolean;x:double);{update keyword of fits header in memo}
+procedure update_floatOLD(inpt,comment1:string;preserve_comment:boolean;x:double);{update keyword of fits header in memo}
  var
-   s,aline  : string;
+   s,aline        : string;
    count1: integer;
 begin
   str(x:20,s);
@@ -3035,6 +3051,7 @@ begin
     if pos(inpt,mainwindow.Memo1.Lines[count1])>0 then {found}
     begin
       aline:=mainwindow.Memo1.Lines[count1];
+
       if ((preserve_comment) and (copy(aline,32,1)='/')) then
       begin
         delete(aline,11,20); {preserve comment}
@@ -3050,6 +3067,48 @@ begin
       exit;
     end;
     count1:=count1-1;
+  end;
+  {not found, add to the end}
+  mainwindow.memo1.lines.insert(mainwindow.Memo1.Lines.Count-1,inpt+' '+s+comment1);
+end;
+
+
+procedure update_float(inpt,comment1:string;preserve_comment:boolean;x:double);{update keyword of fits header in memo}
+ var
+   s,aline,buf           : string;
+   cnt,line_end,i,count,len   : integer;
+begin
+  str(x:20,s);
+
+  cnt:=pos(inpt,mainwindow.Memo1.text);
+  if cnt>0 then
+  begin //insert;
+    line_end:=posex(LineEnding,mainwindow.Memo1.text,cnt+1);//lines length could be different then 80 due to editing
+    aline:=copy(mainwindow.Memo1.text,cnt,line_End - cnt );
+
+    if ((preserve_comment) and (copy(aline,32,1)='/')) then
+    begin
+      delete(aline,11,20); //preserve comment
+      insert(s,aline,11);
+    end
+    else
+    begin
+      delete(aline,11,120);  //delete all including above position 80
+      aline:=aline+s+comment1; //line length correction will be done during saving FITS
+    end;
+
+    //replace, this is much faster then insert
+    buf:=mainwindow.Memo1.text;
+
+    for i:=0 to line_end-cnt-1 do
+    begin
+     if i<length(aline) then
+       buf[cnt+i]:=aline[i+1]
+     else
+       buf[cnt+i]:=' ';
+    end;
+    mainwindow.Memo1.text:=buf;
+    exit;
   end;
   {not found, add to the end}
   mainwindow.memo1.lines.insert(mainwindow.Memo1.Lines.Count-1,inpt+' '+s+comment1);
@@ -3197,6 +3256,85 @@ begin
   end;
 end;
 
+
+procedure remove_solution;//remove all solution key words efficient
+var
+  cnt,line_end : integer;
+  buf : string;
+     procedure remove(inpt : string);
+     begin
+       cnt:=pos(inpt,buf);
+       if cnt>0 then
+       begin //remove;
+         line_end:=posex(LineEnding,mainwindow.Memo1.text,cnt+1);//lines length could be different then 80 due to editing
+         delete(buf,cnt,line_end-cnt+length(LineEnding));//delete the line
+       end;
+     end;
+
+begin
+  head.cd1_1:=0;//no WCS
+  A_ORDER:=0;//no SIP
+
+  buf:=mainwindow.Memo1.text;
+  remove    ('CD1_1   =');
+  remove    ('CD1_2   =');
+  remove    ('CD2_1   =');
+  remove    ('CD2_2   =');
+
+  remove    ('A_ORDER =');
+  remove    ('A_0_0   =');
+  remove    ('A_0_1   =');
+  remove    ('A_0_2   =');
+  remove    ('A_0_3   =');
+  remove    ('A_1_0   =');
+  remove    ('A_1_1   =');
+  remove    ('A_1_2   =');
+  remove    ('A_2_0   =');
+  remove    ('A_2_1   =');
+  remove    ('A_3_0   =');
+
+  remove    ('B_ORDER =');
+  remove    ('B_0_0   =');
+  remove    ('B_0_1   =');
+  remove    ('B_0_2   =');
+  remove    ('B_0_3   =');
+  remove    ('B_1_0   =');
+  remove    ('B_1_1   =');
+  remove    ('B_1_2   =');
+  remove    ('B_2_0   =');
+  remove    ('B_2_1   =');
+  remove    ('B_3_0   =');
+
+  remove    ('AP_ORDER=');
+  remove    ('AP_0_0  =');
+  remove    ('AP_0_1  =');
+  remove    ('AP_0_2  =');
+  remove    ('AP_0_3  =');
+  remove    ('AP_1_0  =');
+  remove    ('AP_1_1  =');
+  remove    ('AP_1_2  =');
+  remove    ('AP_2_0  =');
+  remove    ('AP_2_1  =');
+  remove    ('AP_3_0  =');
+
+  remove    ('BP_ORDER=');
+  remove    ('BP_0_0  =');
+  remove    ('BP_0_1  =');
+  remove    ('BP_0_2  =');
+  remove    ('BP_0_3  =');
+  remove    ('BP_1_0  =');
+  remove    ('BP_1_1  =');
+  remove    ('BP_1_2  =');
+  remove    ('BP_2_0  =');
+  remove    ('BP_2_1  =');
+  remove    ('BP_3_0  =');
+
+  remove    ('CROTA1  =');
+  remove    ('CROTA2  =');
+
+
+  mainwindow.Memo1.text:=buf;
+end;
 
 procedure remove_key(inpt:string; all:boolean);{remove key word in header. If all=true then remove multiple of the same keyword}
 var
@@ -3448,7 +3586,7 @@ begin
   #13+#10+
   #13+#10+'Send an e-mail if you like this free program. Feel free to distribute!'+
   #13+#10+
-  #13+#10+'© 2018, 2023 by Han Kleijn. License MPL 2.0, Webpage: www.hnsky.org';
+  #13+#10+'© 2018, 2024 by Han Kleijn. License MPL 2.0, Webpage: www.hnsky.org';
 
    application.messagebox(pchar(about_message), pchar(about_title),MB_OK);
 end;
@@ -3522,7 +3660,7 @@ end;
 procedure Tmainwindow.deepsky_overlay1Click(Sender: TObject);
 begin
   load_deep;{load the deepsky database once. If loaded no action}
-  plot_deepsky;
+  plot_deepsky(false);
 end;
 
 
@@ -3595,6 +3733,8 @@ begin
   head.height:=h;
   img_temp2:=nil;
 
+  mainwindow.Memo1.Lines.BeginUpdate;
+
   update_integer('NAXIS1  =',' / length of x axis                               ' ,head.width);
   update_integer('NAXIS2  =',' / length of y axis                               ' ,head.height);
 
@@ -3631,6 +3771,9 @@ begin
   fact:=inttostr(binfactor);
   fact:=fact+'x'+fact;
   add_text   ('HISTORY   ','BIN'+fact+' version of '+filename2);
+
+  mainwindow.Memo1.Lines.EndUpdate;
+
 end;
 
 
@@ -3797,7 +3940,7 @@ procedure Tmainwindow.hyperleda_annotation1Click(Sender: TObject);
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   load_hyperleda;   { Load the database once. If loaded no action}
-  plot_deepsky;{plot the deep sky object on the image}
+  plot_deepsky(false);{plot the deep sky object on the image}
   Screen.Cursor:=crDefault;
 end;
 
@@ -3893,7 +4036,7 @@ var
   SIN_dec_t,COS_dec_t,
   SIN_dec_ref,COS_dec_ref,det, delta_ra,SIN_delta_ra,COS_delta_ra, H, dRa,dDec,u0,v0 : double;
 begin
-  {5. Conversion (RA,DEC) -> (x,y) of reference image}
+  {5. Conversion (RA,DEC) -> x,y image}
   sincos(dec_t,SIN_dec_t,COS_dec_t);{sincos is faster then separate sin and cos functions}
   sincos(head.dec0,SIN_dec_ref,COS_dec_ref);{}
 
@@ -3944,7 +4087,7 @@ begin
 
   if ((data0='c') or (data0='C')) then {place marker in middle}
   begin
-    sensor_coordinates_to_celestial((head.width+1)/2,(head.height+1)/2,ra4,dec4);{calculate the center position also for solutions with the reference pixel somewhere else}
+    sensor_coordinates_to_celestial(head,(head.width+1)/2,(head.height+1)/2,ra4,dec4);{calculate the center position also for solutions with the reference pixel somewhere else}
     error1:=false;
     error2:=false;
     data1:='Center image '; {for hint}
@@ -4049,7 +4192,7 @@ begin
     end;
 
     mainwindow.rotation1.caption:=floattostrf(head.crota2, FFfixed, 0, 2)+'°';{show rotation}
-    mainwindow.flip_indication1.Visible:=head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1 >0;// flipped?  sign(CDELT1*CDELT2) =  sign(cd1_1*cd2_2 - cd1_2*cd2_1) See World Coordinate Systems Representations within the FITS format, draft 1988
+    mainwindow.flip_indication1.Visible:=head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1 >0;// flipped image?
 
     Canvas.Pen.Color := clred;
 
@@ -5118,9 +5261,8 @@ begin
   mainwindow.Copypositionindeg1.enabled:=yes;{enable popup menu}
   mainwindow.export_star_info1.enabled:=yes;{enable popup menu}
   mainwindow.online_query1.enabled:=yes;{enable popup menu}
-
-  mainwindow.sip1.enabled:=yes; {allow adding sip coefficients}
-  stackmenu1.focallength1Exit(nil); {update output calculator}
+  mainwindow.Polynomial1Change(nil);{update color for SIP}
+  stackmenu1.focallength1Exit(nil); {update output calculator after a SOLVE}
 end;
 
 
@@ -5177,7 +5319,7 @@ begin
 
   mainwindow.SaveFITSwithupdatedheader1.Enabled:=((fits) and (fits_file_name(filename2)) and (fileexists(filename2)));{menu disable, no file available to update header}
   mainwindow.saturation_factor_plot1.enabled:=head.naxis3=3;{colour};
-  mainwindow.Polynomial1Change(nil);{update color}
+  mainwindow.Polynomial1Change(nil);{update color after an image LOAD}
 
   update_menu_related_to_solver((fits) and (head.cd1_1<>0));
   stackmenu1.resize_factor1Change(nil);{update dimensions binning menu}
@@ -5397,6 +5539,8 @@ begin
     head.width:=w;
     head.height:=h;
 
+    mainwindow.Memo1.Lines.BeginUpdate;
+
     update_integer('NAXIS1  =',' / length of x axis                               ' ,head.width);
     update_integer('NAXIS2  =',' / length of y axis                               ' ,head.height);
 
@@ -5444,6 +5588,9 @@ begin
     add_text   ('HISTORY   ','One raw colour extracted.');
 
     update_text   ('FILTER  =',copy(#39+filtern+#39+'                   ',1,21)+'/ Filter name');
+
+    mainwindow.Memo1.Lines.EndUpdate;
+
     img_loaded:=img_temp11;
     result:=ChangeFileExt(FileName7,'_'+filtern+'.fit');
     if save_fits(img_loaded,result,16,true{overwrite}) =false then result:='';
@@ -7295,18 +7442,6 @@ var
         TheFile.free;
         TheFile_new.free;
      end;
-
-     Function validate_double:double;{read values}
-     var t :string[20];
-         r,err : integer;
-         x     :double;
-     begin
-       t:='';
-       for r:=I+10 to I+29 do
-       if header[r]<>' ' then t:=t+header[r];
-       val(t,x,err);
-       validate_double:=x;
-     end;
 begin
   result:=false;{assume failure}
   filename_tmp:=changeFileExt(filen2,'.tmp');{new file will be first written to this file}
@@ -7599,7 +7734,6 @@ begin
 
       mainwindow.preview_demosaic1.Checked:=Sett.ReadBool('main','preview_demosaic',false);
       mainwindow.batch_overwrite1.checked:=Sett.ReadBool('main','s_overwrite',false);
-      mainwindow.add_sip_check1.Checked:=Sett.ReadBool('main','add_sip',false);
       mainwindow.maintain_date1.Checked:=Sett.ReadBool('main','maintain_date',false);
 
 
@@ -7656,6 +7790,8 @@ begin
       c:=Sett.ReadInteger('stack','stackmenu_top',987654321);  if c<>987654321 then stackmenu1.top:=c;
       c:=Sett.ReadInteger('stack','stackmenu_height',987654321); if c<>987654321 then stackmenu1.height:=c;
       c:=Sett.ReadInteger('stack','stackmenu_width',987654321); if c<>987654321 then stackmenu1.width:=c;
+      c:=Sett.ReadInteger('stack','splitter',987654321); if c<>987654321 then stackmenu1.pairsplitter1.position:=c;
+
 
       c:=Sett.ReadInteger('stack','mosaic_crop',987654321);if c<>987654321 then stackmenu1.mosaic_crop1.position:=c;
 
@@ -7722,6 +7858,7 @@ begin
       stackmenu1.calibrate_prior_solving1.Checked:=Sett.ReadBool('stack','calibrate_prior_solving',false);
       stackmenu1.check_pattern_filter1.Checked:=Sett.ReadBool('stack','check_pattern_filter',false);
       stackmenu1.use_triples1.Checked:=Sett.ReadBool('stack','use_triples',false);
+      stackmenu1.add_sip1.Checked:=Sett.ReadBool('stack','sip',false);
 
       dum:=Sett.ReadString('stack','star_database',''); if dum<>'' then stackmenu1.star_database1.text:=dum;
       dum:=Sett.ReadString('stack','solve_search_field',''); if dum<>'' then stackmenu1.search_fov1.text:=dum;
@@ -7975,7 +8112,6 @@ begin
 
       sett.writeBool('main','preview_demosaic',mainwindow.preview_demosaic1.Checked);
       sett.writeBool('main','s_overwrite',mainwindow.batch_overwrite1.checked);
-      sett.writeBool('main','add_sip',mainwindow.add_sip_check1.Checked);
       sett.writeBool('main','maintain_date',mainwindow.maintain_date1.Checked);
 
 
@@ -8027,6 +8163,7 @@ begin
       sett.writeInteger('stack','stackmenu_top',stackmenu1.top);
       sett.writeInteger('stack','stackmenu_height',stackmenu1.height);
       sett.writeInteger('stack','stackmenu_width',stackmenu1.width);
+      sett.writeInteger('stack','splitter',stackmenu1.pairsplitter1.position);
 
       sett.writeInteger('stack','stack_method',stackmenu1.stack_method1.itemindex);
 
@@ -8092,6 +8229,7 @@ begin
       sett.writeBool('stack','calibrate_prior_solving',stackmenu1.calibrate_prior_solving1.checked);
       sett.writeBool('stack','check_pattern_filter',stackmenu1.check_pattern_filter1.checked);
       sett.writeBool('stack','use_triples',stackmenu1.use_triples1.checked);
+      sett.writeBool('stack','sip',stackmenu1.add_sip1.checked);
 
       if  stackmenu1.use_manual_alignment1.checked then sett.writestring('stack','align_method','4')
       else
@@ -8833,7 +8971,7 @@ begin
     begin
       if conv_index=2 {dcraw} then head.set_temperature:=extract_temperature_from_filename(filename4);{including update header}
       update_text('OBJECT  =',#39+extract_objectname_from_filename(filename4)+#39); {spaces will be added/corrected later}
-      result:=save_fits(img_buffer,filename4,16,true);{overwrite. Filename2 will be set to fits file}
+      result:=save_fits(img,filename4,16,true);{overwrite. Filename2 will be set to fits file}
     end;
     if loadfile=false then  img:=nil;{clear memory}
   end
@@ -9181,6 +9319,15 @@ begin
 end;
 
 
+procedure remove_photometric_calibration;//from header
+begin
+  head.mzero:=0;//clear photometric calibration
+  remove_key('MZERO   =',false{all});
+  remove_key('MZEROR  =',false{all});
+  remove_key('MZEROAPT=',false{all});
+end;
+
+
 procedure Tmainwindow.bin_2x2menu1Click(Sender: TObject);
 begin
  if head.naxis<>0 then
@@ -9199,6 +9346,7 @@ begin
       filename2:=ChangeFileExt(Filename2,'_bin3x3.fit');
     end;
 
+    remove_photometric_calibration;//from header
     plot_fits(mainwindow.image1,true,true);{plot real}
     mainwindow.caption:=Filename2;
     Screen.Cursor:=crDefault;
@@ -9465,13 +9613,27 @@ var
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
+//0, No annotation
+//1, Annotation local DB mag 13
+//2, Annotation local DB mag 15
+//3, Annotation online DB mag 13
+//4, Annotation online DB mag 15
+//5, Annotation online DB mag 99
+//6, Annotation local DB mag 13 & measure all
+//7, Annotation local DB mag 15 & measure all
+//8, Annotation online DB mag 13 & measure all
+//9, Annotation online DB mag 15 & measure all
+//10,Annotation online DB mag 99 & measure all
+
   case stackmenu1.annotate_mode1.itemindex of
-       0,1,5: lim_magn:=-99;//use local database
-       2,6:   lim_magn:=13;
-       3,7:   lim_magn:=15;
-       4,8:   lim_magn:=99;
+       0,1,7: begin lim_magn:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
+       2,8:   begin lim_magn:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
+       3,9:   begin lim_magn:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
+       4,10: lim_magn:=13;
+       5,11: lim_magn:=15;
+       6,12:lim_magn:=99;
        else
-             lim_magn:=99;
+          lim_magn:=99;
      end; //case
 
   if lim_magn>0 then //online version
@@ -9490,8 +9652,7 @@ begin
   else
   begin //local version
     memo2_message('Using local variable database. Online version can be set in tab Photometry');
-    load_variable;{Load the database once. If loaded no action}
-    plot_deepsky; {Plot the deep sky object on the image}
+    plot_deepsky(sender=stackmenu1.photometry_button1); {Plot the variables on the image. If photmetry_button then only fill variable_list}
   end;
 
   Screen.Cursor:=crDefault;
@@ -9528,202 +9689,6 @@ end;
 procedure Tmainwindow.roundness1Click(Sender: TObject);
 begin
   form_inspection1.roundness1Click(nil);
-end;
-
-
-procedure Tmainwindow.sip1Click(Sender: TObject); {simple SIP coefficients calculation assuming symmetric radial distortion. Distortion increases with the third power of the off-center distance}
-var
-  stars_measured,i,countX,countY  : integer;
-  xc,yc,x,y,factorX,factorY       : double;
-  factorsX,factorsY  : array of double;
-  valid              : boolean;
-begin
-  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
-  if calculate_undisturbed_image_scale then {calculate and correct the image scale as if the optical system is undisturbed. The distance between the stars in the center are measured and compared between detection and database. It is assumed that the center of the image is undisturbed optically }
-  begin
-    measure_distortion(false {plot and no sip correction},stars_measured);{measure distortion of all stars}
-
-   {Standard formala for optical distortion
-
-    Xdelta:=Xideal*(k1*r1^2 + k2*r1^4 + ....)
-
-    simplify by taking only the first factor
-
-    Xdelta:=Xideal* k1*r1^2
-
-    Xdelta:=Xideal* k1*(X^2+Y^2)
-
-    Xdelta:=k1*X^3+  k1* X*Y^2   formula (1) for the SIP correction       X^3 is AP_3_0      and X*Y^2   is AP_1_2
-
-    k1:=Xdelta/(X^3 +  (X*Y^2)   formula (2) to find k1
-
-    to find k1 take the median from all points using formula (2) where x or y is large enough to measure the distortion}
-
-    valid:=false;
-
-    if stars_measured>0 then
-    begin
-      countX:=0;
-      countY:=0;
-      setlength(factorsX,stars_measured);
-      setlength(factorsY,stars_measured);
-
-      for i:=0 to stars_measured-1 do
-      begin
-        x:=distortion_data[0,i]-head.crpix1;{database, x from center}
-        y:=distortion_data[1,i]-head.crpix2;
-        xc:=distortion_data[2,i]-head.crpix1;{measured, x from center}
-        yc:=distortion_data[3,i]-head.crpix2;
-
-        if abs(x)>0.35*head.height then valid:=true; {stars detected over 70% or range.}
-
-        if ((abs(x-xc)>=1){some offset} and  (abs(x)>0.2*head.crpix1)) {some distance from center} then
-        begin
-          factorsX[countX]:=(x-xc)/(x*(sqr(x)+sqr(y))); {measure the k1 factor for every star detection}
-          inc(countX,1);
-        end;
-        if ((abs(y-yc)>=1){some offset} and  (abs(y)>0.2*head.crpix2)) {some distance from center} then
-        begin
-          factorsY[countY]:=(y-yc)/(y*(sqr(x)+sqr(y))); {measure the k1 factor for every star detection}
-          inc(countY,1);
-        end;
-      end;
-
-      if valid then
-      begin
-
-        factorX:=smedian(factorsX,countX);{filter out outliers using median}
-        factorY:=smedian(factorsY,countY);{filter out outliers using median}
-
-        factorsX:=nil;
-        factorsY:=nil;
-
-        //                0            1           2           3           4             5            6
-        //     u2:=u + A_0_0+ a_1_0*u + a_2_0*u*u + a_0_2*v*v + a_1_1*u*v + a_2_1*u*u*v+ a_1_2*u*v*v + a_3_0*u*u*u + a_0_3*v*v*v; {SIP correction for second or third order}
-        //     v2:=v + B_0_0 + b_0_1*v + b_2_0*u*u + b_0_2*v*v + b_1_1*u*v + b_2_1*u*u*v+ b_1_2*u*v*v + b_3_0*u*u*u + b_0_3*v*v*v; {SIP correction for second or third order}
-
-
-        {pixel to sky coefficients}
-        A_ORDER:=3;{allow usage in astap}
-        A_0_0:=0;
-        A_0_1:=0;
-        A_0_2:=0;
-        A_0_3:=0;
-        A_1_0:=0;
-        A_1_1:=0;
-        A_1_2:=factorX;
-        A_2_0:=0;
-        A_2_1:=0;
-        A_3_0:=factorX;
-
-        B_0_0:=0;
-        B_0_1:=0;
-        B_0_2:=0;
-        B_0_3:=factorY;
-        B_1_0:=0;
-        B_2_0:=0;
-        B_3_0:=0;
-        B_1_1:=0;
-        B_1_2:=0;
-        B_2_1:=factorY;
-        B_3_0:=0;
-
-        {sky to pixel coefficients}
-        AP_order:=3; {allow usage in astap}
-        AP_0_0:=0; {approximation just negative the factors}
-        AP_0_1:=0;
-        AP_0_2:=0;
-        AP_0_3:=0;
-        AP_1_0:=0;
-        AP_1_1:=0;
-        AP_1_2:=-factorX;
-        AP_2_0:=0;
-        AP_2_1:=0;
-        AP_3_0:=-factorX;
-
-        BP_0_0:=0; {approximation just negative the factors}
-        BP_0_1:=0;
-        BP_0_2:=0;
-        BP_0_3:=-factorY;
-        BP_1_0:=0;
-        BP_1_1:=0;
-        BP_1_2:=0;
-        BP_2_0:=0;
-        BP_2_1:=-factorY;
-        BP_3_0:=0;
-
-
-
-        update_float  ('A_ORDER =',' / Polynomial order, axis 1. Pixel to Sky         ',false,3);
-        remove_key    ('A_0_0   =',false{all});
-        remove_key    ('A_0_1   =',false{all});
-        remove_key    ('A_0_2   =',false{all});
-        remove_key    ('A_0_3   =',false{all});
-        remove_key    ('A_1_0   =',false{all});
-        remove_key    ('A_1_1   =',false{all});
-        update_float  ('A_1_2   =',' / SIP coefficient                                ',false,A_1_2);
-        remove_key    ('A_2_0   =',false{all});
-        remove_key    ('A_2_1   =',false{all});
-        update_float  ('A_3_0   =',' / SIP coefficient                                ',false,A_3_0);
-
-        update_float  ('B_ORDER =',' / Polynomial order, axis 2. Pixel to sky.        ',false,3);
-        remove_key    ('B_0_0   =',false{all});
-        remove_key    ('B_0_1   =',false{all});
-        remove_key    ('B_0_2   =',false{all});
-        update_float  ('B_0_3   =',' / SIP coefficient                                ',false,B_0_3);
-        remove_key    ('B_1_0   =',false{all});
-        remove_key    ('B_1_1   =',false{all});
-        remove_key    ('B_1_2   =',false{all});
-        remove_key    ('B_2_0   =',false{all});
-        update_float  ('B_2_1   =',' / SIP coefficient                                ',false,B_2_1);
-        remove_key    ('B_3_0   =',false{all});
-
-        update_float('AP_ORDER=',' / Inv polynomial order, axis 1. Sky to pixel.      ',false,3);
-        remove_key  ('AP_0_0  =',false{all});
-        remove_key  ('AP_0_1  =',false{all});
-        remove_key  ('AP_0_2  =',false{all});
-        remove_key  ('AP_0_3  =',false{all});
-        remove_key  ('AP_1_0  =',false{all});
-        remove_key  ('AP_1_1  =',false{all});
-        update_float('AP_1_2  =',' / SIP coefficient                                ',false,AP_1_2);
-        remove_key  ('AP_2_0  =',false{all});
-        remove_key  ('AP_2_1  =',false{all});
-        update_float('AP_3_0  =',' / SIP coefficient                                ',false,AP_3_0);
-
-        update_float('BP_ORDER=',' / Inv polynomial order, axis 2. Sky to pixel.    ',false,3);
-        remove_key  ('BP_0_0  =',false{all});
-        remove_key  ('BP_0_1  =',false{all});
-        remove_key  ('BP_0_2  =',false{all});
-        update_float('BP_0_3  =',' / SIP coefficient                                ',false ,BP_0_3);
-        remove_key  ('BP_1_0  =',false{all});
-        remove_key  ('BP_1_1  =',false{all});
-        remove_key  ('BP_1_2  =',false{all});
-        remove_key  ('BP_2_0  =',false{all});
-        update_float('BP_2_1  =',' / SIP coefficient                                ',false ,BP_2_1);
-        remove_key  ('BP_3_0  =',false{all});
-
-        mainwindow.Polynomial1.color:=clform;
-        mainwindow.Polynomial1.ItemIndex:=1;{set at SIP}
-        sip:=true;{generic variable. Use sip corrections for plotting}
-
-        memo2_message('Added SIP coefficients to header for a 3th order radial correction. This correction will only work for barrel distortion and pincushion distortion. You could test it with the inspector showing the distortion vectors in SIP readout mode.');
-        //up to '+floattostrF(abs(factor)*max_radius*max_radius*max_radius,ffFixed,3,2)+' pixels.');{factor*radius^3}
-      end
-      else
-      begin
-        beep;
-        memo2_message('Abort, not enough stars detected in outer regions!');
-      end;
-
-    end
-    else
-    begin
-      beep;
-      memo2_message('Abort, not enough stars detected!');
-    end;
-  end;{succesfull measure scale}
-  Screen.Cursor:=crDefault;
 end;
 
 
@@ -9975,8 +9940,8 @@ var
 begin
   if head.cdelt2<>0 then
   begin
-    sensor_coordinates_to_celestial(fitsX1,fitsY1,ra1,dec1);{calculate the ra,dec position}
-    sensor_coordinates_to_celestial(fitsX2,fitsY2,ra2,dec2);{calculate the ra,dec position}
+    sensor_coordinates_to_celestial(head,fitsX1,fitsY1,ra1,dec1);{calculate the ra,dec position}
+    sensor_coordinates_to_celestial(head,fitsX2,fitsY2,ra2,dec2);{calculate the ra,dec position}
     ang_sep(ra1,dec1,ra2,dec2, sep);
     sep:=sep*180/pi; //convert to degrees
     if sep<1/60 then seperation:=inttostr(round(sep*3600))+'"'
@@ -9984,10 +9949,7 @@ begin
     if sep<1 then seperation:=floattostrF(sep*60,FFfixed,0,2)+#39
     else
     seperation:=floattostrF(sep,FFfixed,0,2)+'°';
-
-    {see meeus new formula 46.5, angle of moon limb}
-    //See also https://astronomy.stackexchange.com/questions/25306/measuring-misalignment-between-two-positions-on-sky
-    pa:=FloattostrF(arctan2(cos(dec2)*sin(ra2-ra1),sin(dec2)*cos(dec1) - cos(dec2)*sin(dec1)*cos(ra2-ra1))*180/pi,FFfixed,0,0)+'°';; {Accurate formula. Angle between line between the two stars and north as seen at ra1, dec1}
+    pa:=FloattostrF(position_angle(ra2,dec2,ra1,dec1)*180/pi,FFfixed,0,0)+'°';; //Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
   end
   else
   begin //no astrometric solution available
@@ -10791,7 +10753,7 @@ begin
 
       if subframe then
       begin
-        sensor_coordinates_to_celestial(1+stars[0,i],1+stars[1,i],raM,decM);//+1 to get fits coordinated
+        sensor_coordinates_to_celestial(head,1+stars[0,i],1+stars[1,i],raM,decM);//+1 to get fits coordinated
         rastr:=floattostrF(raM*180/pi,FFfixed,9,6);
         decstr:=floattostrF(decM*180/pi,FFfixed,9,6);
 
@@ -11168,6 +11130,8 @@ begin
         end;
       end;
 
+      mainwindow.Memo1.Lines.BeginUpdate;
+
       update_integer('NAXIS1  =',' / length of x axis                               ' ,head.width);
       update_integer('NAXIS2  =',' / length of y axis                               ' ,head.height);
       update_integer('DATAMAX =',' / Maximum data value                             ' ,255);
@@ -11207,6 +11171,10 @@ begin
       end;
 
       add_text   ('HISTORY   ','Image stretched with factor '+ floattostr6(ratio));
+
+      mainwindow.Memo1.Lines.EndUpdate;
+
+      remove_photometric_calibration;//from header
 
       {plot result}
       use_histogram(img_loaded,true {update}); {plot histogram, set sliders}
@@ -11414,7 +11382,7 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
   load_deep;{load the deepsky database once. If loaded no action}
-  plot_deepsky;{plot the deep sky object on the image}
+  plot_deepsky(false);{plot the deep sky object on the image}
   Screen.Cursor:=crDefault;
 end;
 
@@ -11691,7 +11659,7 @@ begin
             y1:=round(strtofloat2(list[1]));
             x2:=round(strtofloat2(list[2]));
             y2:=round(strtofloat2(list[3]));
-            sensor_coordinates_to_celestial((x1+x2)/2,(y1+y2)/2, ra,dec {RA, DEC position annotation});
+            sensor_coordinates_to_celestial(head,(x1+x2)/2,(y1+y2)/2, ra,dec {RA, DEC position annotation});
             count1:=-1; //stop
           end;
 
@@ -12049,7 +12017,7 @@ var
    JPG: TJPEGImage;
 begin
   load_deep;{load the deepsky database once. If loaded no action}
-  plot_deepsky;{annotate}
+  plot_deepsky(false);{annotate}
   JPG := TJPEGImage.Create;
   try
     JPG.Assign(mainwindow.image1.Picture.Graphic);    //Convert data into jpg
@@ -12462,6 +12430,7 @@ begin
         '-d  path {Specify a path to the star database}'+#10+
         '-D  abbreviation {Specify a star database [d80,d50,..]}'+#10+
         '-o  file {Name the output files with this base path & file name}'+#10+
+        '-sip     {Add SIP image distortion information}'+#10+
         '-speed mode[auto/slow] {Slow is forcing reading a larger area from the star database (more overlap) to improve detection}'+#10+
         '-sqm pedestal  {add measured sqm value to the solution}'+#10+
         '-wcs  {Write a .wcs file  in similar format as Astrometry.net. Else text style.}' +#10+
@@ -12539,6 +12508,7 @@ begin
                  stackmenu1.max_stars1.text:=GetOptionValue('s');
         if hasoption('t') then stackmenu1.quad_tolerance1.text:=GetOptionValue('t');
         if hasoption('m') then stackmenu1.min_star_size1.text:=GetOptionValue('m');
+        if hasoption('sip') then stackmenu1.add_sip1.checked:='n'<>GetOptionValue('sip');
         if hasoption('speed') then stackmenu1.force_oversize1.checked:=('slow'=GetOptionValue('speed'));
         if hasoption('check') then stackmenu1.check_pattern_filter1.checked:=('y'=GetOptionValue('check'));
 
@@ -12752,8 +12722,8 @@ end;
 
 procedure Tmainwindow.batch_add_solution1Click(Sender: TObject);
 var
-  i,nrskipped, nrsolved,nrfailed,file_age,pedestal2                             : integer;
-  dobackup,add_sip,add_lim_magn,solution_overwrite,solved,maintain_date,success : boolean;
+  i,nrskipped, nrsolved,nrfailed,file_age,pedestal2                     : integer;
+  dobackup,add_lim_magn,solution_overwrite,solved,maintain_date,success : boolean;
   failed,skipped,mess                           : string;
   startTick  : qword;{for timing/speed purposes}
 begin
@@ -12761,7 +12731,6 @@ begin
   OpenDialog1.Options :=[ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
   opendialog1.Filter :=dialog_filter_fits_tif;
   esc_pressed:=false;
-  add_sip:=add_sip_check1.Checked;
   add_lim_magn:=add_limiting_magn_check1.Checked;
   solution_overwrite:=batch_overwrite1.checked;
   maintain_date:=maintain_date1.checked;
@@ -12811,10 +12780,8 @@ begin
             end;
           end;
 
-          if ((head.cd1_1<>0) and ((solved) or (add_sip) or (add_lim_magn)) )  then {time to save}
+          if ((head.cd1_1<>0) and ((solved) or (add_lim_magn)) )  then {time to save}
           begin
-            if add_sip then
-               mainwindow.sip1Click(nil);{add sip coefficients}
             if add_lim_magn then
             begin
               calibrate_photometry;
@@ -12981,7 +12948,7 @@ begin
 end;
 
 
-procedure sensor_coordinates_to_celestial(fitsx,fitsy : double; out ram,decm  : double) {fitsX, Y to ra,dec};
+procedure sensor_coordinates_to_celestial(head : theader; fitsx,fitsy : double; out ram,decm  : double) {fitsX, Y to ra,dec};
 var
    fits_unsampledX, fits_unsampledY :double;
    u,v,u2,v2             : double;
@@ -13003,7 +12970,7 @@ begin
  end
  else
  begin {WCS and SIP solutions}
-   if ((mainwindow.Polynomial1.itemindex=1) and (a_order>=2)) then {SIP, Simple Imaging Polynomial use by astrometry.net or spitzer}
+   if ((mainwindow.Polynomial1.itemindex=1) and (a_order>=2)) then {SIP, Simple Imaging Polynomial}
    begin
      u:=fitsx-head.crpix1;
      v:=fitsy-head.crpix2;
@@ -13079,9 +13046,9 @@ begin
      {do the rigid method.}
      fxc:=1+(startX+stopX)/2;//position of new center
      fyc:=1+(startY+stopY)/2;
-     sensor_coordinates_to_celestial(fxc,fyc, ra_c,dec_c {new center RA, DEC position});   //make 1 step in direction head.crpix1. Do first the two steps because head.cd1_1, head.cd2_1..... are required so they have to be updated after the two steps.
-     sensor_coordinates_to_celestial(1+fxc,fyc, ra_n,dec_n {RA, DEC position, one pixel moved in head.crpix1});  //make 1 step in direction head.crpix2
-     sensor_coordinates_to_celestial(fxc,fyc+1 , ra_m,dec_m {RA, DEC position, one pixel moved in head.crpix2});
+     sensor_coordinates_to_celestial(head,fxc,fyc, ra_c,dec_c {new center RA, DEC position});   //make 1 step in direction head.crpix1. Do first the two steps because head.cd1_1, head.cd2_1..... are required so they have to be updated after the two steps.
+     sensor_coordinates_to_celestial(head,1+fxc,fyc, ra_n,dec_n {RA, DEC position, one pixel moved in head.crpix1});  //make 1 step in direction head.crpix2
+     sensor_coordinates_to_celestial(head,fxc,fyc+1 , ra_m,dec_m {RA, DEC position, one pixel moved in head.crpix2});
 
      delta_ra:=ra_n-ra_c;
      if delta_ra>+pi then delta_ra:=2*pi-delta_ra; {359-> 1,    +2:=360 - (359- 1)}
@@ -13382,19 +13349,8 @@ begin
       head.cdelt1:=-head.cdelt2;
 
     {find head.crota2}
-   {see meeus new formula 46.5, angle of moon limb}
-   //See also https://astronomy.stackexchange.com/questions/25306/measuring-misalignment-between-two-positions-on-sky
-   //   Confirmation by ChatGPT:
-   //   PA=arctan2(sin(δ1)cos(δ0)−sin(δ0)cos(δ1)cos(α1−α0),cos(δ0)sin(α1−α0))
-   //   is seen at point α0,δ0. This means you are calculating the angle at point α0,δ0 (the reference point) towards point α1,δ1 (the target point).
-   //   To clarify:
-   //     Point α0,δ0 (Reference Point): This is where the observation is made from, or the point of reference.
-   //     Point α1,δ1 (Target Point): This is the point towards which the position angle is being measured.
-   //     Position Angle (PA): This is the angle measured at the reference point α0,δ0, going from the direction of the North Celestial Pole towards the target point α1,δ1, measured eastward (or counter-clockwise).
-   //     So in your observational scenario, if you were at point α0,δ0 and wanted to determine the direction to point α1,δ1, the PA would tell you the angle to rotate from the north, moving eastward, to align with the target point.
-
-   angle2:=arctan2(cos(dec2)*sin(ra2-head.ra0),sin(dec2)*cos(head.dec0) - cos(dec2)*sin(head.dec0)*cos(ra2-head.ra0)); {angle between line between the two stars and north as seen at head.ra0, head.dec0}
-   angle3:=arctan2(shape_marker2_fitsX- shape_marker1_fitsX,shape_marker2_fitsY- shape_marker1_fitsY); {angle between top and line between two reference pixels}
+    angle2:= position_angle(ra2,dec2,head.ra0,head.dec0);//Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
+    angle3:= arctan2(shape_marker2_fitsX- shape_marker1_fitsX,shape_marker2_fitsY- shape_marker1_fitsY); {angle between top and line between two reference pixels}
 
     if flipped then
       angle:=(-angle2+angle3){swapped n-s or e-w image}
@@ -13411,6 +13367,8 @@ begin
 
 
     old_to_new_WCS(head);{new WCS missing, convert old WCS to new}
+
+    mainwindow.Memo1.Lines.BeginUpdate;
 
     update_text ('CTYPE1  =',#39+'RA---TAN'+#39+'           / first parameter RA  ,  projection TANgential   ');
     update_text ('CTYPE2  =',#39+'DEC--TAN'+#39+'           / second parameter DEC,  projection TANgential   ');
@@ -13434,6 +13392,8 @@ begin
     update_float  ('CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
     update_float  ('CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
     update_text   ('PLTSOLVD=','                   T / ASTAP manual with two positions');
+
+    mainwindow.Memo1.Lines.EndUpdate;
 
     update_menu_related_to_solver(true); {update menu section related to solver succesfull}
     plot_fits(mainwindow.image1,false,true);
@@ -13507,10 +13467,7 @@ begin
   begin
     if ((head.crpix1<>0.5+centerxs) or (head.crpix2<>0.5+centerys)) then {reference is not center}
     begin  {to much hassle to fix. Just remove the solution}
-      remove_key('CD1_1   ',false);
-      remove_key('CD1_2   ',false);
-      remove_key('CD2_1   ',false);
-      remove_key('CD2_2   ',false);
+      remove_solution;
     end;
     head.crota2:=fnmodulo(head.crota2+angle*flipped_image*flipped_view,360);
     head.crota1:=fnmodulo(head.crota1+angle*flipped_image*flipped_view,360);
@@ -13543,7 +13500,7 @@ var
 begin
   flipped_view:=+1;//not flipped
 
-  if head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1 >0 then // flipped?  sign(CDELT1*CDELT2) =  sign(cd1_1*cd2_2 - cd1_2*cd2_1) See World Coordinate Systems Representations within the FITS format, draft 1988
+  if head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1 >0 then // flipped?
     flipped_image:=-1  //change rotation for flipped image,  {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
   else
     flipped_image:=+1;//not flipped
@@ -13611,8 +13568,7 @@ begin
       Application.ProcessMessages;
       if ((esc_pressed) or (load_fits(filename2,true {light},true,true {update memo},0,mainwindow.memo1.lines,head,img_loaded)=false)) then begin break;end;
 
-      if head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1 >0 then // flipped?  sign(CDELT1*CDELT2) =  sign(cd1_1*cd2_2 - cd1_2*cd2_1) See World Coordinate Systems Representations within the FITS format, draft 1988
-                                                               // Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped
+      if head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1 >0 then // Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped
         flipped_image:=-1  // change rotation for flipped image
       else
         flipped_image:=+1; // not flipped
@@ -13795,8 +13751,8 @@ begin
     slist.Free;
   end;
 
-  database_nr:=4;{1 is deepsky, 2 is hyperleda, 3 is variable loaded, 4=simbad}
-  plot_deepsky;
+  database_nr:=6;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
+  plot_deepsky(false);
 end;
 
 
@@ -13820,7 +13776,7 @@ begin
 
   slist := TStringList.Create;
   deepstring.clear;
-  deepstring.add('');//add two lines blank comments
+  deepstring.add('');//add two lines as blank comments
   deepstring.add('');
   datalines:=false;
 
@@ -13832,7 +13788,7 @@ begin
       regel:=ansistring(slist[count]);
       inc(count);
 
-      if datalines then //Data from Vizier
+      if ((datalines) and (length(regel)>10)) then //Data from Vizier
       begin
         {magnitude}
         p1:=pos(' ',regel);{first column changes in width}
@@ -13850,11 +13806,12 @@ begin
           themagn:=transform_gaia(filter,g,bp,rp);//transformation of Gaia magnitudes
 
           if themagn<>0 then //valid value
+          begin
              simobject:=inttostr(round(rad*864000/360))+','+inttostr(round(decd*324000/90))+','+inttostr(round(10*themagn));
-
-          //RA[0..864000], DEC[-324000..324000], name(s), length [0.1 min], width[0.1 min], orientation[degrees]
-          //659250,-49674,M16/NGC6611/Eagle_Nebula,80
-          deepstring.add(simobject);
+             //RA[0..864000], DEC[-324000..324000], name(s), length [0.1 min], width[0.1 min], orientation[degrees]
+             //659250,-49674,M16/NGC6611/Eagle_Nebula,80
+             deepstring.add(simobject);
+          end;
         end;
       end {correct line of object list}
       else
@@ -13869,8 +13826,8 @@ begin
     slist.Free;
   end;
 
-  database_nr:=4;{1 is deepsky, 2 is hyperleda, 3 is variable loaded, 4=simbad}
-  plot_deepsky;
+  database_nr:=6;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
+  plot_deepsky(false);
 end;
 
 
@@ -13904,8 +13861,8 @@ begin
     window_size:='&-c.bs='+ floattostr6(ang_w)+'/'+floattostr6(ang_h);{square box}
     {-c.geom=b  square box, -c.bs=10 box size 10arc
     else radius}
-    sensor_coordinates_to_celestial(startX+1,startY+1,ra1,dec1);{first position}
-    sensor_coordinates_to_celestial(stopX+1,stopY+1,ra2,dec2);{first position}
+    sensor_coordinates_to_celestial(head,startX+1,startY+1,ra1,dec1);{first position}
+    sensor_coordinates_to_celestial(head,stopX+1,stopY+1,ra2,dec2);{first position}
     object_raM:=(ra1+ra2)/2; {center position}
     object_decM:=(dec1+dec2)/2;
   end;
@@ -14259,10 +14216,10 @@ var
       x_frac :=frac(x1);
       y_frac :=frac(y1);
       try
-        result:=         (img[0,y_trunc  ,x_trunc  ]) * (1-x_frac)*(1-y_frac);{pixel left top, 1}
-        result:=result + (img[0,y_trunc  ,x_trunc+1]) * (  x_frac)*(1-y_frac);{pixel right top, 2}
+        result:=         (img[0,y_trunc  ,x_trunc  ]) * (1-x_frac)*(1-y_frac);{pixel left top,    1}
+        result:=result + (img[0,y_trunc  ,x_trunc+1]) * (  x_frac)*(1-y_frac);{pixel right top,   2}
         result:=result + (img[0,y_trunc+1,x_trunc  ]) * (1-x_frac)*(  y_frac);{pixel left bottom, 3}
-        result:=result + (img[0,y_trunc+1,x_trunc+1]) * (  x_frac)*(  y_frac);{pixel right bottom, 4}
+        result:=result + (img[0,y_trunc+1,x_trunc+1]) * (  x_frac)*(  y_frac);{pixel right bottom,4}
       except
       end;
     end;
@@ -14393,7 +14350,6 @@ begin
   Sumval_small:=0;
   SumValR:=0;
   pixel_counter:=0;
-
 
   // Get HFD using the aproximation routine assuming that HFD line divides the star in equal portions of gravity:
   for i:=-r_aperture to r_aperture do {Make steps of one pixel}
@@ -14801,7 +14757,7 @@ begin
 
    end;
 
-   sensor_coordinates_to_celestial(mouse_fitsx,mouse_fitsy,raM,decM);
+   sensor_coordinates_to_celestial(head,mouse_fitsx,mouse_fitsy,raM,decM);
    mainwindow.statusbar1.panels[0].text:=position_to_string('   ',raM,decM);
 
    adu_e:=retrieve_ADU_to_e_unbinned(head.egain);//Used for SNR calculation in procedure HFD. Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
@@ -14829,9 +14785,10 @@ begin
      else mag_str:='';
 
      {centered coordinates}
-     sensor_coordinates_to_celestial(object_xc+1,object_yc+1,object_raM,object_decM);{input in FITS coordinates}
+     sensor_coordinates_to_celestial(head,object_xc+1,object_yc+1,object_raM,object_decM);{input in FITS coordinates}
      if ((object_raM<>0) and (object_decM<>0)) then
-       mainwindow.statusbar1.panels[1].text:=prepare_ra8(object_raM,': ')+'   '+prepare_dec2(object_decM,'° '){object position in RA,DEC}
+       mainwindow.statusbar1.panels[1].text:=position_to_string('   ',object_raM,object_decM)
+                                               //prepare_ra8(object_raM,': ')+'   '+prepare_dec2(object_decM,'° '){object position in RA,DEC}
      else
        mainwindow.statusbar1.panels[1].text:=floattostrF(object_xc+1,ffFixed,7,2)+',  '+floattostrF(object_yc+1,ffFixed,7,2);{object position in FITS X,Y}
      mainwindow.statusbar1.panels[2].text:='HFD='+hfd_str+', FWHM='+FWHM_str+', '+snr_str+mag_str{+' '+floattostr4(flux)};
@@ -14923,6 +14880,7 @@ var filename3:ansistring;
 
 begin
   filename3:=ChangeFileExt(FileName2,'');
+  filename3:=stringreplace(filename3,'_stacked','',[]);  //remove stacked mark
   savedialog1.initialdir:=ExtractFilePath(filename3);
   savedialog1.filename:=filename3;
   savedialog1.Filter := 'PNG 8 bit(*.png)|*.png;|BMP 8 bit(*.bmp)|*.bmp;|JPG 100% compression quality (*.jpg)|*.jpg;|JPG 90% compression quality (*.jpg)|*.jpg;|JPG 80% compression quality (*.jpg)|*.jpg;|JPG 70% compression quality (*.jpg)|*.jpg;';
@@ -15564,6 +15522,7 @@ begin
     end;
     new_to_old_WCS(head);{convert new style FITS to old style, calculate crota1,crota2,cdelt1,cdelt2}
 
+    mainwindow.Memo1.Lines.BeginUpdate;
     update_float  ('CD1_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_1);
     update_float  ('CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
     update_float  ('CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
@@ -15576,6 +15535,8 @@ begin
     update_float  ('CROTA2  =',' / Image twist of Y axis E of N (deg)             ',false ,head.crota2);
 
     remove_key('ROWORDER',false{all});{just remove to be sure no debayer confusion}
+    mainwindow.Memo1.Lines.EndUpdate;
+
     add_text     ('HISTORY   ','Flipped.                                                           ');
   end;
   plot_fits(mainwindow.image1,false,true);
@@ -15649,7 +15610,6 @@ begin
     for fitsX:=startX to stopX-1 do
     begin
       if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)>1 then // standard equation of the ellipse, out side ellipse
-      if ((distance>=0) and (distance<=2)) then
       begin
         for k:=0 to head.naxis3-1 do {do all colors}
          mean[k]:=mean[k]+img_loaded[k,fitsY,fitsX];
@@ -15998,7 +15958,11 @@ var
   rgb  : byteX3;{array [0..2] containing r,g,b colours}
 begin
   result:=false;
-
+  if img=nil then
+  begin
+    memo2_message('Error,  no image');
+    exit;
+  end;
   {get dimensions directly from array}
   colours5:=length(img);{nr colours}
   width5:=length(img[0,0]);{width}

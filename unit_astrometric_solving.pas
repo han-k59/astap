@@ -1,5 +1,5 @@
 unit unit_astrometric_solving;
-{Copyright (C) 2017, 2021 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
 email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -85,9 +85,10 @@ Below a brief flowchart of the ASTAP astrometric solving process:
 //                           The solutions Sx and Sy describe the six parameter solution, X_ref:=a1*x + b1*y + c1 and Y_ref:=a2*x + b2*y +c2.
 //
 //
-//                           With the solution calculate the test image center equatorial position α, δ.
+//                           With the solution calculate the test image center equatorial position α (crval1), δ (crval2).
 //
-//                           Make from the image center small one pixel steps in x, y and use the differences in α, δ to calculate the image scale and orientation.
+//                           Calculate from the solution the pixel size in x (cdelt1) an y (cdelt2) and at the image center position the rotation of the x-axis (crota1)
+//                           and y-axis (crota2) relative to the celestial north using goniometric formulas. Convert these to cd1_1,cd1_2,cd_2_1, cd2_2.
 //
 //                           This is the final solution. The solution vector (for position, scale, rotation) can be stored as the FITS keywords crval1, crval2, cd1_1,cd1_2,cd_2_1, cd2_2.
 //
@@ -99,11 +100,12 @@ Below a brief flowchart of the ASTAP astrometric solving process:
 interface
 
 uses   Classes,SysUtils,controls,forms,math,
-       unit_star_align, unit_star_database, astap_main, unit_stack, unit_annotation,unit_stars_wide_field;
+       unit_star_align, unit_star_database, astap_main, unit_stack, unit_annotation,unit_stars_wide_field, unit_calc_trans_cubic;
 
 function solve_image(img :image_array;var hd: Theader; get_hist{update hist}:boolean) : boolean;{find match between image and star database}
 procedure bin_and_find_stars(img :image_array;binning:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
 function report_binning(height :double) : integer;{select the binning}
+function position_angle(ra1,dec1,ra0,dec0 : double): double;//Position angle of a body at ra1,dec1 as seen at ra0,dec0. Rigorous method
 procedure equatorial_standard(ra0,dec0,ra,dec, cdelt : double; out xx,yy: double);
 function read_stars(telescope_ra,telescope_dec,search_field : double; database_type,nrstars_required: integer; out nrstars:integer): boolean;{read star from star database}
 procedure binX2_crop(crop {0..1}:double; img : image_array; out img2: image_array);{combine values of 4 pixels and crop is required, Result is mono}
@@ -116,7 +118,6 @@ var
 
 implementation
 
-
 function distance_to_string(dist, inp:double):string; {angular distance to string intended for RA and DEC. Unit is based on dist}
 begin
   if abs(dist)<pi/(180*60) then {unit seconds}
@@ -127,6 +128,30 @@ begin
   else
   result:= floattostrF(inp*180/pi,ffFixed,0,1)+'d';  {° symbol is converted to unicode by tmemo}
 end;
+
+
+function position_angle(ra1,dec1,ra0,dec0 : double): double;//Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
+//See book Meeus, Astronomical Algorithms, formula 46.5 edition 1991 or 48.5 edition 1998, angle of moon limb or page 116 edition 1998.
+//See also https://astronomy.stackexchange.com/questions/25306/measuring-misalignment-between-two-positions-on-sky
+//   PA=arctan2(cos(δ0)sin(α1−α0), sin(δ1)cos(δ0)−sin(δ0)cos(δ1)cos(α1−α0))      In lazarus the function is arctan2(y/x)
+//   is seen at point α0,δ0. This means you are calculating the angle at point α0,δ0 (the reference point) towards point α1,δ1 (the target point).
+//   To clarify:
+//     Point α0,δ0 (Reference Point): This is where the observation is made from, or the point of reference.
+//     Point α1,δ1 (Target Point): This is the point towards which the position angle is being measured.
+//     Position Angle (PA): This is the angle measured at the reference point α0,δ0, going from the direction of the North Celestial Pole towards the target point α1,δ1, measured eastward (or counter-clockwise).
+//     So in your observational scenario, if you were at point α0,δ0 and wanted to determine the direction to point α1,δ1, the PA would tell you the angle to rotate from the north, moving eastward, to align with the target point.
+
+var
+  sinDeltaRa,cosDeltaRa,
+  sinDec0,cosDec0,
+  sinDec1,cosDec1 : double;
+begin
+  sincos(ra1-ra0,sinDeltaRa,cosDeltaRa);
+  sincos(dec0,sinDec0,cosDec0);
+  sincos(dec1,sinDec1,cosDec1);
+  result:=arctan2(cosDec1*sinDeltaRa,sinDec1*cosDec0 - cosDec1*sinDec0*cosDeltaRa);
+end;
+
 
 {transformation of equatorial coordinates into CCD pixel coordinates for optical projection, rigid method}
 {head.ra0,head.dec0: right ascension and declination of the optical axis}
@@ -139,7 +164,7 @@ begin
   sincos(dec0  ,sin_dec0 ,cos_dec0);
   sincos(dec   ,sin_dec  ,cos_dec );
   sincos(ra-ra0, sin_deltaRA,cos_deltaRA);
-  dv  := (cos_dec0 * cos_dec * cos_deltaRA + sin_dec0 * sin_dec) * cdelt/(3600*180/pi); {cdelt/(3600*180/pi), factor for onversion standard coordinates to CCD pixels}
+  dv  := (cos_dec0 * cos_dec * cos_deltaRA + sin_dec0 * sin_dec) * cdelt/(3600*180/pi); {cdelt/(3600*180/pi), factor for conversion standard coordinates to CCD pixels}
   xx := - cos_dec *sin_deltaRA / dv;{tangent of the angle in RA}
   yy := -(sin_dec0 * cos_dec * cos_deltaRA - cos_dec0 * sin_dec) / dv;  {tangent of the angle in DEC}
 end;
@@ -500,14 +525,407 @@ begin
 end;
 
 
+procedure create_grid_list( width2, height2, nrpoints : integer; out grid_list : TStarArray); // Create list of nbpoints x nbpoints positions in the image  equally spread. Positions relative to the image center.
+var
+  middleX,middleY : Double;
+  s, x, y,counter : integer;
+begin
+  middleX:=width2/2;
+  middleY:=height2/2;
+  setlength(grid_list,nrpoints*nrpoints);
+  counter:=0;
+  for y := 0 to nrpoints-1 do
+  begin
+    for x := 0 to nrpoints-1 do
+    begin
+      grid_list[counter].x := -middleX+x*width2/(nrpoints-1);
+      grid_list[counter].y := -middleY+y*height2/(nrpoints-1);
+      inc(counter);
+    end;
+  end;
+end;
+
+
+procedure add_sip(hd: Theader;ra_database,dec_database:double);
+var
+  stars_measured,stars_reference,grid_list1,grid_list2  : TStarArray;
+  trans_sky_to_pixel,trans_pixel_to_sky  : Ttrans;
+  len,i,position                         : integer;
+  succ: boolean;
+  err_mess: string;
+  ra_t,dec_t,  SIN_dec_t,COS_dec_t, SIN_dec_ref,COS_dec_ref,det, delta_ra,SIN_delta_ra,COS_delta_ra, H, dRa,dDec,MatrixDeterminant,u0,v0 : double;
+  cd : array[0..1,0..1] of double;
+  solution_vectorXinv,solution_vectorYinv : solution_vector;
+const
+   nrpoints=6;
+begin
+  {1) Solve the image with the 1th order solver.
+   2) Get the x,y coordinates of the detected stars= "stars_measured"
+   3) Get the x,y coordinates of the reference stars= "stars_reference"
+   4) Shift the x,y coordinates of "stars_measured" to the center of the image. so position [0,0] is at CRPIX1, CRPIX2.
+   5) Convert reference stars coordinates to the same coordinate system as the measured stars.
+      In my case I had to convert the quad x,y coordinates to ra, dec and then convert these to image position using the original first order solution
+   6) Now both the "stars_measured" and "stars_reference" positions match with stars in the image except for distortion. Position [0,0] is at CRPIX1, CRPIX2.
+   7) For pixel_to_sky  call:  Calc_Trans_Cubic(stars_measured,  stars_reference,...).   The trans array will work for pixel to sky.
+   8) For sky_to_pixel  call:  Calc_Trans_Cubic(stars_reference,  stars_measured,...)    The trans array will work for sky to pixel.
+   }
+
+  len:=length(b_Xrefpositions);
+  if len<20 then
+  begin
+    memo2_message('Not enough quads for calculating SIP.');
+    exit;
+  end;
+  setlength(stars_measured,len);
+  setlength(stars_reference,len);
+
+
+  for i:=0 to len-1 do
+  begin
+    stars_measured[i].x:=1+A_XYpositions[0,i]-hd.crpix1;//position as seen from center at crpix1, crpix2, in fits range 1..width
+    stars_measured[i].y:=1+A_XYpositions[1,i]-hd.crpix2;
+
+    standard_equatorial( ra_database,dec_database,
+                         b_Xrefpositions[i], {x reference star}
+                         b_Yrefpositions[i], {y reference star}
+                         1, {CCD scale}
+                         ra_t,dec_t) ; //calculate back to the reference star positions
+
+//    err_mess:=floattostr(ra_t*180/pi)+',' +floattostr(dec_t*180/pi);
+
+    {5. Conversion (RA,DEC) -> x,y image in fits range 1..max}
+    sincos(dec_t,SIN_dec_t,COS_dec_t);{sincos is faster then separate sin and cos functions}
+    sincos(hd.dec0,SIN_dec_ref,COS_dec_ref);{}
+
+    delta_ra:=ra_t-hd.ra0;
+    sincos(delta_ra,SIN_delta_ra,COS_delta_ra);
+
+    H := SIN_dec_t*sin_dec_ref + COS_dec_t*COS_dec_ref*COS_delta_ra;
+    dRA := (COS_dec_t*SIN_delta_ra / H)*180/pi;
+    dDEC:= ((SIN_dec_t*COS_dec_ref - COS_dec_t*SIN_dec_ref*COS_delta_ra ) / H)*180/pi;
+
+    det:=hd.cd2_2*hd.cd1_1 - hd.cd1_2*hd.cd2_1;
+    stars_reference[i].x:={-0.5} - (hd.cd1_2*dDEC - hd.cd2_2*dRA) / det;
+    stars_reference[i].y:={-0.5} + (hd.cd1_1*dDEC - hd.cd2_1*dRA) / det;
+
+  end;
+
+  //  for i:=0 to length(stars_reference)-1 do
+  //               log_to_file('d:\temp\ref.txt',floattostr(stars_reference[i].x)+', '+floattostr(stars_reference[i].y));
+ //   for i:=0 to length(b_Xrefpositions)-1 do
+ //                log_to_file('d:\temp\reference.txt',floattostr(b_Xrefpositions[i])+', '+floattostr(b_Yrefpositions[i]));
+
+ //   log_to_file('d:\temp\databasepos.txt',floattostr(ra_database)+', '+floattostr(dec_database));
+
+
+  succ:=Calc_Trans_Cubic(stars_reference,     // First array of s_star structure we match the output trans_sky_to_pixel takes their coords into those of array B
+                         stars_measured,      // Second array of s_star structure we match
+                         trans_sky_to_pixel,  // Transfer coefficients for stars_measured positions to stars_reference positions. Fits range 1..max
+                         err_mess             // any error message
+                            );
+  if succ=false then
+  begin
+    memo2_message(err_mess);
+    exit;
+  end;
+
+
+  {sky to pixel coefficients}
+  AP_order:=3; //third order
+  AP_0_0:=trans_sky_to_pixel.x00;
+  AP_1_0:=-1+trans_sky_to_pixel.x10;
+  AP_0_1:=trans_sky_to_pixel.x01;
+  AP_2_0:=trans_sky_to_pixel.x20;
+  AP_1_1:=trans_sky_to_pixel.x11;
+  AP_0_2:=trans_sky_to_pixel.x02;
+  AP_3_0:=trans_sky_to_pixel.x30;
+  AP_2_1:=trans_sky_to_pixel.x21;
+  AP_1_2:=trans_sky_to_pixel.x12;
+  AP_0_3:=trans_sky_to_pixel.x03;
+
+  BP_0_0:=trans_sky_to_pixel.y00;
+  BP_1_0:=trans_sky_to_pixel.y10;
+  BP_0_1:=-1+trans_sky_to_pixel.y01;
+  BP_2_0:=trans_sky_to_pixel.y20;
+  BP_1_1:=trans_sky_to_pixel.y11;
+  BP_0_2:=trans_sky_to_pixel.y02;
+  BP_3_0:=trans_sky_to_pixel.y30;
+  BP_2_1:=trans_sky_to_pixel.y21;
+  BP_1_2:=trans_sky_to_pixel.y12;
+  BP_0_3:=trans_sky_to_pixel.y03;
+
+
+  //inverse transformation calculation
+  create_grid_list( hd.width,hd.height, nrpoints{6}, {out} grid_list1); // Create list of nbpoints x nbpoints positions in the image  equally spread. Positions relative to the image center.
+  setlength(grid_list2,nrpoints*nrpoints);//create a second grid
+  for i:=0 to (nrpoints*nrpoints)-1 do {apply SIP correction, sky to pixel}
+  begin
+    u0:=grid_list1[i].x;
+    v0:=grid_list1[i].y;
+//    grid_list2[i].x:=u + a_0_0+ a_0_1*v + a_0_2*v*v + a_0_3*v*v*v + a_1_0*u + a_1_1*u*v + a_1_2*u*v*v + a_2_0*u*u + a_2_1*u*u*v + a_3_0*u*u*u ; {SIP third order correction}
+//    grid_list2[i].y:=v + b_0_0+ b_0_1*v + b_0_2*v*v + b_0_3*v*v*v + b_1_0*u + b_1_1*u*v + b_1_2*u*v*v + b_2_0*u*u + b_2_1*u*u*v + b_3_0*u*u*u ;
+
+    grid_list2[i].x:= u0 + ap_0_0 + ap_0_1*v0+ ap_0_2*v0*v0+ ap_0_3*v0*v0*v0 +ap_1_0*u0 + ap_1_1*u0*v0+  ap_1_2*u0*v0*v0+ ap_2_0*u0*u0 + ap_2_1*u0*u0*v0+  ap_3_0*u0*u0*u0; {3th order SIP correction}
+    grid_list2[i].y:= v0 + bp_0_0 + bp_0_1*v0+ bp_0_2*v0*v0+ bp_0_3*v0*v0*v0 +bp_1_0*u0 + bp_1_1*u0*v0+  bp_1_2*u0*v0*v0+ bp_2_0*u0*u0 + bp_2_1*u0*u0*v0+  bp_3_0*u0*u0*u0; {3th order SIP correction}
+
+
+  end;
+//  cd1_1:=hd.cd1_1/hd.cdelt1;//scale to pixels
+//  cd1_2:=hd.cd1_2/hd.cdelt1;
+//  cd2_1:=hd.cd2_1/hd.cdelt2;
+//  cd2_2:=hd.cd2_2/hd.cdelt2;
+
+  // calculate CD^-1 of the 1th order solution
+  // MatrixDeterminant:=M[0, 0] * M[1, 1] - M[0, 1] * M[1, 0];
+
+ //       cd[0][0] = trans->x10;
+//	cd[0][1] = trans->x01;
+//	cd[1][0] = trans->y10;
+//	cd[1][1] = trans->y01;
+
+{  MatrixDeterminant:=trans_sky_to_pixel.x10*trans_sky_to_pixel.y01 - trans_sky_to_pixel.x01*trans_sky_to_pixel.y10;
+  //   Result[0, 0] :=  M[1, 1] / Det;
+  //   Result[0, 1] := -M[0, 1] / Det;
+  //   Result[1, 0] := -M[1, 0] / Det;
+  //   Result[1, 1] :=  M[0, 0] / Det;
+  cd[0,0] :=  trans_sky_to_pixel.x10 / MatrixDeterminant;
+  cd[0,1] := -trans_sky_to_pixel.x01 / MatrixDeterminant;
+  cd[1,0] := -trans_sky_to_pixel.y10 / MatrixDeterminant;
+  cd[1,1] :=  trans_sky_to_pixel.y01 / MatrixDeterminant;
+
+  for i:=0 to (nrpoints*nrpoints)-1 do
+  begin
+//    grid_list2[i].x:= trans_sky_to_pixel.x10*grid_list2[i].x +  trans_sky_to_pixel.x01*grid_list2[i].y;
+//    grid_list2[i].y:= trans_sky_to_pixel.y10*grid_list2[i].x +  trans_sky_to_pixel.y01*grid_list2[i].y;
+    grid_list2[i].x:=cd[0,0]*grid_list2[i].x + cd[0,1]*grid_list2[i].y;
+    grid_list2[i].y:=cd[1,0]*grid_list2[i].x + cd[1,1]*grid_list2[i].y;
+  end;}
+
+{  succ:=Calc_Trans_Cubic(grid_list1,      // reference
+                         grid_list2,      // distorted
+                         trans_pixel_to_sky,  // Transfer coefficients for stars_measured positions to stars_reference positions
+                         err_mess             // any error message
+                         );}
+
+  //swap the arrays for inverse factors
+  succ:=Calc_Trans_Cubic(stars_measured,      // reference
+                         stars_reference,      // distorted
+                         trans_pixel_to_sky,  // Transfer coefficients for stars_measured positions to stars_reference positions
+                         err_mess             // any error message
+                         );
+
+
+  if succ=false then
+  begin
+    memo2_message(err_mess);
+    exit;
+  end;
+
+  // const   A,K
+  //  x;      B,L
+  //  y;      C,M
+  //  x*x;    D,N
+  //  x*y;    E,O
+  //  y*y;    F,P
+  //  x*x*x;  G,Q
+  //  x*x*y;  H,R
+  //  x*y*y;  J,S
+  //  y*y*y;  K,T
+
+
+    sip:=true;
+    // SIP definitions https://irsa.ipac.caltech.edu/data/SPITZER/docs/files/spitzer/shupeADASS.pdf
+
+    //Pixel to sky coefficients
+    A_ORDER:=3;//3th order
+    A_0_0:=trans_pixel_to_sky.x00;
+    A_1_0:=-1+ trans_pixel_to_sky.x10;
+    A_0_1:=trans_pixel_to_sky.x01;
+    A_2_0:=trans_pixel_to_sky.x20;
+    A_1_1:=trans_pixel_to_sky.x11;
+    A_0_2:=trans_pixel_to_sky.x02;
+    A_3_0:=trans_pixel_to_sky.x30;
+    A_2_1:=trans_pixel_to_sky.x21;
+    A_1_2:=trans_pixel_to_sky.x12;
+    A_0_3:=trans_pixel_to_sky.x03;
+
+    B_0_0:=trans_pixel_to_sky.y00;
+    B_1_0:=trans_pixel_to_sky.y10;
+    B_0_1:=-1+trans_pixel_to_sky.y01;
+
+    B_2_0:=trans_pixel_to_sky.y20;
+    B_1_1:=trans_pixel_to_sky.y11;
+    B_0_2:=trans_pixel_to_sky.y02;
+    B_3_0:=trans_pixel_to_sky.y30;
+    B_2_1:=trans_pixel_to_sky.y21;
+    B_1_2:=trans_pixel_to_sky.y12;
+    B_0_3:=trans_pixel_to_sky.y03;
+
+{    A_0_0:=-AP_0_0;
+    A_1_0:=-AP_1_0;
+    A_0_1:=-AP_0_1;
+    A_2_0:=-AP_2_0;
+    A_1_1:=-AP_1_1;
+    A_0_2:=-AP_0_2;
+    A_3_0:=-AP_3_0;
+    A_2_1:=-AP_2_1;
+    A_1_2:=-AP_1_2;
+    A_0_3:=-AP_0_3;
+
+    B_0_0:=-BP_0_0;
+    B_1_0:=-BP_1_0;
+    B_0_1:=-BP_0_1;
+    B_2_0:=-BP_2_0;
+    B_1_1:=-BP_1_1;
+    B_0_2:=-BP_0_2;
+    B_3_0:=-BP_3_0;
+    B_2_1:=-BP_2_1;
+    B_1_2:=-BP_1_2;
+    B_0_3:=-BP_0_3;   }
+
+
+
+
+
+
+
+
+//    A_0_0:=0;//trans_pixel_to_sky.A;//trans_pixel_to_sky.A,is already in the WCS solution;
+//    A_1_0:=0;
+//    A_0_1:=0;//is already in the WCS solution;
+//    A_1_1:=0;
+
+//    B_0_0:=0;//trans_pixel_to_sky.K;//trans_pixel_to_sky.K, is already in the WCS solution;
+//    B_1_0:=0;
+//    B_0_1:=0;//, is already in the WCS solution;
+//    B_1_1:=0;
+
+
+//    AP_0_0:=0;   //trans_sky_to_pixel.A,is already in the WCS solution;
+//    AP_1_0:=0;  //trans_sky_to_pixel.B, is already in the WCS solution
+ //   AP_0_1:=0;   //trans_sky_to_pixel.C, is already in the WCS solution
+//    AP_1_1:=0;
+
+
+//    BP_0_0:=0;   //trans_sky_to_pixel.K, is already in the WCS solution;
+//    BP_0_1:=0;   //(trans_sky_to_pixel.L, is already in the WCS solution);
+//    BP_1_0:=0;   // trans_sky_to_pixel.M,is already in the WCS solution;
+//    BP_1_1:=0;
+
+
+
+
+    update_float('A_ORDER =',' / Polynomial order, axis 1. Pixel to Sky         ',false,3);
+    update_float('A_0_0   =',' / SIP coefficient                                ',false,A_0_0);
+    update_float('A_1_0   =',' / SIP coefficient                                ',false,A_1_0);
+    update_float('A_0_1   =',' / SIP coefficient                                ',false,A_0_1);
+    update_float('A_2_0   =',' / SIP coefficient                                ',false,A_2_0);
+    update_float('A_1_1   =',' / SIP coefficient                                ',false,A_1_1);
+    update_float('A_0_2   =',' / SIP coefficient                                ',false,A_0_2);
+    update_float('A_3_0   =',' / SIP coefficient                                ',false,A_3_0);
+    update_float('A_2_1   =',' / SIP coefficient                                ',false,A_2_1);
+    update_float('A_1_2   =',' / SIP coefficient                                ',false,A_1_2);
+    update_float('A_0_3   =',' / SIP coefficient                                ',false,A_0_3);
+
+
+    update_float('B_ORDER =',' / Polynomial order, axis 2. Pixel to sky.        ',false,3);
+    update_float('B_0_0   =',' / SIP coefficient                                ',false ,B_0_0);
+    update_float('B_0_1   =',' / SIP coefficient                                ',false ,B_0_1);
+    update_float('B_1_0   =',' / SIP coefficient                                ',false ,B_1_0);
+    update_float('B_2_0   =',' / SIP coefficient                                ',false ,B_2_0);
+    update_float('B_1_1   =',' / SIP coefficient                                ',false ,B_1_1);
+    update_float('B_0_2   =',' / SIP coefficient                                ',false ,B_0_2);
+    update_float('B_3_0   =',' / SIP coefficient                                ',false ,B_3_0);
+    update_float('B_2_1   =',' / SIP coefficient                                ',false ,B_2_1);
+    update_float('B_1_2   =',' / SIP coefficient                                ',false ,B_1_2);
+    update_float('B_0_3   =',' / SIP coefficient                                ',false ,B_0_3);
+
+    update_float('AP_ORDER=',' / Inv polynomial order, axis 1. Sky to pixel.      ',false,3);
+    update_float('AP_0_0  =',' / SIP coefficient                                ',false,AP_0_0);
+    update_float('AP_1_0  =',' / SIP coefficient                                ',false,AP_1_0);
+    update_float('AP_0_1  =',' / SIP coefficient                                ',false,AP_0_1);
+    update_float('AP_2_0  =',' / SIP coefficient                                ',false,AP_2_0);
+    update_float('AP_1_1  =',' / SIP coefficient                                ',false,AP_1_1);
+    update_float('AP_0_2  =',' / SIP coefficient                                ',false,AP_0_2);
+    update_float('AP_3_0  =',' / SIP coefficient                                ',false,AP_3_0);
+    update_float('AP_2_1  =',' / SIP coefficient                                ',false,AP_2_1);
+    update_float('AP_1_2  =',' / SIP coefficient                                ',false,AP_1_2);
+    update_float('AP_0_3  =',' / SIP coefficient                                ',false,AP_0_3);
+
+    update_float('BP_ORDER=',' / Inv polynomial order, axis 2. Sky to pixel.    ',false,3);
+    update_float('BP_0_0  =',' / SIP coefficient                                ',false,BP_0_0);
+    update_float('BP_1_0  =',' / SIP coefficient                                ',false,BP_1_0);
+    update_float('BP_0_1  =',' / SIP coefficient                                ',false,BP_0_1);
+    update_float('BP_2_0  =',' / SIP coefficient                                ',false,BP_2_0);
+    update_float('BP_1_1  =',' / SIP coefficient                                ',false,BP_1_1);
+    update_float('BP_0_2  =',' / SIP coefficient                                ',false,BP_0_2);
+    update_float('BP_3_0  =',' / SIP coefficient                                ',false,BP_3_0);
+    update_float('BP_2_1  =',' / SIP coefficient                                ',false,BP_2_1);
+    update_float('BP_1_2  =',' / SIP coefficient                                ',false,BP_1_2);
+    update_float('BP_0_3  =',' / SIP coefficient                                ',false,BP_0_3);
+end;
+
+{procedure improved_solution(ra_database,dec_database, centerX,centerY : double; out ra_radians,dec_radians: double);
+var
+  len,i : integer;
+  stars_measured,stars_reference : TStarArray;
+  trans                          : Ttrans;
+  succ                           : boolean;
+  err_mess                       : string;
+
+begin
+  len:=length(b_Xrefpositions);
+  if len<20 then
+  begin
+    memo2_message('Not enough quads for calculating SIP.');
+    exit;
+  end;
+  setlength(stars_measured,len);
+  setlength(stars_reference,len);
+
+  for i:=0 to len-1 do
+  begin
+    stars_measured[i].x:=A_XYpositions[0,i];//position as seen from center at crpix1, crpix2, in fits range 1..width
+    stars_measured[i].y:=A_XYpositions[1,i];
+    stars_reference[i].x:=b_Xrefpositions[i];
+    stars_reference[i].y:=b_Yrefpositions[i];
+  end;
+
+  succ:=Calc_Trans_Cubic(stars_measured,   // First array of s_star structure we match the output trans_sky_to_pixel takes their coords into those of array B
+                         stars_reference,  // Second array of s_star structure we match
+                         trans,            // Transfer coefficients for stars_measured positions to stars_reference positions. Fits range 1..max
+                         err_mess          // any error message
+                          );
+  if succ=false then
+  begin
+    memo2_message(err_mess);
+    exit;
+  end;
+  solution_vectorX[0]:=trans.x10;
+  solution_vectorX[1]:=trans.x01;
+  solution_vectorX[2]:=trans.x00;
+
+  solution_vectorY[0]:=trans.y10;
+  solution_vectorY[1]:=trans.y01;
+  solution_vectorY[2]:=trans.y00;
+
+  standard_equatorial( ra_database,dec_database,
+      (solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY) +solution_vectorX[2]), //x
+      (solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY) +solution_vectorY[2]), //y
+      1, //CCD scale
+      ra_radians ,dec_radians );//put the calculated image center equatorial position into the start search position
+end; }
+
 
 function solve_image(img :image_array;var hd: Theader;get_hist{update hist}:boolean) : boolean;{find match between image and star database}
 var
   nrstars,nrstars_required,count,max_distance,nr_quads, minimum_quads,database_stars,binning,match_nr,
   spiral_x, spiral_y, spiral_dx, spiral_dy,spiral_t,max_stars,i, database_density,limit,err  : integer;
   search_field,step_size,ra_database,dec_database,ra_database_offset,radius,fov2,fov_org, max_fov,fov_min,oversize,
-  sep_search,seperation,ra7,dec7,centerX,centerY,correctionX,correctionY,cropping, min_star_size_arcsec,hfd_min,delta_ra,
-  current_dist, quad_tolerance,dummy, extrastars,flip, extra,distance,mount_sep, mount_ra_sep,mount_dec_sep,ra_start,dec_start,pixel_aspect_ratio   : double;
+  sep_search,seperation,ra7,dec7,centerX,centerY,correctionX,correctionY,cropping, min_star_size_arcsec,hfd_min,
+  current_dist, quad_tolerance,dummy, extrastars,flip, extra,distance,mount_sep, mount_ra_sep,mount_dec_sep,ra_start,dec_start,pixel_aspect_ratio,
+  crota1,crota2,flipped_image   : double;
+
   solution, go_ahead, autoFOV,use_triples,yes_use_triples         : boolean;
   startTick  : qword;{for timing/speed purposes}
   distancestr,oversize_mess,mess,info_message,popup_warningG05,popup_warningSample,suggest_str, solved_in,
@@ -785,6 +1203,11 @@ begin
             ra_database:=fnmodulo(flip+ra_radians+ra_database_offset,2*pi);{add offset to ra after the if statement! Otherwise no symmetrical search}
             ang_sep(ra_database,dec_database,ra_radians,dec_radians, {out}seperation);{calculates angular separation. according formula 9.1 old Meeus or 16.1 new Meeus, version 2018-5-23}
 
+            //if solve_show_log then
+            //begin
+            //  memo2_message('Read database at: '+prepare_ra(ra_database,' ')+',  '+prepare_dec(dec_database,' '));
+            //end;
+
             if seperation<=radius*pi/180+step_size/2 then {Use only the circular area withing the square area}
             begin
               {info reporting}
@@ -818,7 +1241,7 @@ begin
               extrastars:=1/1.1;{star with a factor of one}
               repeat {loop to add extra stars if too many too small quads are excluding. Note the database is made by a space telescope with a resolution exceeding all earth telescopes}
                 extrastars:=extrastars*1.1;
-                if read_stars(ra_database,dec_database,search_field*oversize,database_type,round(nrstars_required*oversize*oversize*extrastars) ,{var}database_stars)= false then
+                if read_stars(ra_database,dec_database,search_field*oversize,database_type,round(nrstars_required*oversize*oversize*extrastars) ,{out}database_stars)= false then
                 begin
                   {$IFDEF linux}
                    //keep till 2026
@@ -886,6 +1309,7 @@ begin
           hd.crpix1:=centerX+1;{center image in fits coordinate range 1..hd.width}
           hd.crpix2:=centery+1;
 
+
           standard_equatorial( ra_database,dec_database,
               (solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY) +solution_vectorX[2]), {x}
               (solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY) +solution_vectorY[2]), {y}
@@ -893,6 +1317,9 @@ begin
               ra_radians ,dec_radians {put the calculated image center equatorial position into the start search position});
           current_dist:=sqrt(sqr(solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY) +solution_vectorX[2]) + sqr(solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY) +solution_vectorY[2]))/3600; {current distance telescope and image center in degrees}
           inc(match_nr);
+
+          //improved_solution(ra_database,dec_database, centerX,centerY, ra_radians,dec_radians);
+
         end;
       until ((solution=false) or (current_dist<fov2*0.05){within 5% if image height from center}  or (match_nr>=2));{Maximum accuracy loop. After match possible on a corner do a second solve using the found hd.ra0,hd.dec0 for maximum accuracy USING ALL STARS}
 
@@ -918,36 +1345,42 @@ begin
     //    hd.cd2_1:= + solution_vectorY[0]/3600;
     //    hd.cd2_2:= + solution_vectorY[1]/3600;
 
-    // rather then using the solution vector directly, for maximum accuracy find the vector for the center of the image.
-    // make 1 step in direction hd.crpix1
-    standard_equatorial( ra_database,dec_database,
-        (solution_vectorX[0]*(centerX+pixel_aspect_ratio{normally 1}) + solution_vectorX[1]*(centerY) +solution_vectorX[2]), {x} //A pixel_aspect_ratio unequal of 1 is very rare, none square pixels
-        (solution_vectorY[0]*(centerX+pixel_aspect_ratio{normally 1}) + solution_vectorY[1]*(centerY) +solution_vectorY[2]), {y}
-        1, {CCD scale}
-        ra7 ,dec7{center equatorial position});
+    //New 2023 method for correct rotation angle/annotation near to the celestial pole.
+    if solution_vectorX[0]*solution_vectorY[1] - solution_vectorX[1]*solution_vectorY[0] >0 then // flipped?
+    flipped_image:=-1 //change rotation for flipped image, {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
+    else
+    flipped_image:=+1;//not flipped
 
-    delta_ra:=ra7-hd.ra0;
-    if delta_ra>+pi then delta_ra:=delta_ra-2*pi; {1 -> 359,    -2:=(359-1) -360 }{rev 2021}
-    if delta_ra<-pi then delta_ra:=delta_ra+2*pi; {359 -> 1,    +2:=(1-359) +360 }
+    // position +1 pixels in direction hd.crpix2
+    standard_equatorial( ra_database,dec_database, (solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY+1) +solution_vectorX[2]), {x}
+                                                   (solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY+1) +solution_vectorY[2]), {y}
+                                                    1, {CCD scale}  ra7 ,dec7{equatorial position}); // the position 1 pixel away
 
-    hd.cd1_1:=(delta_ra)*cos(hd.dec0)*(180/pi);
-    hd.cd2_1:=(dec7-hd.dec0)*(180/pi);
+    crota2:=-position_angle(ra7,dec7,hd.ra0,hd.dec0);//Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
 
-    //make 1 step in direction hd.crpix2
-    standard_equatorial( ra_database,dec_database,
-        (solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY+1) +solution_vectorX[2]), {x}
-        (solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY+1) +solution_vectorY[2]), {y}
-         1, {CCD scale}
-        ra7 ,dec7{center equatorial position});
+    // position 1*flipped_image  pixels in direction hd.crpix1
+    standard_equatorial( ra_database,dec_database,(solution_vectorX[0]*(centerX+flipped_image) + solution_vectorX[1]*(centerY) +solution_vectorX[2]), {x} //A pixel_aspect_ratio unequal of 1 is very rare, none square pixels
+                                                  (solution_vectorY[0]*(centerX+flipped_image) + solution_vectorY[1]*(centerY) +solution_vectorY[2]), {y}
+                                                  1, {CCD scale} ra7 ,dec7{equatorial position});
 
-    delta_ra:=ra7-hd.ra0;
-    if delta_ra>+pi then delta_ra:=delta_ra-2*pi; {1 -> 359,    -2:=(359-1) -360 } {rev 2021}
-    if delta_ra<-pi then delta_ra:=delta_ra+2*pi; {359 -> 1,    +2:=(1-359) +360 }
+    crota1:=pi/2-position_angle(ra7,dec7,hd.ra0,hd.dec0);//Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
+    if crota1>pi then crota1:=crota1-2*pi;//keep within range -pi to +pi
 
-    hd.cd1_2:=(delta_ra)*cos(hd.dec0)*(180/pi);
-    hd.cd2_2:=(dec7-hd.dec0)*(180/pi);
+    hd.cdelt1:=flipped_image*sqrt(sqr(solution_vectorX[0])+sqr(solution_vectorX[1]))/3600; // from unit arcsec to degrees
+    hd.cdelt2:=sqrt(sqr(solution_vectorY[0])+sqr(solution_vectorY[1]))/3600;
 
-    new_to_old_WCS(hd);
+
+
+    hd.cd1_1:=+hd.cdelt1*cos(crota1);
+    hd.cd1_2:=-hd.cdelt1*sin(crota1)*flipped_image;
+    hd.cd2_1:=+hd.cdelt2*sin(crota2)*flipped_image;
+    hd.cd2_2:=+hd.cdelt2*cos(crota2);
+
+    hd.crota2:=crota2*180/pi;//convert to degrees
+    hd.crota1:=crota1*180/pi;
+    //end new 2023 method
+
+
     solved_in:=' Solved in '+ floattostr(round((GetTickCount64 - startTick)/100)/10)+' sec.';{make string to report in FITS header.}
 
     offset_found:={' Δ was '}distance_to_string(sep_search {scale selection},sep_search)+'.';
@@ -969,6 +1402,11 @@ begin
     memo2_message('Solution found: '+  prepare_ra(hd.ra0,': ')+#9+prepare_dec(hd.dec0,'° ') +#9+ solved_in+#9+' Δ was '+offset_found+#9+ mount_info_str+' Used stars down to magnitude: '+floattostrF(mag2/10,ffFixed,0,1) );
     mainwindow.caption:=('Solution found:    '+  prepare_ra(hd.ra0,': ')+'     '+prepare_dec(hd.dec0,'° ')  );
     result:=true;
+
+    mainwindow.Memo1.Lines.BeginUpdate;
+
+    if stackmenu1.add_sip1.checked then
+      add_sip(hd,ra_database,dec_database); //takes about 50 ms sec due to the header update. Calculations are very fast
 
     update_text ('CTYPE1  =',#39+'RA---TAN'+#39+'           / first parameter RA  ,  projection TANgential   ');
     update_text ('CTYPE2  =',#39+'DEC--TAN'+#39+'           / second parameter DEC,  projection TANgential   ');
@@ -995,6 +1433,7 @@ begin
     update_float('CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,hd.cd2_2);
     update_text ('PLTSOLVD=','                   T / Astrometric solved by ASTAP v'+astap_version+'.       ');
     update_text ('COMMENT 7', solved_in+' Offset '+offset_found+mount_offset_str);
+    mainwindow.Memo1.Lines.EndUpdate;
 
     if solve_show_log then {global variable set in find stars}
     begin
@@ -1020,14 +1459,6 @@ begin
   end;
 
   warning_str:=warning_str + warning_downsample; {add the last warning from loop autoFOV}
-
-// this does not happen anymore with new database with fixed density.
-//  if nrstars_required>database_stars+4 then
-//  begin
-//    memo2_message('Warning, reached the limit of the star database!');
-//    warning_str:=warning_str+'Star database limit was reached! ';
-//  end;
-
   if warning_str<>'' then
   begin
     update_longstr('WARNING =',warning_str);{update or insert long str including single quotes}

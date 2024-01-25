@@ -1,6 +1,6 @@
 unit unit_annotation; {deep sky and star annotation & photometry calibation of the image}
 {$mode delphi}
-{Copyright (C) 2017, 2021 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
  This Source Code Form is subject to the terms of the Mozilla Public
@@ -11,11 +11,13 @@ interface
 uses
    forms,Classes, SysUtils,strutils, math,graphics, Controls {for tcursor},astap_main,  unit_stars_wide_field;
 
-procedure plot_deepsky;{plot the deep sky object on the image}
+procedure plot_deepsky(fill_variable_list: boolean);{plot the deep sky object on the image}
 procedure plot_vsx_vsp;{plot downloaded variable and comp stars}
 procedure load_deep;{load the deepsky database once. If loaded no action}
 procedure load_hyperleda;{load the HyperLeda database once. If loaded no action}
 procedure load_variable;{load variable stars. If loaded no action}
+procedure load_variable_13;{load variable stars. If loaded no action}
+procedure load_variable_15;{load variable stars. If loaded no action}
 procedure plot_and_measure_stars(flux_calibration,plot_stars, report_lim_magn: boolean);{flux calibration,  annotate, report limiting magnitude}
 procedure measure_distortion(plot: boolean; out stars_measured: integer);{measure or plot distortion}
 procedure plot_artificial_stars(img: image_array;head:theader;magnlimit: double);{plot stars as single pixel with a value as the mangitude. For super nova search}
@@ -23,7 +25,6 @@ procedure plot_stars_used_for_solving(hd: Theader;correctionX,correctionY: doubl
 function read_deepsky(searchmode:char; telescope_ra,telescope_dec, cos_telescope_dec {cos(telescope_dec},fov : double; out ra2,dec2,length2,width2,pa : double): boolean;{deepsky database search}
 procedure annotation_to_array(thestring : ansistring;transparant:boolean;colour,size, x,y {screen coord}: integer; var img: image_array);{string to image array as annotation, result is flicker free since the annotion is plotted as the rest of the image}
 function find_object(var objname : string; var ra0,dec0,length0,width0,pa : double): boolean; {find object in database}
-function calculate_undisturbed_image_scale : boolean;{calculate and correct the image scale as if the optical system is undisturbed. The distance between the stars in the center are measured and compared between detection and database. It is assumed that the center of the image is undisturbed optically }
 
 
 var
@@ -34,7 +35,7 @@ var
 var  {################# initialised variables #########################}
   limiting_magnitude     : double=0;{magnitude where snr is 5}
   counter_flux_measured  : integer=0;{how many stars used for flux calibration}
-  database_nr            : integer=0; {1 is deepsky, 2 is hyperleda, 3 is variable loaded, 4=simbad}
+  database_nr            : integer=0; {1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
 
 type
   tvariable_list = record {for photometry tab}
@@ -1048,11 +1049,11 @@ begin
     begin
        try
        LoadFromFile(database_path+'deep_sky.csv');{load deep sky data from file }
-       database_nr:=1;{1 is deepsky, 2 is hyperleda, 3 is variable loaded, 4=simbad}
+       database_nr:=1;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
        except;
          clear;
          beep;
-         application.messagebox(pchar('Deep sky database not found. Download and unpack in program directory'),'',0);
+         application.messagebox(pchar('The deep sky database was not found. Download and unpack in program directory'),'',0);
        end;
     end;
   end;
@@ -1066,15 +1067,64 @@ begin
     begin
        try
        LoadFromFile(database_path+'variable_stars.csv');{load deep sky data from file }
-       database_nr:=3;{1 is deepsky, 2 is hyperleda, 3 is variable loaded, 4=simbad}
+       database_nr:=3;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
        except;
          clear;
          beep;
-         application.messagebox(pchar('Variable star database not found!'),'',0);
+         application.messagebox(pchar('The variable star database not found!'),'',0);
+         esc_pressed:=true;
+
        end;
     end;
   end;
 end;
+
+procedure load_variable_13;{load the variable star database once. If loaded no action}
+begin
+  if database_nr<>4 then {load variable database}
+  begin
+    with deepstring do
+    begin
+       try
+       LoadFromFile(database_path+'variable_stars_13.csv');{load deep sky data from file }
+       database_nr:=4;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
+       except;
+         clear;
+         beep;
+         application.messagebox(pchar('The additional variable star database was not found!  Download from the ASTAP webpage and install.'),'',0);
+         esc_pressed:=true;
+         exit;
+       end;
+    end;
+    if copy(deepstring.strings[0],1,4)<>'V001' then
+      application.messagebox(pchar('Please download and install a new version of the "Variable_stars" database!'),'',0{MB_OK});
+  end;
+end;
+
+
+procedure load_variable_15;{load the variable star database once. If loaded no action}
+begin
+  if database_nr<>5 then {load variable database}
+  begin
+    with deepstring do
+    begin
+       try
+       LoadFromFile(database_path+'variable_stars_15.csv');{load deep sky data from file }
+       database_nr:=5;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
+       except;
+         clear;
+         beep;
+         application.messagebox(pchar('The additional variable star database was not found!  Download from the ASTAP webpage and install.'),'',0);
+         esc_pressed:=true;
+         exit;
+       end;
+    end;
+    if copy(deepstring.strings[0],1,4)<>'V001' then
+      application.messagebox(pchar('Please download and install a new version of the "Variable_stars" database!'),'',0{MB_OK});
+  end;
+
+end;
+
 
 procedure load_hyperleda;{load the HyperLeda database once. If loaded no action}
 begin
@@ -1084,11 +1134,11 @@ begin
     begin
        try
        LoadFromFile(database_path+'hyperleda.csv');{load deep sky data from file }
-       database_nr:=2;{1 is deepsky, 2 is hyperleda, 3 is variable loaded, 4=simbad}
+       database_nr:=2;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
        except;
          clear;
          beep;
-         application.messagebox(pchar('HyperLeda database not found. Download and unpack in program directory'),'',0);
+         application.messagebox(pchar('HyperLeda database not found! Download from the ASTAP webpage and install.'),'',0);
        end;
     end;
   end;
@@ -1193,7 +1243,6 @@ begin
   repeat {until fout is 0}
     if linepos>=deepstring.count then
     begin
-//      linepos:=$FFFFFF;{mark as finished}
       result:=false;
       exit;
     end;
@@ -1326,7 +1375,7 @@ begin
 end;
 
 
-procedure plot_deepsky;{plot the deep sky object on the image}
+procedure plot_deepsky(fill_variable_list: boolean);{plot the deep sky object on the image}
 type
   textarea = record
      x1,y1,x2,y2 : integer;
@@ -1335,7 +1384,7 @@ var
   dra,ddec, telescope_ra,telescope_dec,cos_telescope_dec,fov,ra2,dec2,length1,width1,pa,len,flipped,
   gx_orientation, delta_ra,det,SIN_dec_ref,COS_dec_ref,SIN_dec_new,COS_dec_new,SIN_delta_ra,COS_delta_ra,hh,u0,v0 : double;
   name: string;
-  flip_horizontal, flip_vertical,fill_variable_list: boolean;
+  flip_horizontal, flip_vertical                   : boolean;
   text_dimensions  : array of textarea;
   i,text_counter,th,tw,x1,y1,x2,y2,x,y : integer;
   overlap          : boolean;
@@ -1346,10 +1395,10 @@ begin
     flip_vertical:=mainwindow.flip_vertical1.Checked;
     flip_horizontal:=mainwindow.flip_horizontal1.Checked;
 
-    fill_variable_list:=stackmenu1.annotate_mode1.itemindex=5;//for photometry tab
-    if fill_variable_list=false then
+    if fill_variable_list=false then //for photometry
     begin
-      variable_list:=nil; //for photometry tab
+      fill_variable_list:=false;
+      variable_list:=nil;
       variable_list_length:=0;
     end;
 
@@ -1362,7 +1411,6 @@ begin
     fov:=1.5*sqrt(sqr(0.5*head.width*head.cdelt1)+sqr(0.5*head.height*head.cdelt2))*pi/180; {field of view with 50% extra}
     linepos:=2;{Set pointer to the beginning. First two lines are comments}
     if head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1>0 then flipped:=-1 {n-s or e-w flipped} else flipped:=1;  {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
-                                                                      // flipped?  sign(CDELT1*CDELT2) =  sign(cd1_1*cd2_2 - cd1_2*cd2_1) See World Coordinate Systems Representations within the FITS format, draft 1988
     {$ifdef mswindows}
      mainwindow.image1.Canvas.Font.Name :='default';
     {$endif}
@@ -1412,15 +1460,15 @@ begin
       if ((x>-0.25*head.width) and (x<=1.25*head.width) and (y>-0.25*head.height) and (y<=1.25*head.height)) then {within image1 with some overlap}
       begin
         len:=length1/(abs(head.cdelt2)*60*10*2); {Length in pixels}
-        if ((head.cdelt2<0.25*1/60) or (len>=1) or (database_nr=3)) then//avoid too many object on images with a large FOV
+        if ((head.cdelt2<0.25*1/60) or (len>=1) or (database_nr>=3)) then//avoid too many object on images with a large FOV
         begin
-          if database_nr=3 then //variables
+          if ((database_nr>=3) and (database_nr<=5)) then //variables
           begin
             if ((abs(x-shape_fitsX)<5) and  (abs(y-shape_fitsy)<5)) then // note shape_fitsX/Y are in sensor coordinates
-                  mainwindow.Shape_alignment_marker1.HINT:=copy(naam2,1,posex('_',naam2,4)-1);
+                  mainwindow.Shape_alignment_marker1.HINT:=copy(naam2,1,posex(' ',naam2,4)-1);
 
             if ((abs(x-shape_fitsX2)<5) and  (abs(y-shape_fitsy2)<5)) then  // note shape_fitsX/Y are in sensor coordinates
-                      mainwindow.Shape_alignment_marker2.HINT:=copy(naam2,1,posex('_',naam2,4)-1);
+                      mainwindow.Shape_alignment_marker2.HINT:=copy(naam2,1,posex(' ',naam2,4)-1);
           end;
 
           gx_orientation:=(pa+head.crota2)*flipped;
@@ -1883,6 +1931,8 @@ var
 
 
     procedure plot_star;
+    var
+      u,v,u2,v2 : double;
     begin
       if ((flux_calibration) and ( bp_rp>12) and (bp_rp<>999){mono colour database})then exit;{too red star for flux calibration. Bp-Rp>1.2 for about 30% of the stars}
 
@@ -1902,6 +1952,12 @@ var
       begin
          x:=(head.crpix1 + u0 + ap_0_0 + ap_0_1*v0+ ap_0_2*v0*v0+ ap_0_3*v0*v0*v0 +ap_1_0*u0 + ap_1_1*u0*v0+  ap_1_2*u0*v0*v0+ ap_2_0*u0*u0 + ap_2_1*u0*u0*v0+  ap_3_0*u0*u0*u0)-1; {3th order SIP correction, fits count from 1, image from zero therefore subtract 1}
          y:=(head.crpix2 + v0 + bp_0_0 + bp_0_1*v0+ bp_0_2*v0*v0+ bp_0_3*v0*v0*v0 +bp_1_0*u0 + bp_1_1*u0*v0+  bp_1_2*u0*v0*v0+ bp_2_0*u0*u0 + bp_2_1*u0*u0*v0+  bp_3_0*u0*u0*u0)-1; {3th order SIP correction}
+
+         //reverse test
+         //u:=u0;
+         //v:=v0;
+         //x:=x+ a_0_0+ a_0_1*v + a_0_2*v*v + a_0_3*v*v*v + a_1_0*u + a_1_1*u*v + a_1_2*u*v*v + a_2_0*u*u + a_2_1*u*u*v + a_3_0*u*u*u ; {SIP correction for second or third order}
+         //y:=y + b_0_0+ b_0_1*v + b_0_2*v*v + b_0_3*v*v*v + b_1_0*u + b_1_1*u*v + b_1_2*u*v*v + b_2_0*u*u + b_2_1*u*u*v + b_3_0*u*u*u ; {SIP correction for second or third order}
       end
       else
       begin
@@ -2244,103 +2300,15 @@ begin
 end;{plot stars}
 
 
-function calculate_undisturbed_image_scale : boolean;{calculate and correct the image scale as if the optical system is undisturbed. The distance between the stars in the center are measured and compared between detection and database. It is assumed that the center of the image is undisturbed optically }
-var
-  i,j,count,stars_measured,count2       : integer;
-  x1,y1,x2,y2,xc1,yc1,xc2,yc2,factor,r1,r2,d1,d2,range   : double;
-  factors      : array of double;
-
-begin
-  measure_distortion(false {plot and no sip correction},stars_measured);{measure stars against the database}
-
-  setlength(factors,stars_measured);
-
-  range:=0.05; {start with 0.05+0.05 is 0.1 range}
-
-  if stars_measured>0 then
-  repeat
-    count:=0;
-    range:=range+0.05; {increase range of center for finding stars}
-    begin
-      for i:=0 to stars_measured-1 do
-      begin
-        x1:=distortion_data[0,i]-head.crpix1;{database, x from center}
-        y1:=distortion_data[1,i]-head.crpix2;
-        r1:=sqr(x1)+sqr(y1);{distance from centre image}
-
-        if  r1<sqr(range{0.1}*head.height) then {short distance 10% of image scale, distortion low}
-        begin
-          count2:=0;
-          for j:=0 to stars_measured-1 do {second loop}
-          if ((i<>j) and (count2<6)) then {compare against a few other stars in center}
-          begin
-
-            x2:=distortion_data[0,j]-head.crpix1;{database, x from center}
-            y2:=distortion_data[1,j]-head.crpix2;
-            r2:=sqr(x2)+sqr(y2);{distance from centre image}
-
-            if  r2<sqr(range{0.1}*head.height) then {short distance 10% of image scale, distortion low}
-            begin
-              xc1:=distortion_data[2,i]-head.crpix1;{database, x from center}
-              yc1:=distortion_data[3,i]-head.crpix2;
-              xc2:=distortion_data[2,j]-head.crpix1;{database, x from center}
-              yc2:=distortion_data[3,j]-head.crpix2;
-
-              d1:=sqr(x1-x2)+sqr(y1-y2);
-              if d1>sqr(0.5*range{0.1}*head.height) then {some distance}
-              begin
-                d2:=sqr(xc1-xc2)+sqr(yc1-yc2);
-                factors[count]:=sqrt(d1/d2) ; //Ratio between close distance stars of database and image stars for center of the image. It is assumed that the center of the image is undisturbed optically
-                inc(count,1);
-                inc(count2,1);
-                if count>length(factors) then
-                          setlength(factors,count+stars_measured);
-              end;
-            end;
-          end;
-
-        end;
-      end;
-      factor:=smedian(factors,count);{filter out outliers using median}
-    end;
-  until ((count>50 {about 50/6 stars}) or (range>=0.3));
-  if count>50  then
-  begin
-    head.cd1_1:=head.cd1_1*factor;
-    head.cd1_2:=head.cd1_2*factor;
-    head.cd2_1:=head.cd2_1*factor;
-    head.cd2_2:=head.cd2_2*factor;
-    head.cdelt1:=head.cdelt1*factor;
-    head.cdelt2:=head.cdelt2*factor;
-
-    update_float  ('CD1_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_1);
-    update_float  ('CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
-    update_float  ('CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
-    update_float  ('CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
-    update_float  ('CDELT1  =',' / X pixel size (deg)                             ',false ,head.cdelt1);
-    update_float  ('CDELT2  =',' / Y pixel size (deg)                             ',false ,head.cdelt2);
-
-    if factor<1 then memo2_message('Assuming barrel distortion.') else memo2_message('Assuming pincushion distortion.');
-    memo2_message('Measured the undisturbed image scale in center and corrected image scale with factor '+floattostr6(factor)+'. Used '+inttostr(round(range*100))+'% of image');
-    result:=true;
-  end
-  else
-  begin
-    memo2_message('Failed to measure undisturbed image scale');
-    factor:=1;
-    result:=false;
-  end;
-  factors:=nil;{release memory}
-end;
-
 procedure measure_distortion(plot: boolean; out stars_measured : integer);{measure or plot distortion}
 var
   dra,ddec, telescope_ra,telescope_dec,fov,fov_org,ra2,dec2,
   mag2,Bp_Rp, hfd1,star_fwhm,snr, flux, xc,yc, delta_ra,det,SIN_dec_ref,COS_dec_ref,
-  SIN_dec_new,COS_dec_new,SIN_delta_ra,COS_delta_ra,hh,frac1,frac2,frac3,frac4,u0,v0,x,y,x2,y2,astrometric_error,sep   : double;
-  star_total_counter, max_nr_stars, area1,area2,area3,area4,nrstars_required2,i,sub_counter,scale,count                : integer;
+  SIN_dec_new,COS_dec_new,SIN_delta_ra,COS_delta_ra,hh,frac1,frac2,frac3,frac4,u0,v0,x,y,x2,y2,astrometric_error_innner,
+  astrometric_error_outer,sep,ra3,dec3,astrometric_error_innnerPS,astrometric_error_outerPS                                                      : double;
+  star_total_counter, max_nr_stars, area1,area2,area3,area4,nrstars_required2,i,sub_counter,sub_counter2,sub_counter3,sub_counter4,scale,count   : integer;
   flip_horizontal, flip_vertical       : boolean;
-  error_array                          : array of double;
+  errors_sky_pixel1, errors_sky_pixel2,errors_pixel_sky1,errors_pixel_sky2   : array of double;
 
     procedure plot_star;
     begin
@@ -2385,11 +2353,33 @@ var
             mainwindow.image1.Canvas.Pen.width :=1;
 
             {for median errror}
-            if  ( (x>0.25*head.height) and  (x< 0.75*head.height) and (y> 0.25*head.height) and  (y< 0.75*head.height) and (sub_counter<length(error_array))) then
+            if  ( (sqr(x-head.crpix1)+sqr(y-head.crpix2)<sqr(0.25*head.height)) and (sub_counter<length(errors_sky_pixel1))) then
             begin
-              error_array[sub_counter]:=sqrt(sqr(X-xc)+sqr(Y-yc));{add errors to array}
+              errors_sky_pixel1[sub_counter]:=sqrt(sqr(X-xc)+sqr(Y-yc));{add errors to array}
               inc(sub_counter);
+
+              //check sky to pixel errors:
+              if ((sip) and (sub_counter3<length(errors_pixel_sky1)) ) then
+              begin
+                sensor_coordinates_to_celestial(head,xc+1,yc+1,ra3,dec3);{calculate the ra,dec position}
+                ang_sep(ra3,dec3,ra2,dec2,errors_pixel_sky1[sub_counter3] );//angular seperation
+                inc(sub_counter3);
+              end;
             end;
+           if  ( (sqr(x-head.crpix1)+sqr(y-head.crpix2)>sqr(0.5*head.height)) and (sub_counter2<length(errors_sky_pixel2))) then
+            begin
+              errors_sky_pixel2[sub_counter2]:=sqrt(sqr(X-xc)+sqr(Y-yc));{add errors to array}
+              inc(sub_counter2);
+
+              //check sky to pixel errors:
+              if ((sip) and (sub_counter4<length(errors_pixel_sky2)) ) then
+              begin
+                sensor_coordinates_to_celestial(head,xc+1,yc+1,ra3,dec3);{calculate the ra,dec position}
+                ang_sep(ra3,dec3,ra2,dec2,errors_pixel_sky2[sub_counter4] );//angular seperation
+                inc(sub_counter4);
+              end;
+            end;
+
           end {show distortion}
           else
           if stars_measured<max_nr_stars then {store distortion data}
@@ -2423,9 +2413,16 @@ begin
 
     star_total_counter:=0;{total counter}
     sub_counter:=0;
+    sub_counter2:=0;
+    sub_counter3:=0;
+    sub_counter4:=0;
 
     max_nr_stars:=round(head.width*head.height*(1216/(2328*1760))); {Check 1216 stars in a circle resulting in about 1000 stars in a rectangle for image 2328 x1760 pixels}
-    setlength(error_array,max_nr_stars);
+    setlength(errors_sky_pixel1,max_nr_stars);
+    setlength(errors_sky_pixel2,max_nr_stars);
+    setlength(errors_pixel_sky1,max_nr_stars);
+    setlength(errors_pixel_sky2,max_nr_stars);
+
 
     {sets file290 so do before fov selection}
     if select_star_database(stackmenu1.star_database1.text,15 {neutral})=false then exit;
@@ -2516,8 +2513,19 @@ begin
 
     if plot then
     begin
-      astrometric_error:=smedian(error_array,sub_counter);
-      memo2_message('The center median astrometric error is '+floattostr4(astrometric_error*head.cdelt2*3600)+'" or ' +floattostr4(astrometric_error)+' pixel using '+inttostr(sub_counter)+ ' stars.');
+      astrometric_error_innner:=smedian(errors_sky_pixel1,sub_counter); //pixels
+      astrometric_error_outer:=smedian(errors_sky_pixel2,sub_counter2);
+      astrometric_error_innnerPS:=smedian(errors_pixel_sky1,sub_counter)*180/pi;//median value degrees
+      astrometric_error_outerPS:=smedian(errors_pixel_sky2,sub_counter2)*180/pi;
+
+
+      memo2_message('Pixel->Sky error inside '+floattostr4(astrometric_error_innnerPS*3600)+'" or ' +floattostr4(astrometric_error_innnerPS/head.cdelt2)+' pixel using '+inttostr(sub_counter3)+ ' stars.'+
+                                    ' Outside '+floattostr4(astrometric_error_outerPS*3600)+'" or ' +floattostr4(astrometric_error_outerPS/head.cdelt2)+' pixel using '+inttostr(sub_counter4)+ ' stars.');
+      memo2_message('Sky->Pixel error inside '+floattostr4(astrometric_error_innner*head.cdelt2*3600)+'" or ' +floattostr4(astrometric_error_innner)+' pixel using '+inttostr(sub_counter)+ ' stars.'+
+                                     ' Outside '+floattostr4(astrometric_error_outer*head.cdelt2*3600)+'" or ' +floattostr4(astrometric_error_outer)+' pixel using '+inttostr(sub_counter2)+ ' stars.');
+
+
+
 
       mainwindow.image1.Canvas.Pen.mode:=pmXor;
       mainwindow.image1.canvas.pen.color:=annotation_color;
@@ -2555,15 +2563,11 @@ begin
 
       mainwindow.image1.Canvas.font.size:=12;
 
-      if sip then
-      begin
-        mainwindow.image1.Canvas.textout(700,head.height-25,'SIP corrections are applied. Median error for 50% of image '+floattostr4(astrometric_error*head.cdelt2*3600)+'"');
-      end
-      else
-      mainwindow.image1.Canvas.textout(350,head.height-25,'Median error for 50% of image '+floattostr4(astrometric_error*head.cdelt2*3600)+'"');
+      mainwindow.image1.Canvas.textout(500,head.height-50,'Pixel->Sky error inside '+floattostr4(astrometric_error_innnerPS*3600)+'", outside '+floattostr4(astrometric_error_outerPS*3600)+'"');
+      mainwindow.image1.Canvas.textout(500,head.height-25,'Sky->Pixel error inside '+floattostr4(astrometric_error_innner*head.cdelt2*3600)+'", outside '+floattostr4(astrometric_error_outer*head.cdelt2*3600)+'"');
 
-
-      error_array:=nil;
+    //  errors_sky_pixel1 :=nil;  not required auto deallocated
+    //  errors_sky_pixel2:=nil;
     end;
 
 
@@ -2749,7 +2753,6 @@ begin
 
   {do database stars}
 
-  // flipped?  sign(CDELT1*CDELT2) =  sign(CD1_1*CD2_2 - CD1_2*CD2_1) See World Coordinate Systems Representations within the FITS format, draft 1988
   if hd.cd1_1*hd.cd2_2 - hd.cd1_2*hd.cd2_1>0 then {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
     flipped:=-1  //change rotation for flipped image
   else
