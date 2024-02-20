@@ -21,7 +21,7 @@ uses
 
 
 var {################# initialised variables #########################}
-  astap_version: string='2024.01.25';
+  astap_version: string='2024.02.16';
   ra1  : string='0';
   dec1 : string='0';
   search_fov1    : string='0';{search FOV}
@@ -37,6 +37,7 @@ var {################# initialised variables #########################}
   database_path   : string='';{to be set in main}
   downsample_for_solving1: integer=0;
   star_database1  : string='auto';
+  add_sip1        : boolean=false;
 
 type
   image_array = array of array of array of Single;
@@ -57,28 +58,32 @@ type
     ra_radians,dec_radians, pixel_size : double;
     ra_mount,dec_mount                     : double; {telescope ra,dec}
 
+    a_order,ap_order: integer;{Simple Imaging Polynomial use by astrometry.net, if 2 then available}
+    a_0_0,   a_0_1, a_0_2,  a_0_3,  a_1_0,  a_1_1,  a_1_2,  a_2_0,  a_2_1,  a_3_0 : double; {SIP, Simple Imaging Polynomial use by astrometry.net, Spitzer}
+    b_0_0,   b_0_1, b_0_2,  b_0_3,  b_1_0,  b_1_1,  b_1_2,  b_2_0,  b_2_1,  b_3_0 : double; {SIP, Simple Imaging Polynomial use by astrometry.net, Spitzer}
+    ap_0_0, ap_0_1,ap_0_2, ap_0_3, ap_1_0, ap_1_1, ap_1_2, ap_2_0, ap_2_1, ap_3_0 : double;{SIP, Simple Imaging Polynomial use by astrometry.net}
+    bp_0_0, bp_0_1,bp_0_2, bp_0_3, bp_1_0, bp_1_1, bp_1_2, bp_2_0, bp_2_1, bp_3_0 : double;{SIP, Simple Imaging Polynomial use by astrometry.net}
 
-  var
-     histogram : array[0..2,0..65535] of integer;{red,green,blue,count}
-     r_aperture : integer; {histogram number of values}
-     histo_peak_position : integer;
-     his_mean : array[0..2] of integer;
-     noise_level : array[0..2] of double;
-     esc_pressed, fov_specified {, last_extension }: boolean;
-     star_level,star_level2  : double;
-     exposure,focallen,equinox : double;
-     cblack, cwhite,
-     gain   :double; {from FITS}
-     date_obs : string;
-     instrum  :string;
+    histogram : array[0..2,0..65535] of integer;{red,green,blue,count}
+    r_aperture : integer; {histogram number of values}
+    histo_peak_position : integer;
+    his_mean : array[0..2] of integer;
+    noise_level : array[0..2] of double;
+    esc_pressed, fov_specified {, last_extension }: boolean;
+    star_level,star_level2  : double;
+    exposure,focallen,equinox : double;
+    cblack, cwhite,
+    gain   :double; {from FITS}
+    date_obs : string;
+    instrum  :string;
 
-     datamin_org, datamax_org :double;
-     warning_str : string;{for solver}
-     xpixsz,ypixsz: double;//Pixel Width in microns (after binning)
-     ra0,dec0 : double; {plate center values}
-     cdelt1,cdelt2: double;{deg/pixel for x}
-     naxis  : integer;{number of dimensions}
-     naxis3 : integer;{number of colors}
+    datamin_org, datamax_org :double;
+    warning_str : string;{for solver}
+    xpixsz,ypixsz: double;//Pixel Width in microns (after binning)
+    ra0,dec0 : double; {plate center values}
+    cdelt1,cdelt2: double;{deg/pixel for x}
+    naxis  : integer;{number of dimensions}
+    naxis3 : integer;{number of colors}
 
   const
     hist_range  {range histogram 255 or 65535 or streched} : integer=255;
@@ -87,7 +92,7 @@ type
     fits_file: boolean=false;
     crpix1: double=0;{reference pixel}
     crpix2: double=0;
-
+    pi_=pi;//for testing
 
   const   bufwide=1024*120;{buffer size in bytes}
 
@@ -148,7 +153,7 @@ function floattostr6(x:double):string;{float to string with 6 decimals}
 function floattostr4(x:double):string;
 function strtofloat2(s:string): double;{works with either dot or komma as decimal separator}
 function floattostrF2(const x:double; width1,decimals1 :word): string;
-procedure analyse_fits(img : image_array;snr_min:double;report:boolean;out star_counter : integer; out backgr, hfd_median : double); {find background, number of stars, median HFD}
+procedure analyse_image(img : image_array;snr_min:double;report_type:integer;out star_counter : integer; out backgr, hfd_median : double); {find background, number of stars, median HFD}
 procedure HFD(img: image_array;x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);{calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions}
 procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out background, star_level, star_level2: double); {get background and star level from peek histogram}
 function prepare_ra(rax:double; sep:string):string; {radialen to text, format 24: 00 00.0 }
@@ -168,11 +173,26 @@ procedure add_text(inpt,comment1:string);{add text to header memo}
 procedure update_integer(inpt,comment1:string;x:integer);{update or insert variable in header}
 procedure add_integer(inpt,comment1:string;x:integer);{add integer variable to header}
 procedure update_float(inpt,comment1:string;x:double);{update keyword of fits header in memo}
-
+procedure log_to_file(logf,mess : string);{for testing}
 
 implementation
 
 uses unit_command_line_solving, unit_command_line_star_database;
+
+
+procedure log_to_file(logf,mess : string);{for testing}
+var
+  f   :  textfile;
+begin
+  assignfile(f,logf);
+  try
+   if fileexists(logf)=false then rewrite(f) else append(f);
+   writeln(f,mess);
+
+  finally
+    closefile(f);
+  end;
+end;
 
 
 function floattostrE(x:double):string;
@@ -666,8 +686,8 @@ end;
 function load_fits(filen:string;out img_loaded2: image_array): boolean;{load fits file}
 var
   header    : array[0..2880] of ansichar;
-  i,j,k,error3,naxis1, reader_position              : integer;
-  dummy                                             : double;
+  i,j,k,error3,naxis1, reader_position,validate_double_error   : integer;
+  tempval                                                      : double;
   col_float,bscale,measured_max,scalefactor  : single;
   bzero                       : integer;{zero shift. For example used in AMT, Tricky do not use int64,  maxim DL writes BZERO value -2147483647 as +2147483648 !! }
   aline                       : ansistring;
@@ -696,7 +716,7 @@ const
 
      function validate_double:double;{read floating point or integer values}
      var t : string[21];
-         r,err : integer;
+         r : integer;
      begin
        t:='';
        r:=I+10;{position 11 equals 10}
@@ -705,7 +725,7 @@ const
          if header[r]<>' ' then t:=t+header[r];
          inc(r);
        end;
-       val(t,result,err);
+       val(t,result,validate_double_error);
      end;
 
 
@@ -816,30 +836,44 @@ begin
         begin
           if ( (header[i+1]='Z')  and (header[i+2]='E') and (header[i+3]='R') and (header[i+4]='O') ) then
           begin
-             dummy:=validate_double;
-             if dummy>2147483647 then
-             bzero:=-2147483648
-             else
-             bzero:=round(dummy); {Maxim DL writes BZERO value -2147483647 as +2147483648 !! }
-            {without this it would have worked also with error check off}
-          end
-          else
-          if ( (header[i+1]='S')  and (header[i+2]='C') and (header[i+3]='A') and (header[i+4]='L') ) then
-           begin
-              bscale:=validate_double; {rarely used. Normally 1}
-           end;
+            tempval:=validate_double;
+            if tempval>2147483647 then
+            bzero:=-2147483648
+            else
+            bzero:=round(tempval); {Maxim DL writes BZERO value -2147483647 as +2147483648 !! }
+           {without this it would have worked also with error check off}
+         end
+         else
+         if ( (header[i+1]='S')  and (header[i+2]='C') and (header[i+3]='A') and (header[i+4]='L') ) then
+          begin
+             bscale:=validate_double; {rarely used. Normally 1}
+          end;
         end;
 
-        if ((header[i]='X') and (header[i+1]='B')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]='N') and (header[i+5]='I')) then
-                 xbinning:=round(validate_double);{binning}
-        if ((header[i]='Y') and (header[i+1]='B')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]='N') and (header[i+5]='I')) then
-                 ybinning:=round(validate_double);{binning}
-
-        if ((header[i]='C') and (header[i+1]='D')  and (header[i+2]='E') and (header[i+3]='L') and (header[i+4]='T')) then {cdelt1}
+        if header[i]='C' then
         begin
-          if header[i+5]='1' then cdelt1:=validate_double else{deg/pixel for RA}
-          if header[i+5]='2' then cdelt2:=validate_double;    {deg/pixel for DEC}
-        end;
+          if ((header[i+1]='D')) then
+          begin
+             if ((header[i+2]='E') and (header[i+3]='L') and (header[i+4]='T')) then {cdelt1}
+             begin
+               if header[i+5]='1' then cdelt1:=validate_double else{deg/pixel for RA}
+               if header[i+5]='2' then cdelt2:=validate_double;    {deg/pixel for DEC}
+             end
+             else
+             begin
+               if ((header[i+2]='1') and (header[i+3]='_') and (header[i+4]='1')) then   cd1_1:=validate_double;
+               if ((header[i+2]='1') and (header[i+3]='_') and (header[i+4]='2')) then   cd1_2:=validate_double;
+               if ((header[i+2]='2') and (header[i+3]='_') and (header[i+4]='1')) then   cd2_1:=validate_double;
+               if ((header[i+2]='2') and (header[i+3]='_') and (header[i+4]='2')) then   cd2_2:=validate_double;
+             end;
+          end;
+          if ((header[i+1]='R')  and (header[i+2]='V') and (header[i+3]='A') and (header[i+4]='L')) then {crval1/2}
+          begin
+            if (header[i+5]='1') then  ra0:=validate_double*pi/180; {ra center, read double value}
+            if (header[i+5]='2') then  dec0:=validate_double*pi/180; {dec center, read double value}
+          end;
+        end;//C
+
         if ( ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='C') and (header[i+3]='P') and (header[i+4]='I') and (header[i+5]='X')) or     {secpix1/2}
              ((header[i]='S') and (header[i+1]='C')  and (header[i+2]='A') and (header[i+3]='L') and (header[i+4]='E') and (header[i+5]=' ')) or     {SCALE value for SGP files}
              ((header[i]='P') and (header[i+1]='I')  and (header[i+2]='X') and (header[i+3]='S') and (header[i+4]='C') and (header[i+5]='A')) ) then {pixscale}
@@ -851,30 +885,21 @@ begin
         if ((header[i]='E') and (header[i+1]='Q')  and (header[i+2]='U') and (header[i+3]='I') and (header[i+4]='N') and (header[i+5]='O') and (header[i+6]='X')) then
              equinox:=validate_double;
 
-        if ((header[i]='X') and (header[i+1]='P')  and (header[i+2]='I') and (header[i+3]='X') and (header[i+4]='S') and (header[i+5]='Z')) then {xpixsz}
-               xpixsz:=validate_double;{Pixel Width in microns (after binning), maxim DL keyword}
-        if ((header[i]='Y') and (header[i+1]='P')  and (header[i+2]='I') and (header[i+3]='X') and (header[i+4]='S') and (header[i+5]='Z')) then {xpixsz}
-             ypixsz:=validate_double;{Pixel Width in microns (after binning), maxim DL keyword}
 
        if ((header[i]='F') and (header[i+1]='O')  and (header[i+2]='C') and (header[i+3]='A') and (header[i+4]='L') and (header[i+5]='L')) then  {focall}
             focallen:=validate_double;{Focal length of telescope in mm, maxim DL keyword}
 
-        if ((header[i]='C') and (header[i+1]='R')  and (header[i+2]='V') and (header[i+3]='A') and (header[i+4]='L')) then {crval1/2}
-        begin
-          if (header[i+5]='1') then  ra0:=validate_double*pi/180; {ra center, read double value}
-          if (header[i+5]='2') then  dec0:=validate_double*pi/180; {dec center, read double value}
-        end;
-        if ((header[i]='R') and (header[i+1]='A')  and (header[i+2]=' ')) then  {ra}
-        begin
-          ra_mount:=validate_double*pi/180;
-          if ra0=0 then ra0:=ra_mount; {ra telescope, read double value only if crval is not available}
-        end;
+
+
         if ((header[i]='D') and (header[i+1]='E')  and (header[i+2]='C') and (header[i+3]=' ')) then {dec}
         begin
-          dec_mount:=validate_double*pi/180;
-          if dec0=0 then dec0:=dec_mount; {ra telescope, read double value only if crval is not available}
+          tempval:=validate_double*pi/180;
+          if validate_double_error=0 then //not a string value behind keyword DEC
+          begin
+            dec_mount:=tempval;
+            if dec0=0 then dec0:=tempval; {dec telescope, read double value only if crval is not available}
+          end;
         end;
-
 
         if ((header[i]='O') and (header[i+1]='B')  and (header[i+2]='J')) then
         begin
@@ -892,14 +917,32 @@ begin
           end;
         end;
 
-        if ((header[i]='C') and (header[i+1]='D')) then
+        if ((header[i]='R') and (header[i+1]='A')  and (header[i+2]=' ')) then  {ra}
         begin
-          if ((header[i+2]='1') and (header[i+3]='_') and (header[i+4]='1')) then   cd1_1:=validate_double;
-          if ((header[i+2]='1') and (header[i+3]='_') and (header[i+4]='2')) then   cd1_2:=validate_double;
-          if ((header[i+2]='2') and (header[i+3]='_') and (header[i+4]='1')) then   cd2_1:=validate_double;
-          if ((header[i+2]='2') and (header[i+3]='_') and (header[i+4]='2')) then   cd2_2:=validate_double;
+          tempval:=validate_double*pi/180;
+          if validate_double_error=0 then //not a string value behind keyword RA
+          begin
+            ra_mount:=tempval;
+            if ra0=0 then ra0:=tempval; {ra telescope, read double value only if crval1 is not available}
+          end;
         end;
 
+
+        if header[i]='X' then
+        begin
+        if ((header[i+1]='P')  and (header[i+2]='I') and (header[i+3]='X') and (header[i+4]='S') and (header[i+5]='Z')) then {xpixsz}
+               xpixsz:=validate_double;{Pixel Width in microns (after binning), maxim DL keyword}
+        if ((header[i+1]='B')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]='N') and (header[i+5]='I')) then
+                 xbinning:=round(validate_double);{binning}
+        end;//X
+
+        if header[i]='Y' then
+        begin
+          if ((header[i+1]='P')  and (header[i+2]='I') and (header[i+3]='X') and (header[i+4]='S') and (header[i+5]='Z')) then {xpixsz}
+               ypixsz:=validate_double;{Pixel Width in microns (after binning), maxim DL keyword}
+          if ((header[i+1]='B')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]='N') and (header[i+5]='I')) then
+               ybinning:=round(validate_double);{binning}
+        end;//Y
 
       end; {image header}
 
@@ -1277,7 +1320,6 @@ begin
   {not found, add to the end}
   memo1.insert(Memo1.Count-1,inpt+' '+s+comment1);
 end;
-
 
 procedure add_long_comment(descrip:string);{add long text to header memo. Split description over several lines if required}
 var
@@ -2300,10 +2342,48 @@ begin
 end;
 
 
-procedure analyse_fits(img : image_array;snr_min:double;report:boolean;out star_counter : integer;out backgr, hfd_median : double); {find background, number of stars, median HFD}
+procedure sensor_coordinates_to_celestial(fitsx,fitsy : double; out ram,decm  : double) {fitsX, Y to ra,dec};
+var
+  fits_unsampledX, fits_unsampledY :double;
+  u,v,u2,v2             : double;
+  dRa,dDec,delta,gamma  : double;
+
+begin
+  RAM:=0;DECM:=0;{for case wrong index or cd1_1=0}
+
+  if cd1_1<>0 then
+  begin //wcs
+    if a_order>=2 then {SIP, Simple Imaging Polynomial}
+    begin //apply SIP correction to pixels.
+      u:=fitsx-crpix1;
+      v:=fitsy-crpix2;
+      u2:=u + a_0_0+ a_0_1*v + a_0_2*v*v + a_0_3*v*v*v + a_1_0*u + a_1_1*u*v + a_1_2*u*v*v + a_2_0*u*u + a_2_1*u*u*v + a_3_0*u*u*u ; {SIP correction for second or third order}
+      v2:=v + b_0_0+ b_0_1*v + b_0_2*v*v + b_0_3*v*v*v + b_1_0*u + b_1_1*u*v + b_1_2*u*v*v + b_2_0*u*u + b_2_1*u*u*v + b_3_0*u*u*u ; {SIP correction for second or third order}
+    end
+    else
+    begin
+      u2:=fitsx-crpix1;
+      v2:=fitsy-crpix2;
+    end; {mainwindow.Polynomial1.itemindex=0}
+
+
+    dRa :=(cd1_1*(u2)+cd1_2*(v2))*pi/180;
+    dDec:=(cd2_1*(u2)+cd2_2*(v2))*pi/180;
+    delta:=cos(dec0)-dDec*sin(dec0);
+    gamma:=sqrt(dRa*dRa+delta*delta);
+    decm:=arctan((sin(dec0)+dDec*cos(dec0))/gamma);
+    ram:=ra0+arctan2(Dra,delta); {atan2 is required for images containing celestial pole}
+    if ram<0 then ram:=ram+2*pi;
+    if ram>pi*2 then ram:=ram-pi*2;
+  end; //WCS
+end;
+
+
+
+procedure analyse_image(img : image_array;snr_min:double;report_type:integer;out star_counter : integer;out backgr, hfd_median : double); {find background, number of stars, median HFD}
 var
    fitsX,fitsY,diam,i,j,retries,m,n,xci,yci,sqr_diam : integer;
-   hfd1,star_fwhm,snr,flux,xc,yc,detection_level               : double;
+   hfd1,star_fwhm,snr,flux,xc,yc,detection_level,ra,decl        : double;
    hfd_list                                                    : array of double;
    img_sa                                                      : image_array;
 var
@@ -2311,6 +2391,10 @@ var
 const
    len: integer=1000;
 begin
+  //report_type=0, report hfd_median
+  //report_type=1, report hfd_median and write csv file
+  //report_type=2, write csv file
+
   SetLength(hfd_list,len);{set array length to len}
 
   get_background(0,img,true,true {calculate background and also star level end noise level},{var}backgr,star_level,star_level2);
@@ -2331,11 +2415,11 @@ begin
 
       star_counter:=0;
 
-      if report then {write values to file}
+      if report_type>0 then {write values to file}
       begin
         assignfile(f,ChangeFileExt(filename2,'.csv'));
         rewrite(f); {this could be done 3 times due to the repeat but it is the most simple code}
-        writeln(f,'x,y,hfd,snr,flux');
+        writeln(f, 'x,y,hfd,snr,flux,ra[0..360],dec[0..360]');
       end;
 
       setlength(img_sa,1,height2,width2);{set length of image array}
@@ -2369,14 +2453,16 @@ begin
                     img_sa[0,j,i]:=1;
                 end;
 
-
-
-
-              if report then
+              if report_type>0 then
               begin
-                writeln(f,floattostr4(xc+1)+','+floattostr4(yc+1)+','+floattostr4(hfd1)+','+inttostr(round(snr))+','+inttostr(round(flux)) ); {+1 to convert 0... to FITS 1... coordinates}
-              end;
-
+                if cd1_1=0 then
+                  writeln(f, floattostr4(xc + 1) + ',' + floattostr4(yc + 1) +  ',' + floattostr4(hfd1) + ',' + IntToStr(round(snr)) + ',' + IntToStr(round(flux))) {+1 to convert 0... to FITS 1... coordinates}
+                else
+                begin
+                  sensor_coordinates_to_celestial(xc + 1,yc + 1, ra,decl);
+                  writeln(f, floattostr4(xc + 1) + ',' + floattostr4(yc + 1) +  ',' + floattostr4(hfd1) + ',' + IntToStr(round(snr)) + ',' + IntToStr(round(flux))+','+floattostr(ra*180/pi) + ',' + floattostr(decl*180/pi) ) {+1 to convert 0... to FITS 1... coordinates}
+                end;
+              end;//report
             end;
           end;
         end;
@@ -2384,13 +2470,11 @@ begin
 
       dec(retries);{Try again with lower detection level}
 
-      if report then closefile(f);
+      if report_type>0 then closefile(f);
 
     until ((star_counter>=max_stars) or (retries<0));{reduce detection level till enough stars are found. Note that faint stars have less positional accuracy}
 
-    if star_counter>0 then
-      hfd_median:=SMedian(hfd_List,star_counter)
-    else hfd_median:=99;
+    if ((star_counter > 0) and (report_type<=1)) then hfd_median := SMedian(hfd_List, star_counter) else  hfd_median := 99;
   end {backgr is normal}
   else
   hfd_median:=99;{Most common value image is too low. Ca'+#39+'t process this image. Check camera offset setting.}
