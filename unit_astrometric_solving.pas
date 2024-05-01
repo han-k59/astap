@@ -102,7 +102,7 @@ interface
 uses   Classes,SysUtils,controls,forms,math,
        unit_star_align, unit_star_database, astap_main, unit_stack, unit_annotation,unit_stars_wide_field, unit_calc_trans_cubic;
 
-function solve_image(img :image_array;var hd: Theader; get_hist{update hist}:boolean) : boolean;{find match between image and star database}
+function solve_image(img :image_array;var hd: Theader; get_hist{update hist}, check_patternfilter : boolean) : boolean;{find match between image and star database}
 procedure bin_and_find_stars(img :image_array;binning:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
 function report_binning(height :double) : integer;{select the binning}
 function position_angle(ra1,dec1,ra0,dec0 : double): double;//Position angle of a body at ra1,dec1 as seen at ra0,dec0. Rigorous method
@@ -340,43 +340,49 @@ end;
 
 
 procedure binX1_crop(crop {0..1}:double; img : image_array; var img2: image_array);{crop image, make mono, no binning}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY: integer;
-      val       : single;
+var
+  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
+  val       : single;
 begin
+  nrcolors:=Length(img);
+  width5:=Length(img[0,0]); {width}
+  height5:=Length(img[0]);  {height}
+
   w:=trunc(crop*length(img[0,0]{width}));  {cropped}
   h:=trunc(crop*length(img[0]{height}));
 
   setlength(img2,1,h,w); {set length of image array}
 
-  shiftX:=round(head.width*(1-crop)/2); {crop is 0.9, shift is 0.05*head.width}
-  shiftY:=round(head.height*(1-crop)/2); {crop is 0.9, start at 0.05*head.height}
+  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05 * width}
+  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05 * height}
 
   for fitsY:=0 to h-1 do
     for fitsX:=0 to w-1  do
     begin
       val:=0;
-      for k:=0 to head.naxis3-1 do {all colors and make mono}
+      for k:=0 to nrcolors-1 do {all colors and make mono}
          val:=val + img[k ,shiftY+fitsY,shiftX+fitsx];
-      img2[0,fitsY,fitsX]:=val/head.naxis3;
+      img2[0,fitsY,fitsX]:=val/nrcolors;
     end;
 end;
 
 
 procedure binX2_crop(crop {0..1}:double; img : image_array; out img2: image_array);{combine values of 4 pixels and crop is required, Result is mono}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY,nrcolors,width5,height5: integer;
-      val       : single;
+var
+  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
+  val       : single;
 begin
    nrcolors:=Length(img);
-   width5:=Length(img[0,0]);    {width}
-   height5:=Length(img[0]); {height}
+   width5:=Length(img[0,0]); {width}
+   height5:=Length(img[0]);  {height}
 
    w:=trunc(crop*width5/2);  {half size & cropped. Use trunc for image 1391 pixels wide like M27 test image. Otherwise exception error}
    h:=trunc(crop*height5/2);
 
    setlength(img2,1,h,w); {set length of image array}
 
-   shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*head.width}
-   shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*head.height}
+   shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05 * width}
+   shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05 * height}
 
    for fitsY:=0 to h-1 do
       for fitsX:=0 to w-1  do
@@ -392,8 +398,9 @@ begin
  end;
 
 procedure binX3_crop(crop {0..1}:double; img : image_array; out img2: image_array);{combine values of 9 pixels and crop is required. Result is mono}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY,nrcolors,width5,height5: integer;
-      val       : single;
+var
+  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
+  val       : single;
 begin
   nrcolors:=Length(img);
   width5:=Length(img[0,0]);    {width}
@@ -427,8 +434,9 @@ end;
 
 
 procedure binX4_crop(crop {0..1}:double;img : image_array; out img2: image_array);{combine values of 16 pixels and crop is required. Result is mono}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY,nrcolors,width5,height5: integer;
-      val       : single;
+var
+  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
+  val       : single;
 begin
   nrcolors:=Length(img);
   width5:=Length(img[0,0]);    {width}
@@ -776,7 +784,7 @@ begin
 end;
 
 
-function solve_image(img :image_array;var hd: Theader;get_hist{update hist}:boolean) : boolean;{find match between image and star database}
+function solve_image(img :image_array;var hd: Theader;get_hist{update hist},check_patternfilter :boolean) : boolean;{find match between image and star database}
 var
   nrstars,nrstars_required,count,max_distance,nr_quads, minimum_quads,database_stars,binning,match_nr,
   spiral_x, spiral_y, spiral_dx, spiral_dy,spiral_t,max_stars,i, database_density,limit,err  : integer;
@@ -804,19 +812,7 @@ begin
   startTick := GetTickCount64;
   popup_warningG05:='';
 
-  if stackmenu1.calibrate_prior_solving1.checked then
-  begin
-    {preserve header and some important variable}
-    memo2_message('Calibrating image prior to solving.');
-    analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{analyse dark tab, by loading=false the loaded img will not be effected. Calstat will not be effected}
-    analyse_listview(stackmenu1.listview3,false {light},false {full fits},false{refresh});{analyse flat tab, by loading=false the loaded img will not be effected}
-
-    apply_dark_and_flat(img);{apply dark, flat if required, renew if different hd.exposure or ccd temp. This will clear the header in load_fits}
-    update_text ('CALSTAT =',#39+hd.calstat+#39); {calibration status}
-    get_hist:=true; {update required}
-  end
-  else
-  if stackmenu1.check_pattern_filter1.checked then {for OSC images with low dimensions only}
+  if check_patternfilter then {for OSC images with low dimensions only}
   begin
     check_pattern_filter(img);
     get_hist:=true; {update required}
@@ -1205,8 +1201,8 @@ begin
     ang_sep(ra_radians,dec_radians,ra_start,dec_start, sep_search);//calculate search offset
 
     memo2_message(inttostr(nr_references)+ ' of '+ inttostr(nr_references2)+quads_str+' selected matching within '+floattostr(quad_tolerance)+' tolerance.'  //  3 quads are required giving 3 center quad references}
-                   +'  Solution["] x:='+floattostr6(solution_vectorX[0])+'*x+ '+floattostr6(solution_vectorX[1])+'*y+ '+floattostr6(solution_vectorX[2])
-                   +',  y:='+floattostr6(solution_vectorY[0])+'*x+ '+floattostr6(solution_vectorY[1])+'*y+ '+floattostr6(solution_vectorY[2]) );
+                   +'  Solution["] x:='+floattostr6(solution_vectorX[0])+'x+ '+floattostr6(solution_vectorX[1])+'y+ '+floattostr6(solution_vectorX[2])
+                   +',  y:='+floattostr6(solution_vectorY[0])+'x+ '+floattostr6(solution_vectorY[1])+'y+ '+floattostr6(solution_vectorY[2]) );
     //  following doesn't give maximum angle accuracy, so is not used.
     //    hd.cd1_1:= - solution_vectorX[0]/3600;{/3600, arcsec to degrees conversion}
     //    hd.cd1_2:= - solution_vectorX[1]/3600;

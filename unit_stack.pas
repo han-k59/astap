@@ -113,16 +113,20 @@ type
     browse_photometry1: TBitBtn;
     Button1: TButton;
     blink_stack_selected1: TMenuItem;
-    analyse_objects_visible2: TMenuItem;
-    save_button1: TButton;
+    blink_annotate_and_solve1: TButton;
+    apply_unsharp_mask1: TButton;
+    unsharp_edit_amount1: TEdit;
+    unsharp_edit_radius1: TEdit;
+    unsharp_edit_threshold1: TEdit;
+    GroupBox22: TGroupBox;
+    Label37: TLabel;
+    Label6: TLabel;
     Button_free_resize_fits1: TButton;
     calculated_scale1: TLabel;
     calculated_sensor_size1: TLabel;
     calculator_binning1: TLabel;
     calc_polar_alignment_error1: TButton;
-    calibrate_prior_solving1: TCheckBox;
     center_position1: TLabel;
-    check_pattern_filter1: TCheckBox;
     classify_dark_date1: TCheckBox;
     classify_dark_exposure1: TCheckBox;
     classify_dark_gain1: TCheckBox;
@@ -310,8 +314,13 @@ type
     Label63: TLabel;
     Label64: TLabel;
     Label65: TLabel;
+    Label66: TLabel;
     Label67: TLabel;
     Label68: TLabel;
+    Label69: TLabel;
+    Label7: TLabel;
+    Label70: TLabel;
+    Label71: TLabel;
     Label8: TLabel;
     Label9: TLabel;
     label_gaussian1: TLabel;
@@ -347,7 +356,6 @@ type
     manual_centering1: TComboBox;
     mark_outliers_upto1: TComboBox;
     max_stars1: TComboBox;
-    Memo3: TMemo;
     memo2: TMemo;
     MenuItem14: TMenuItem;
     merge_overlap1: TCheckBox;
@@ -393,6 +401,8 @@ type
     new_height1: TLabel;
     new_height2: TLabel;
     new_saturation1: TTrackBar;
+    undo_button22: TBitBtn;
+    unsharp_amount1: TTrackBar;
     noisefilter_blur1: TComboBox;
     noisefilter_sd1: TComboBox;
     nr_selected1: TLabel;
@@ -418,6 +428,7 @@ type
     Panel_solver1: TPanel;
     Panel_star_detection1: TPanel;
     photometry_binx2: TButton;
+    blink_binx2: TButton;
     photometry_button1: TButton;
     photometry_repeat1: TButton;
     photometry_stop1: TButton;
@@ -468,7 +479,6 @@ type
     smart_colour_smooth_button1: TButton;
     smart_smooth_width1: TComboBox;
     solve1: TButton;
-    solve_and_annotate1: TCheckBox;
     solve_show_log1: TCheckBox;
     SpeedButton1: TSpeedButton;
     speedButton_location1: TSpeedButton;
@@ -519,7 +529,6 @@ type
     star_database1: TComboBox;
     star_level_colouring1: TComboBox;
     subtract_background1: TButton;
-    MPC1992_1: TTabSheet;
     tab_blink1: TTabSheet;
     tab_inspector1: TTabSheet;
     tab_live_stacking1: TTabSheet;
@@ -563,7 +572,8 @@ type
     undo_button_equalise_background1: TBitBtn;
     unselect9: TMenuItem;
     unselect_area1: TButton;
-    update_annotation1: TCheckBox;
+    unsharp_radius1: TTrackBar;
+    unsharp_threshold1: TTrackBar;
     update_annotations1: TCheckBox;
     update_solution1: TCheckBox;
     UpDown1: TUpDown;
@@ -683,24 +693,25 @@ type
     write_video1: TButton;
     procedure add_noise1Click(Sender: TObject);
     procedure alignment1Show(Sender: TObject);
-    procedure align_blink1Change(Sender: TObject);
     procedure analyseblink1Click(Sender: TObject);
     procedure annotate_mode1Change(Sender: TObject);
     procedure Annotations_visible2Click(Sender: TObject);
     procedure blend1Change(Sender: TObject);
+    procedure blink_annotate_and_solve1Click(Sender: TObject);
+    procedure apply_unsharp_mask1Click(Sender: TObject);
     procedure classify_dark_temperature1Change(Sender: TObject);
     procedure contour_gaussian1Change(Sender: TObject);
     procedure detect_contour1Click(Sender: TObject);
     procedure ClearButton1Click(Sender: TObject);
+    procedure unsharp_edit_amount1Change(Sender: TObject);
+    procedure unsharp_edit_radius1Change(Sender: TObject);
+    procedure unsharp_edit_threshold1Change(Sender: TObject);
     procedure MenuItem14Click(Sender: TObject);
-    procedure analyse_objects_visible2Click(Sender: TObject);
     procedure photometric_calibration1Click(Sender: TObject);
     procedure pixelsize1Change(Sender: TObject);
-    procedure PopupMenu6Popup(Sender: TObject);
     procedure refresh_astrometric_solutions1Click(Sender: TObject);
     procedure browse_monitoring1Click(Sender: TObject);
     procedure Button1Click(Sender: TObject);
-    procedure calibrate_prior_solving1Change(Sender: TObject);
     procedure clear_result_list1Click(Sender: TObject);
     procedure column_fov1Click(Sender: TObject);
     procedure column_lim_magn1Click(Sender: TObject);
@@ -760,7 +771,6 @@ type
     procedure mount_add_solutions1Click(Sender: TObject);
     procedure new_colour_luminance1Change(Sender: TObject);
     procedure new_saturation1Change(Sender: TObject);
-    procedure check_pattern_filter1Change(Sender: TObject);
     procedure pagecontrol1Change(Sender: TObject);
     procedure pagecontrol1MouseMove(Sender: TObject; Shift: TShiftState;  X, Y: integer);
     procedure photom_calibrate1Click(Sender: TObject);
@@ -789,7 +799,6 @@ type
     procedure photometry_binx2Click(Sender: TObject);
     procedure photometry_button1Click(Sender: TObject);
     procedure saturation_tolerance1Change(Sender: TObject);
-    procedure save_button1Click(Sender: TObject);
     procedure save_result1Click(Sender: TObject);
     procedure save_settings_extra_button1Click(Sender: TObject);
     procedure smart_colour_smooth_button1Click(Sender: TObject);
@@ -803,7 +812,6 @@ type
     procedure apply_remove_background_colour1Click(Sender: TObject);
     procedure reset_factors1Click(Sender: TObject);
     procedure search_fov1Change(Sender: TObject);
-    procedure solve_and_annotate1Change(Sender: TObject);
     procedure speedButton_location1Click(Sender: TObject);
     procedure stack_groups1Click(Sender: TObject);
     procedure stack_method1DropDown(Sender: TObject);
@@ -898,6 +906,9 @@ type
     procedure undo_button_equalise_background1Click(Sender: TObject);
     procedure unselect1Click(Sender: TObject);
     procedure unselect_area1Click(Sender: TObject);
+    procedure unsharp_amount1Change(Sender: TObject);
+    procedure unsharp_radius1Change(Sender: TObject);
+    procedure unsharp_threshold1Change(Sender: TObject);
     procedure UpDown1Click(Sender: TObject; Button: TUDBtnType);
     procedure FormResize(Sender: TObject);
     procedure listview1ColumnClick(Sender: TObject; Column: TListColumn);
@@ -953,6 +964,7 @@ var
   sum_exp, sum_temp, photometry_stdev: double;
   referenceX, referenceY: double;{reference position used stacking}
   jd_mid: double;{julian day of mid head.exposure}
+  jd_mid_reference :double; { julian day of mid head.exposure for reference image}
   jd_sum: double;{sum of julian days}
   jd_end: double;{end observation in julian days}
   jd_start_first: double;{begin of observation in julian days}
@@ -992,8 +1004,10 @@ var  {################# initialised variables #########################}
 const
   dialog_filter =
     'FITS, RAW, TIFF |*.fit;*.fits;*.FIT;*.FITS;*.fts;*.FTS;*.fz;*.tif;*.tiff;*.TIF;*.xisf;'
-    +
-    '*.RAW;*.raw;*.CRW;*.crw;*.CR2;*.cr2;*.CR3;*.cr3;*.KDC;*.kdc;*.DCR;*.dcr;*.MRW;*.mrw;*.ARW;*.arw;*.NEF;*.nef;*.NRW;.nrw;*.DNG;*.dng;*.ORF;*.orf;*.PTX;*.ptx;*.PEF;*.pef;*.RW2;*.rw2;*.SRW;*.srw;*.RAF;*.raf;' + '|FITS files (*.fit*)|*.fit;*.fits;*.FIT;*.FITS;*.fts;*.FTS;*.fz;' + '|JPEG, TIFF, PNG PPM files|*.png;*.PNG;*.tif;*.tiff;*.TIF;*.jpg;*.JPG;*.ppm;*.pgm;*.pbm;*.pfm;*.xisf;' + '|RAW files|*.RAW;*.raw;*.CRW;*.crw;*.CR2;*.cr2;*.CR3;*.cr3;*.KDC;*.kdc;*.DCR;*.dcr;*.MRW;*.mrw;*.ARW;*.arw;*.NEF;*.nef;*.NRW;.nrw;*.DNG;*.dng;*.ORF;*.orf;*.PTX;*.ptx;*.PEF;*.pef;*.RW2;*.rw2;*.SRW;*.srw;*.RAF;*.raf;';
+    + '*.RAW;*.raw;*.CRW;*.crw;*.CR2;*.cr2;*.CR3;*.cr3;*.KDC;*.kdc;*.DCR;*.dcr;*.MRW;*.mrw;*.ARW;*.arw;*.NEF;*.nef;*.NRW;.nrw;*.DNG;*.dng;*.ORF;*.orf;*.PTX;*.ptx;*.PEF;*.pef;*.RW2;*.rw2;*.SRW;*.srw;*.RAF;*.raf;'
+    + '|FITS files (*.fit*)|*.fit;*.fits;*.FIT;*.FITS;*.fts;*.FTS;*.fz;'
+    + '|JPEG, TIFF, PNG PPM files|*.png;*.PNG;*.tif;*.tiff;*.TIF;*.jpg;*.JPG;*.ppm;*.pgm;*.pbm;*.pfm;*.xisf;'
+    + '|RAW files|*.RAW;*.raw;*.CRW;*.crw;*.CR2;*.cr2;*.CR3;*.cr3;*.KDC;*.kdc;*.DCR;*.dcr;*.MRW;*.mrw;*.ARW;*.arw;*.NEF;*.nef;*.NRW;.nrw;*.DNG;*.dng;*.ORF;*.orf;*.PTX;*.ptx;*.PEF;*.pef;*.RW2;*.rw2;*.SRW;*.srw;*.RAF;*.raf;';
 
 procedure listview_add(tl: tlistview; s0: string; is_checked: boolean; Count: integer);
 procedure listview_add_xy(c:integer;fitsX, fitsY: double);{add x,y position to listview}
@@ -1004,8 +1018,8 @@ procedure box_blur(colors, range : integer; var img: image_array);{blur by combi
 procedure check_pattern_filter(var img: image_array); {normalize bayer pattern. Colour shifts due to not using a white light source for the flat frames are avoided.}
 procedure black_spot_filter(var img: image_array); {remove black spots with value zero}{execution time about 0.4 sec}
 
-function update_solution_and_save(img: image_array; hd: theader): boolean; {plate solving, image should be already loaded create internal solution using the internal solver}
-function apply_dark_and_flat(var img: image_array): boolean; inline;{apply dark and flat if required, renew if different head.exposure or ccd temp}
+function update_solution_and_save(img: image_array; var hd: theader): boolean; {plate solving, image should be already loaded create internal solution using the internal solver}
+function apply_dark_and_flat(var img: image_array; var hd : theader): boolean; inline;{apply dark and flat if required, renew if different head.exposure or ccd temp}
 
 procedure smart_colour_smooth(var img: image_array; wide, sd: double; preserve_r_nebula, measurehist: boolean);{Bright star colour smooth. Combine color values of wide x wide pixels, keep luminance intact}
 procedure green_purple_filter(var img: image_array);{Balances RGB to remove green and purple. For e.g. Hubble palette}
@@ -1185,6 +1199,7 @@ type
 
 var
   bsolutions: array of blink_solution;
+  blink_width,blink_height,blink_naxis3 : integer;
 
 
 {$IFDEF fpc}
@@ -2068,6 +2083,7 @@ var
   red, green, blue, planetary                : boolean;
   key, filename1, rawstr      : string;
   img                         : image_array;
+  head_2                      : theader;
   bck                         : Tbackground;
   header_2                    : tstrings; {extra header}
 
@@ -2254,13 +2270,17 @@ begin
 
                 ListView1.Items.item[c].subitems.Strings[L_filter] := head_2.filter_name;
                 {filter name, without spaces}
-                if head_2.naxis3 = 3 then
-                  ListView1.Items.item[c].subitems.Strings[L_filter] := 'colour';
-                {give RGB lights filter name colour}
 
-                if head_2.naxis3 = 3 then  ListView1.Items.item[c].SubitemImages[L_filter] := 3 {RGB colour}
+                if head_2.naxis3 >= 3 then
+                begin
+                  ListView1.Items.item[c].subitems.Strings[L_filter] := 'colour';
+                  ListView1.Items.item[c].SubitemImages[L_filter] := 3 {RGB colour}
+                end
                 else
-                ListView1.Items.item[c].SubitemImages[L_filter] :=get_filter_icon(head_2.filter_name,{out} red,green, blue);
+                if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
+                  ListView1.Items.item[c].SubitemImages[L_filter] :=25  //raw OSC file
+                else
+                  ListView1.Items.item[c].SubitemImages[L_filter] :=get_filter_icon(head_2.filter_name,{out} red,green, blue);
 
 
                 ListView1.Items.item[c].subitems.Strings[L_bin] := floattostrf(head_2.Xbinning, ffgeneral, 0, 0) + ' x ' + floattostrf( head_2.Ybinning, ffgeneral, 0, 0);
@@ -2306,7 +2326,7 @@ begin
                 else
                 if stackmenu1.make_osc_color1.Checked then process_as_osc:= 2//forced process as OSC images
                 else
-                if ((head_2.naxis3 = 1) and (head_2.Xbinning = 1) and (bayerpat <> '')) then
+                if ((head_2.naxis3 = 1) and (head_2.Xbinning = 1) and (bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
                   //auto process as OSC images
                   process_as_osc:=1
                 else
@@ -2606,6 +2626,7 @@ end;
 procedure Tstackmenu1.subtract_background1Click(Sender: TObject);
 var
   fitsX, fitsY, col, col2, nrcolours: integer;
+  img_temp : image_array;
 begin
   if head.naxis = 0 then exit;
   Screen.Cursor := crHourglass;
@@ -2632,8 +2653,7 @@ begin
     use_histogram(img_loaded, True);
     plot_fits(mainwindow.image1, False, True);{plot real}
   end;
-  update_equalise_background_step(
-    5 {force 5 since equalise background is set to 1 by loading fits file});{update menu}
+  update_equalise_background_step(5 {force 5 since equalise background is set to 1 by loading fits file});{update menu}
   Screen.Cursor := crDefault;
 end;
 
@@ -3231,6 +3251,8 @@ var
   flat_norm_value, flat_factor,factor: single;
   idx : integer;
   value : string='';
+  img_temp : image_array;
+  head_2   : theader;
 begin
   if head.naxis <> 0 then
   begin
@@ -3301,7 +3323,6 @@ begin
         memo2_message('Error, files of different format!');
       end;{file loaded}
     end;
-    img_temp := nil;
     use_histogram(img_loaded, True);
     plot_fits(mainwindow.image1, False, True);{plot real}
     Screen.Cursor := crDefault;
@@ -3703,8 +3724,7 @@ procedure Tstackmenu1.file_to_add1Click(Sender: TObject);
 begin
   OpenDialog1.Title := 'Select image';
   OpenDialog1.Options := [ofFileMustExist, ofHideReadOnly];
-  opendialog1.Filter :=
-    'FITS or TIFF files|*.fit;*.fits;*.FIT;*.FITS;*.fts;*.FTS;*.tif;*.tiff;*.TIF';
+  opendialog1.Filter := 'FITS or TIFF files|*.fit;*.fits;*.FIT;*.FITS;*.fts;*.FTS;*.tif;*.tiff;*.TIF';
   if opendialog1.Execute then
   begin
     image_to_add1.Caption := OpenDialog1.Files[0];
@@ -3899,6 +3919,21 @@ begin
   area_set1.Caption := '⍻';
 end;
 
+procedure Tstackmenu1.unsharp_amount1Change(Sender: TObject);
+begin
+  unsharp_edit_amount1.text:=inttostr(unsharp_amount1.position div 10);
+end;
+
+procedure Tstackmenu1.unsharp_radius1Change(Sender: TObject);
+begin
+  unsharp_edit_radius1.text:=floattostrF(unsharp_radius1.position/10,ffgeneral,4,1);
+end;
+
+procedure Tstackmenu1.unsharp_threshold1Change(Sender: TObject);
+begin
+  unsharp_edit_threshold1.text:=floattostrF(unsharp_threshold1.position/10,ffgeneral,4,1);
+end;
+
 
 procedure Tstackmenu1.apply_gaussian_blur_button1Click(Sender: TObject);
 begin
@@ -4036,6 +4071,7 @@ var
   filename1,filterstr,filterstrUP,issue : string;
   loaded, red, green, blue: boolean;
   img: image_array;
+  head_2 : theader;
   nr_stars, hfd_outer_ring, median_11, median_21, median_31, median_12, median_22, median_32, median_13, median_23, median_33: double;
   bck : Tbackground;
 begin
@@ -4174,7 +4210,7 @@ begin
                   local_sd((head_2.Width div 2) - 50, (head_2.Height div 2) - 50, (head_2.Width div 2) + 50, (head_2.Height div 2) + 50{regio of interest}, 0, img, sd, dummy {mean},iterations); {calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
 
                   adu_e := retrieve_ADU_to_e_unbinned(head_2.egain);  //Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
-                  lv.Items.item[c].subitems.Strings[D_sigma] := noise_to_electrons(adu_e, head_2.Xbinning, sd); //reports noise in ADU's (adu_e=0) or electrons
+                  lv.Items.item[c].subitems.Strings[D_sigma] := noise_to_electrons(adu_e, sd); //reports noise in ADU's (adu_e=0) or electrons
                 end;
               end;
             end;
@@ -4192,7 +4228,11 @@ begin
               issue:='';//clear old issues
               lv.Items.item[c].subitems.Strings[F_filter] := head_2.filter_name;
 
-              if head_2.naxis3 = 3 then  lv.Items.item[c].SubitemImages[F_filter] := 3 {RGB colour}
+              if head_2.naxis3 = 3 then
+                lv.Items.item[c].SubitemImages[F_filter] := 3 {RGB colour}
+              else
+              if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
+                Lv.Items.item[c].SubitemImages[F_filter] :=25  //raw OSC file
               else
               begin
                 Lv.Items.item[c].SubitemImages[F_filter] :=get_filter_icon(head_2.filter_name,{out} red,green, blue);
@@ -4224,21 +4264,31 @@ begin
               lv.Items.item[c].subitems.Strings[B_date] :=
                 StringReplace(copy(head_2.date_obs, 1, 19), 'T', ' ', []); {date/time for blink. Remove fractions of seconds}
               lv.Items.item[c].subitems.Strings[B_calibration] := head_2.calstat;  {calibration head_2.calstat info DFB}
+              //Remark. Do not fill [B_solution]. Will contain numbers instead of ✓ used by the blink routine
               if annotated then lv.Items.item[c].subitems.Strings[B_annotated] := '✓' else lv.Items.item[c].subitems.Strings[B_annotated] := '';
+
+              blink_width:=head_2.width;//remember for avi writing
+              blink_height:=head_2.height;
+              blink_naxis3:=head_2.naxis3;
             end
             else
 
             if tabnr = 7 then {photometry tab}
             begin
-              lv.Items.item[c].subitems.Strings[P_date] :=
-                StringReplace(copy(head_2.date_obs, 1, 19), 'T', ' ', []);
+              lv.Items.item[c].subitems.Strings[P_date] :=StringReplace(copy(head_2.date_obs, 1, 19), 'T', ' ', []);
               {date/time for blink. Remove fractions of seconds}
               lv.Items.item[c].subitems.Strings[P_filter] := head_2.filter_name;
 
 
               filterstr:=head_2.filter_name;// R, G or V, B or TG
               filterstrUP:=uppercase(filterstr);
-              if ((length(filterstr)=0) or (pos('CV',filterstrUP)>0))  then lv.Items.item[c].SubitemImages[P_filter]:=-1 //unknown
+              if ((length(filterstr)=0) or (pos('CV',filterstrUP)>0))  then
+              begin
+                if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
+                  Lv.Items.item[c].SubitemImages[P_filter] :=25  //raw OSC file
+                else
+                lv.Items.item[c].SubitemImages[P_filter]:=-1 //unknown
+              end
               else
               if pos('S',filterstrUP)>0 then //sloan
               begin
@@ -4483,8 +4533,7 @@ begin
 end;
 
 
-procedure average(mess: string; file_list: array of string; file_count: integer;
-  var img2: image_array);
+procedure average(mess: string; file_list: array of string; file_count: integer; out img2: image_array);
 {combine to average or mean, make also mono from three colors if color}
 var
   {this routine works with mono files but makes coloured files mono, so less suitable for commercial cameras producing coloured raw lights}
@@ -4542,7 +4591,7 @@ begin
 end;
 
 
-function average_flatdarks(exposure: double; out w,h : integer): boolean;
+function average_flatdarks(exposure: double; out w,h : integer;  out img_bias: image_array): boolean;
 var
   c, file_count: integer;
   file_list: array of string;
@@ -5440,10 +5489,10 @@ var
   hfd_min: double;
   c, x_new, y_new, fitsX, fitsY, col, first_image, stepnr, nrrows,
   cycle, step, ps, bottom, top, left, w, h, max_stars: integer;
-  reference_done, init{,solut}, astro_solved, store_annotated, success, res: boolean;
+  reference_done, init{,solut}, astro_solved, store_annotated, success, res,buffer_loaded: boolean;
   st                  : string;
   starlist1,starlist2 : star_list;
-
+  img_temp : image_array;
 begin
   if listview6.items.Count <= 1 then exit; {no files}
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
@@ -5459,6 +5508,7 @@ begin
   mainwindow.image1.canvas.font.color := $00B0FF;{orange}
 
   esc_pressed := False;
+  buffer_loaded:=false;
   first_image := -1;
   cycle := 0;
   if Sender = blink_button_contB1 then step := -1  else step := 1;{forward/ backwards}
@@ -5468,7 +5518,7 @@ begin
   setlength(bsolutions, nrrows); {for the solutions in memory. bsolutions is destroyed in formdestroy}
 
   stepnr := 0;
-  if ((Sender = blink_button1) or (solve_and_annotate1.Checked) or
+  if ((Sender = blink_button1) or
     (Sender = write_video1) or (Sender = nil){export aligned}) then  init := True {start at beginning for video}
   else
     init := False;{start at selection}
@@ -5509,54 +5559,6 @@ begin
         use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
         if first_image = c then Inc(cycle);
-        if cycle >= 2 then stackmenu1.update_annotation1.Checked := False;
-        {reset any request to update fits header annotations}
-
-        if solve_and_annotate1.Checked then
-        begin
-          astro_solved := False;{assume failure}
-          if head.cd1_1 = 0 then {get astrometric solution}
-          begin
-            listview6.Selected := nil; {remove any selection}
-            listview6.ItemIndex := c;
-            {mark where we are. Important set in object inspector    Listview1.HideSelection := false; Listview1.Rowselect := true}
-            listview6.Items[c].MakeVisible(False);{scroll to selected item}
-            memo2_message(filename2 + ' Adding astrometric solution to files.');
-
-            if solve_image(img_loaded, head, True  {get hist}) then
-            begin{match between loaded image and star database}
-              astro_solved := True;{saving will be done later}
-              memo2_message(filename2 + ' astrometric solved.');
-            end
-            else
-              memo2_message(filename2 + 'No astrometric solution found for this file.');
-          end;
-
-          if head.cd1_1 <> 0 then
-          begin
-            if ((annotated = False) or (stackmenu1.update_annotation1.Checked)) then
-            begin
-              plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add annotations});
-              listview6.Items.item[c].subitems.Strings[B_annotated] := '✓';
-            end;
-            if ((astro_solved) or (stackmenu1.update_annotation1.Checked)) then
-              {save solution}
-            begin
-              if fits_file_name(filename2) then
-                success := savefits_update_header(filename2)
-              else
-                success := save_tiff16_secure(img_loaded, filename2);
-              {guarantee no file is lost}
-              if success = False then
-              begin
-                ShowMessage('Write error !!' + filename2);
-                Screen.Cursor := crDefault;
-                exit;
-              end;
-            end;
-          end;
-        end;{astrometric solve and annotate}
-
 
         {find align solution}
         if align_blink1.Checked then
@@ -5603,14 +5605,7 @@ begin
                 {store location in listview for case list is sorted/modified}
                 ListView6.Items.item[c].SubitemImages[B_solution] := -1;
                 {remove any older icon_king}
-
-                memo2_message(IntToStr(nr_references) + ' of ' +
-                  IntToStr(nr_references2) + ' quads selected matching within ' +
-                  stackmenu1.quad_tolerance1.Text + ' tolerance.' +
-                  '  Solution x:=' + floattostr6(solution_vectorX[0]) + '*x+ ' + floattostr6(
-                  solution_vectorX[1]) + '*y+ ' + floattostr6(solution_vectorX[2]) +
-                  ',  y:=' + floattostr6(solution_vectorY[0]) + '*x+ ' + floattostr6(
-                  solution_vectorY[1]) + '*y+ ' + floattostr6(solution_vectorY[2]));
+                memo2_message(IntToStr(nr_references) + ' of ' +IntToStr(nr_references2) + ' quads selected matching within ' + stackmenu1.quad_tolerance1.Text +' tolerance.  '+solution_str);
               end
               else
               begin
@@ -5649,7 +5644,7 @@ begin
                   img_temp[col, y_new, x_new] := img_loaded[col, fitsY, fitsX];
 
             end;
-
+          img_loaded :=nil;
           img_loaded := img_temp;
         end{star align}
         else {un-aligned blink}
@@ -5717,10 +5712,6 @@ begin
       end;
       Inc(c, step);
     until ((c >= nrrows) or (c < 0));
-
-   solve_and_annotate1.checked:=false;
-//    stackmenu1.update_annotation1.Checked:=false;//update is done
-
   until ((esc_pressed) or (Sender = blink_button1 {single run}) or
       (Sender = write_video1) or (Sender = nil){export aligned});
 
@@ -5801,7 +5792,7 @@ begin
 
   stepsize := round(sigma * 3);
   if stepsize < 8 then stepsize := 8;{minimum value}
-  subsampling := 5;
+  subsampling := 10;
   for i := stepsize to head.Height - 1 - stepsize do
     for j := stepsize to head.Width - 1 - stepsize do
     begin
@@ -5940,12 +5931,13 @@ begin
   end;
 end;
 
-procedure analyse_objects_visible(lv :tlistview);
+procedure analyse_objects_visible(lv :tlistview);  //analyse the the first selected image or the first image
 begin
   esc_pressed:=false;
+  stackmenu1.ephemeris_centering1.items.clear;//clear the list
   if lv.items.Count = 0 then
   begin
-    memo2_message('Abort, No files in tab IMAGES.');
+    memo2_message('Abort, No files in the listview.');
     exit;
   end;{no files in list, exit}
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
@@ -5973,7 +5965,7 @@ begin
   end;
 
   memo2_message('Annotating file: ' + filename2 + ' and extracting objects.');
-  plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add annotations});
+  plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add annotations},false);
   if annotated then
   begin
     mainwindow.annotations_visible1.Checked := True;
@@ -5981,7 +5973,7 @@ begin
     stackmenu1.ephemeris_centering1.ItemIndex :=  stackmenu1.ephemeris_centering1.items.Count - 1;{show first found in the list}
   end
   else
-    memo2_message('No object locations found in the image. Modify limiting count and limiting magnitude in Asteroid & Comet annotation menu, CTRL+R');
+    memo2_message('No object locations found in the image. Increase the limiting count and/or limiting magnitude in Asteroid & Comet annotation menu, shortcut CTRL+R');
   memo2_message('Completed. Select the object to align on.');
   Screen.Cursor := crDefault;    { back to normal }
 end;
@@ -5990,7 +5982,7 @@ end;
 
 procedure Tstackmenu1.analyse_objects_visible1Click(Sender: TObject);
 begin
-  analyse_objects_visible(listview1);
+  analyse_objects_visible(listview1); ;//file ephemeris_centering1 tCombobox in tab alignment with asteroids using one image
 end;
 
 
@@ -6672,6 +6664,8 @@ var
   c: integer;
   refresh_solutions, success: boolean;
   thefile, filename1: string;
+  head_2 : theader;
+  img_temp : image_array;
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
@@ -6705,7 +6699,7 @@ begin
           memo2_message(filename1 + ' Adding astrometric solution to file.');
           Application.ProcessMessages;
 
-          if solve_image(img_temp, head_2, True  {get hist}) then
+          if solve_image(img_temp, head_2, True  {get hist},false) then
           begin{match between loaded image and star database}
             if mount_write_wcs1.Checked then
             begin
@@ -6753,11 +6747,6 @@ end;
 procedure Tstackmenu1.new_saturation1Change(Sender: TObject);
 begin
   update_replacement_colour;
-end;
-
-procedure Tstackmenu1.check_pattern_filter1Change(Sender: TObject);
-begin
-  if check_pattern_filter1.Checked then calibrate_prior_solving1.Checked := False;
 end;
 
 
@@ -6918,22 +6907,12 @@ end;
 
 procedure stack_group(lv : tlistview; Sender: TObject);
 var
-  index, counter, oldindex, position, i: integer;
-  ListItem: TListItem;
+  index, counter, oldindex, position, i,referenceX,referenceY: integer;
+  ListItem  : TListItem;
+  blinktab  : boolean;
 begin
-  if lv=tlistview(stackmenu1.listview6) then
-  begin
-    memo2_message('Loading first image to calibrate photometry for the stack');
-    listview_view(stackmenu1.listview6);//show first selected image
-    calibrate_photometry;
-    if save_fits(img_loaded,filename2,nrbits,true)=false then
-    begin
-      memo2_message('Abort. Could not save photometric updated file: '+filename2);
-      exit;
-    end
-    else
-    memo2_message(filename2+' photometric calibrated (MZERO)')
-  end;
+//  blinktab:=lv=tlistview(stackmenu1.listview6);//sender is blink tab
+  blinktab:=(sender=stackmenu1.blink_stack_selected1);//sender is blink tab
 
   position := -1;
   index := 0;
@@ -6956,7 +6935,7 @@ begin
   stackmenu1.listview1.Items.endUpdate;
 
   analyse_tab_lights(0 {analyse_level});//update also process_as_osc
-  if process_as_osc > 0 then
+  if ((blinktab=false) and (process_as_osc > 0)) then
   begin
     memo2_message(
       '█ █ █ █ █ █ Abort !! For photometry you can not stack OSC images. First extract the green channel. █ █ █ █ █ █');
@@ -6972,14 +6951,15 @@ begin
 
   if filename2<>'' then
   begin
+
     // move calibrated files back
-    listview_removeselect(lv);
+    if blinktab=false then listview_removeselect(lv);
     lv.Items.BeginUpdate;
     with lv do
     begin
       ListItem := Items.insert(position);
       ListItem.Caption := filename2; // contains the stack file name
-      ListItem.Checked := True;
+      ListItem.Checked := blinktab=false;//do not check the new files in tab blink
       for i := 1 to P_nr do
         ListItem.SubItems.Add(''); // add the other columns
       Dec(index); {go to next file}
@@ -6995,7 +6975,7 @@ begin
   stackmenu1.stack_method1.ItemIndex := oldindex;//return old setting
   save_settings2;
 
-  analyse_listview(lv, True {light}, False {full fits}, True{refresh});
+  if blinktab=false then analyse_listview(lv, True {light}, False {full fits}, True{refresh});
   {refresh list}
 end;
 
@@ -7222,6 +7202,8 @@ var
   radius, fitsX, fitsY: integer;
   Value, org_value: single;
   star_level_colouring: double;
+  img_temp : image_array;
+
 begin
   if Length(img_loaded) = 0 then
   begin
@@ -7324,6 +7306,8 @@ procedure Tstackmenu1.export_aligned_files1Click(Sender: TObject);
 var
   c, fitsX, fitsY, x_new, y_new, col, ps: integer;
   st: string;
+  img_temp : image_array;
+
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
@@ -7694,37 +7678,47 @@ end;
 
 procedure Tstackmenu1.photometry_binx2Click(Sender: TObject);
 var
-  c: integer;
+  c,columns: integer;
+  lv: tlistview;
 begin
+  if sender=blink_binx2 then
+  begin
+    lv:=stackmenu1.listview6;
+    columns:=b_nr;
+  end
+  else
+  begin
+    lv:=stackmenu1.listview7;
+    columns:=p_nr
+  end;
+
   esc_pressed := False;
   if (idYes = Application.MessageBox(
     'Binning images 2x2 for better detection. Original files will be preserved. Continue?',
     'Bin 2x2', MB_ICONQUESTION + MB_YESNO)) = False then exit;
 
-  listview7.Items.beginUpdate;
-  for c := 0 to listview7.items.Count - 1 do
+  lv.Items.beginUpdate;
+  for c := 0 to lv.items.Count - 1 do
   begin
-    if ((esc_pressed = False) and (listview7.Items.item[c].Checked)) then
+    if ((esc_pressed = False) and (lv.Items.item[c].Checked)) then
     begin
 
-      filename2 := listview7.items[c].Caption;
+      filename2 := lv.items[c].Caption;
 
       if fits_file_name(filename2) = False then
       begin
-        memo2_message('█ █ █ █ █ █ Can' + #39 +
-          't bin x 2. First analyse file list to convert to FITS !! █ █ █ █ █ █');
+        memo2_message('█ █ █ █ █ █ Can' + #39 +'t bin x 2. First analyse file list to convert to FITS !! █ █ █ █ █ █');
         beep;
         exit;
       end;
       mainwindow.Caption := filename2;
       Application.ProcessMessages;
-      if ((esc_pressed) or (binX2X3_file(2) = False))
-      {converts filename2 to binx2 version} then exit;
-      listview7.Items[c].Checked := False;
-      listview_add(listview7, filename2, True, P_nr);{add binx2 file}
+      if ((esc_pressed) or (binX2X3_file(2) = False)) {converts filename2 to binx2 version} then exit;
+      lv.Items[c].Checked := False;
+      listview_add(lv, filename2, True, columns);{add binx2 file}
     end;
   end;{for loop}
-  listview7.Items.endUpdate;
+  lv.Items.endUpdate;
 end;
 
 
@@ -7735,6 +7729,8 @@ var
   stars_mean, stars_sd, stars_count: array of array of single;
   created: boolean;
   sd, xc, yc      : double;
+  head_2 : theader;
+  img_temp : image_array;
 const
   factor = 10; {div factor to get small variations at the same location}
 begin
@@ -7921,6 +7917,9 @@ var
   bck :tbackground;
   oldra0 : double=0;
   olddec0: double=-pi/2;
+  head_2 : theader;
+  img_temp : image_array;
+
 
             function measure_star(deX, deY: double): string;{measure position and flux}
             begin
@@ -8002,14 +8001,7 @@ var
 
             procedure nil_all;
             begin
-              //img_temp:=nil;{free memory}
-              starlistx := nil;{free memory}
-              starlistpack := nil; {release memory}
-              outliers := nil;
-              starCheck := nil;
-              starThree := nil;
               variable_list:=nil;//clear every time. In case the images are changed then the columns are correct.
-
               //remove following line at the end of 2025
               if ((pos('V5', uppercase(star_database1.Text)) <> 0) and (length(database2)>107) and (database2[107]<>'.')) then memo2_message(' █ █ █ █ █ █  Upgrade adviced! There is a newer V50 database available with a tiny correction of typically 0.0005 magnitude. Download and install. █ █ █ █ █ █');
 
@@ -8082,7 +8074,7 @@ begin
         memo2_message(filename1 + ' Adding astrometric solution to files to allow flux to magnitude calibration using the star database.');
         Application.ProcessMessages;
 
-        if solve_image(img_temp, head_2, True  {get hist}) then
+        if solve_image(img_temp, head_2, True  {get hist},false {check filter}) then
         begin{match between loaded image and star database}
           if fits_file_name(filename1) then
             success := savefits_update_header(filename1)
@@ -8096,11 +8088,10 @@ begin
           end;
           listview7.Items.item[c].subitems.Strings[P_astrometric] := '✓';
           calculate_az_alt(1 {calculate}, head_2,{out}az, alt);  {try to get  a value for alt}
-          if alt <> 0 then
+          if alt > 0 then
           begin
-             centalt := floattostrf(alt, ffGeneral, 3, 1); {altitude}
-             listview7.Items.item[c].subitems.Strings[P_centalt] := centalt; {altitude}
-             listview7.Items.item[c].subitems.Strings[P_airmass] := floattostrf(AirMass_calc(alt), ffFixed, 0, 3); {airmass}
+            listview7.Items.item[c].subitems.Strings[P_centalt] := floattostrf(alt, ffGeneral, 3, 1); {altitude}
+            listview7.Items.item[c].subitems.Strings[P_airmass] := floattostrf(AirMass_calc(alt), ffFixed, 0, 3); {airmass}
           end;
         end
         else
@@ -8631,8 +8622,7 @@ begin
       madCheck := 0;
     if countThree > 4 then
     begin
-      mad_median(starThree, countThree{counter},{var}madThree, medianThree);
-      {calculate mad and median without modifying the data}
+      mad_median(starThree, countThree{counter},{var}madThree, medianThree);   {calculate mad and median without modifying the data}
       memo2_message('3 star, median: ' + floattostrf(medianThree,  ffgeneral, 4, 4) + ', σ: ' + floattostrf(1.4826 * madThree  {1.0*sigma}, ffgeneral, 4, 4));
     end
     else
@@ -8654,10 +8644,6 @@ begin
   {plot colour disk in on paint event. Onpaint is required for MacOS}
 end;
 
-procedure Tstackmenu1.save_button1Click(Sender: TObject);
-begin
-  save_settings2;
-end;
 
 procedure Tstackmenu1.save_result1Click(Sender: TObject);
 var
@@ -8693,7 +8679,7 @@ begin
 end;
 
 
-procedure star_smooth(img: image_array; x1, y1: integer);
+procedure star_smooth_not_used(img: image_array; x1, y1: integer);
 const
   max_ri = 50; //sqrt(sqr(rs+rs)+sqr(rs+rs))+1;
 var
@@ -8701,6 +8687,8 @@ var
   val, bg_average, rgb, luminance: double;
   color, bg, bg_standard_deviation: array[0..2] of double;
   value_histogram: array [0..max_ri] of double;
+  img_temp : image_array;
+
 begin
   rs := 14;{14 is test box of 28, HFD maximum is about 28}
 
@@ -8810,7 +8798,7 @@ begin
           img[1, y2, x2] := bg[1] + luminance * color[1] / rgb;
           img[2, y2, x2] := bg[2] + luminance * color[2] / rgb;
 
-          img_temp[0, y2, x2] := 1; {mark as processed}
+        //  img_temp[0, y2, x2] := 1; {mark as processed}
         end;
       end;
   except
@@ -8849,9 +8837,10 @@ begin
 
 
 
+//  star_level:=max(bckR.star_level,max(bckG.star_level,bckB.star_level));
+//  star_level:=max(bckR.star_level2,max(bckG.star_level2,bckB.star_level2));
 
-
-  star_level:=max(bckR.star_level,max(bckG.star_level,bckB.star_level));
+  star_level:=30*max(bckR.noise_level,max(bckG.noise_level,bckB.noise_level));
 
   bg := (bgR + bgG + bgB) / 3; {average background}
 
@@ -8872,8 +8861,7 @@ begin
       b2 := img[2, fitsY, fitsX] - bgB;
 
 
-      if ((r2 > sd * bckR.noise_level) or (g2 > sd * bckG.noise_level) or (b2 > sd * bckB.noise_level)) then
-        {some relative flux}
+      if ((r2 > sd * bckR.noise_level) or (g2 > sd * bckG.noise_level) or (b2 > sd * bckB.noise_level)) then  {some relative flux}
       begin
         for y := -step to step do
           for x := -step to step do
@@ -8899,8 +8887,7 @@ begin
                 if g < bgG2 then bgG2 := g;
                 if b < bgB2 then bgB2 := b;
 
-                if ((r < 60000) and (g < 60000) and (b < 60000)) then
-                  {no saturation, ignore saturated pixels}
+                if ((r < 60000) and (g < 60000) and (b < 60000)) then  {no saturation, ignore saturated pixels}
                 begin
                   begin
                     if (r - bgR) > 0 then
@@ -9289,12 +9276,6 @@ begin
 end;
 
 
-procedure Tstackmenu1.solve_and_annotate1Change(Sender: TObject);
-begin
-  update_annotation1.Enabled := solve_and_annotate1.Checked;{update menu}
-end;
-
-
 procedure Tstackmenu1.speedButton_location1Click(Sender: TObject);
 begin
   lat_default := InputBox('Default observer location:','Enter the default observer latitude in degrees [DD.DDD or DD MM]', lat_default);
@@ -9391,13 +9372,50 @@ begin
 end;
 
 procedure Tstackmenu1.blink_stack_selected1Click(Sender: TObject);
+var
+  i : integer;
+  success : boolean;
 begin
+  esc_pressed:=false;
+
+  analyse_objects_visible(listview6);//file ephemeris_centering1 tCombobox in tab alignment with asteroids using one image
+
+  memo2_message('Loading first image to calibrate photometry for the stack');
+  listview_view(stackmenu1.listview6);//show first selected image
+
+  calibrate_photometry;
+
+  if fits_file_name(filename2) then
+    success := savefits_update_header(filename2)
+  else
+    success := save_tiff16_secure(img_loaded, filename2);
+  {guarantee no file is lost}
+  if success = False then
+  begin
+    memo2_message('Abort. Could not save photometric updated file: '+filename2);
+    exit;
+  end;
+  memo2_message(filename2+' photometric calibrated (MZERO)');
+
   use_ephemeris_alignment1.Checked:=true;
   if ephemeris_centering1.text='' then
   begin
-    memo2_message('For ephemeris aligned stacking first select an object in tab alignment, ephemeris alignment');
+    memo2_message('No objects found. Adapt the settings in viewer tools menu "Annotate asteroids and comets" shortcut ctrl+R');
   end;
-  stack_group(listview6,Sender);
+  for i:=0 to ephemeris_centering1.items.count-1 do
+  begin
+    application.processmessages;
+    if esc_pressed then
+      exit;
+    ephemeris_centering1.itemindex:=i; //select the asteroid
+    if  ephemeris_centering1.text<>'' then
+    begin
+      memo2_message('Track & stack for '+ephemeris_centering1.text);
+      stack_group(listview6,Sender); //stack aligned on this asteroid;
+    end;
+  end;
+  memo2_message('Track & stack is complete. Resulting files are inserted at the top of the selection!');
+  memo2_message('Use the viewer popup menu "MPC1992 report line" to compile a MPC1992 report or to check the object at "https://www.minorplanetcenter.net/cgi-bin/checkmp.cgi"');
 end;
 
 
@@ -9480,6 +9498,10 @@ begin
   HueRadioButton2.Enabled:=blend1.checked=false;
   new_saturation1.Enabled:=blend1.checked=false;
   new_colour_luminance1.Enabled:=blend1.checked=false;
+
+  stackmenu1.unsharp_amount1Change(sender);//update edit value
+  stackmenu1.unsharp_radius1Change(Sender);
+  stackmenu1.unsharp_threshold1Change(Sender);
 end;
 
 procedure Tstackmenu1.tab_Pixelmath2Show(Sender: TObject);
@@ -9546,6 +9568,152 @@ begin
   new_colour_luminance1.Enabled:=blend1.checked=false;
 end;
 
+procedure Tstackmenu1.blink_annotate_and_solve1Click(Sender: TObject);
+var
+  c: integer;
+  buffer_loaded,success : boolean;
+begin
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+  esc_pressed:=false;
+  buffer_loaded:=false;//astro_buffer
+  for c:=0 to listview6.Items.count-1 do
+  begin
+    if ((esc_pressed = False) and (listview6.Items.item[c].Checked)) then
+    begin
+      listview6.Selected := nil; {remove any selection}
+      listview6.ItemIndex := c;
+      {mark where we are. Important set in object inspector    Listview1.HideSelection := false; Listview1.Rowselect := true}
+      listview6.Items[c].MakeVisible(False);{scroll to selected item}
+
+      filename2 := listview6.items[c].Caption;
+      mainwindow.Caption := filename2;
+      memo2_message('Annotating '+filename2);
+      Application.ProcessMessages;
+      if esc_pressed then break;
+      {load image}
+      if load_fits(filename2, True {light}, True, True {update memo}, 0,mainwindow.memo1.lines, head, img_loaded) = False then
+      begin
+        esc_pressed := True;
+        break;
+      end;
+
+      use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+
+      if head.cd1_1 = 0 then {get astrometric solution}
+      begin
+        listview6.Selected := nil; {remove any selection}
+        listview6.ItemIndex := c;
+        {mark where we are. Important set in object inspector    Listview1.HideSelection := false; Listview1.Rowselect := true}
+        listview6.Items[c].MakeVisible(False);{scroll to selected item}
+        memo2_message(filename2 + ' Adding astrometric solution to files.');
+
+        if solve_image(img_loaded, head, True  {get hist},false {check filter}) then
+        begin{match between loaded image and star database}
+          memo2_message(filename2 + ' astrometric solved.');
+        end
+        else
+          memo2_message(filename2 + 'No astrometric solution found for this file.');
+      end;
+
+      if head.cd1_1 <> 0 then
+      begin
+        plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add annotations},buffer_loaded);
+        buffer_loaded:=true;//asteroids are in the buffer ready to be reused
+        listview6.Items.item[c].subitems.Strings[B_annotated] := '✓';
+
+        if fits_file_name(filename2) then
+          success := savefits_update_header(filename2)
+        else
+          success := save_tiff16_secure(img_loaded, filename2);
+        {guarantee no file is lost}
+        if success = False then
+        begin
+          ShowMessage('Write error !!' + filename2);
+          break;
+        end;
+      end;
+    end;//checked item
+  end;//for loop
+  Screen.Cursor:=crDefault;
+  memo2_message('Annotating ready');
+end;
+
+procedure Tstackmenu1.apply_unsharp_mask1Click(Sender: TObject);
+var
+  tmp : image_array;
+  fitsX,fitsY,dum,k,threshold: integer;
+  factor1,factor2   : double;
+  value,threshold_value   : single;
+
+begin
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+  backup_img;
+
+  get_background(0,img_loaded, false{histogram is already available},true {calculate noise level},{out}bck);{calculate background level from peek histogram}
+
+
+  tmp:=duplicate(img_loaded);//fastest way to duplicate an image
+  gaussian_blur2(tmp,unsharp_radius1.position/10);
+
+  threshold:=unsharp_threshold1.position; //expressed in sigma
+  factor1:=1/(1-(unsharp_amount1.position/1000));
+  factor2:=factor1-1;
+  memo2_message('Applying unsharp mask. Amount='+unsharp_edit_amount1.text+' %, Gaussian blur radius='+unsharp_edit_radius1.text+' px, threshold='+unsharp_edit_threshold1.text+' σ');
+  if threshold=0 then
+  begin
+    for k:=0 to head.naxis3-1 do {do all colors}
+    begin
+      for fitsY:=0 to head.height-1 do
+      for fitsX:=0 to head.width-1 do
+      begin
+        img_loaded[k,fitsY,fitsX]:=factor1*img_loaded[k,fitsY,fitsX] - factor2* tmp[k,fitsY,fitsX];
+      end;
+    end;{k color}
+  end
+  else
+  begin //use threshold
+    threshold_value:=threshold*bck.noise_level;//express in ADU
+    for k:=0 to head.naxis3-1 do {do all colors}
+    begin
+      for fitsY:=0 to head.height-1 do
+      for fitsX:=0 to head.width-1 do
+      begin
+        value:=factor1*img_loaded[k,fitsY,fitsX] - factor2* tmp[k,fitsY,fitsX];
+        if abs(value- img_loaded[k,fitsY,fitsX])>threshold_value then
+           img_loaded[k,fitsY,fitsX]:=value;
+      end;
+    end;{k color}
+
+  end;
+
+  plot_fits(mainwindow.image1,false,true);
+  Screen.Cursor:=crDefault;
+
+  {
+  Sharpening with Unsharp Mask (USM) is a popular method for enhancing the apparent sharpness and detail in images, including astronomical images where clarity and detail are crucial for observation and analysis.
+  The method is particularly effective for bringing out subtle features in celestial bodies or deep-sky objects. Here’s a simplified explanation of how it works:
+
+  1)  Create a Blurred Copy of the Original Image:
+      First, a blurred (or "unsharp") version of the original image is created. The blurring is typically done using a Gaussian blur, which smoothly averages pixel values with their neighbors,
+      effectively removing high-frequency details (like edges and fine textures).
+
+  2)  Subtract the Blurred Image from the Original:
+      Next, this blurred image is subtracted from the original image. The idea here is that by subtracting the low-frequency details, you're left with just the high-frequency details—essentially,
+      the edges and textures that define sharpness.
+
+  3)  Add the Result Back to the Original Image:
+      The resulting difference image, which contains the enhanced edges and details, is then added back to the original image. This step amplifies the original details, making the image appear sharper.
+
+  4)  Adjustment of the Strength of the Effect:
+      Typically, the process includes a parameter to adjust the strength of the sharpening effect. This can involve scaling the difference image before adding it back to the original,
+      allowing for finer control over how pronounced the sharpening is.
+
+  5)  Thresholding (Optional):
+      Some implementations of Unsharp Masking allow for a threshold parameter, which prevents sharpening from being applied to areas where the difference between the original and blurred images is below a certain value.
+      This helps to avoid amplifying noise in relatively flat or smooth regions of the image.
+   }
+end;
+
 
 procedure Tstackmenu1.classify_dark_temperature1Change(Sender: TObject);
 begin
@@ -9599,14 +9767,33 @@ begin
   plot_fits(mainwindow.image1,false,true);
 end;
 
+procedure Tstackmenu1.unsharp_edit_amount1Change(Sender: TObject);
+begin
+  unsharp_amount1.position:=round(strtofloat2(unsharp_edit_amount1.text)*10);
+end;
+
+procedure Tstackmenu1.unsharp_edit_radius1Change(Sender: TObject);
+begin
+  unsharp_radius1.position:=round(strtofloat2(unsharp_edit_radius1.text)*10);
+end;
+
+procedure Tstackmenu1.unsharp_edit_threshold1Change(Sender: TObject);
+begin
+  unsharp_threshold1.position:=round(strtofloat2(unsharp_edit_threshold1.text)*10);
+end;
+
 
 procedure solve_selected_files(lv: tlistview; refresh_solutions :boolean);
 var
   c: integer;
   success    : boolean;
   filename1  : string;
+  img_temp   : image_array;
+  head_2     : theader;
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+
+  update_menu(False);  //do not allow to save fits. img_load is still valid but Memo3 is cleared. Could be recovered but is not done
 
   esc_pressed := False;
   {solve lights first to allow flux to magnitude calibration}
@@ -9626,7 +9813,7 @@ begin
           Screen.Cursor := crDefault;{back to normal }
           exit;
         end;
-        if ((head.cd1_1 = 0) or (refresh_solutions)) then
+        if ((head_2.cd1_1 = 0) or (refresh_solutions)) then
         begin
           lv.ItemIndex := c;
           {mark where we are. Important set in object inspector    Listview1.HideSelection := false; Listview1.Rowselect := true}
@@ -9634,7 +9821,7 @@ begin
           memo2_message(filename1 + ' Adding astrometric solution to file.');
           Application.ProcessMessages;
 
-          if solve_image(img_temp, head_2, True  {get hist}) then
+          if solve_image(img_temp, head_2, True  {get hist},false {check filter}) then
           begin{match between loaded image and star database}
             if fits_file_name(filename1) then
               success := savefits_update_header(filename1)
@@ -9658,19 +9845,12 @@ begin
 
   Screen.Cursor := crDefault;{back to normal }
 
-  update_menu(False);  //do not allow to save fits. img_load is still valid but Memo3 is cleared. Could be recovered but is not done
-
 end;
 
 procedure Tstackmenu1.MenuItem14Click(Sender: TObject);
 begin
   solve_selected_files(listview1,true {refresh solutions});
   stackmenu1.Analyse1Click(Sender);{refresh positions}
-end;
-
-procedure Tstackmenu1.analyse_objects_visible2Click(Sender: TObject);
-begin
-  analyse_objects_visible(listview6);
 end;
 
 
@@ -9710,8 +9890,6 @@ begin
 
         filename2:=ff;
         if load_fits(filename2,true {light},true,true {update memo},0,mainwindow.memo1.lines,head,img_loaded) then {load a fits or Astro-TIFF file}
-
-         // load_image(mainwindow.image1.Visible = False {recenter}, True {plot})       then
         begin
           head.mzero:=0; //force a new calibration
           if head.cd1_1<>0 then
@@ -9742,11 +9920,6 @@ end;
 procedure Tstackmenu1.pixelsize1Change(Sender: TObject);
 begin
   new_analyse_required:=true;
-end;
-
-procedure Tstackmenu1.PopupMenu6Popup(Sender: TObject);
-begin
-  blink_stack_selected1.Caption:='Stack selected files aligned on '+ephemeris_centering1.text;
 end;
 
 
@@ -9787,7 +9960,7 @@ end;
 
 procedure remove_stars;
 var
-  fitsX,fitsY,hfd_counter,position,x,y,x1,y1  : integer;
+  fitsX,fitsY,hfd_counter,position,x,y,x1,y1,counter_noflux  : integer;
   flux,magnd, hfd_median,max_radius, backgrR,backgrG,backgrB,delta                           : double;
   img_temp3 :image_array;
   old_aperture : string;
@@ -9812,14 +9985,16 @@ const
        begin
          if ((x1-r2>=0) and (x1+r2<=head.width-1) and
           (y1-r2>=0) and (y1+r2<=head.height-1) ) then
-
-           distance:=i*i+j*j; {working with sqr(distance) is faster then applying sqrt}
-           if ((distance>r1_square) and (distance<=r2_square)) then {annulus, circular area outside rs, typical one pixel wide}
            begin
-             backgroundR[counter]:=img_loaded[0,y1+j,x1+i];
-             if head.naxis3>1 then backgroundG[counter]:=img_loaded[1,y1+j,x1+i];
-             if head.naxis3>2 then backgroundB[counter]:=img_loaded[2,y1+j,x1+i];
-             inc(counter);
+             distance:=i*i+j*j; {working with sqr(distance) is faster then applying sqrt}
+             if ((distance>r1_square) and (distance<=r2_square)) then {annulus, circular area outside rs, typical one pixel wide}
+             begin
+               backgroundR[counter]:=img_loaded[0,y1+j,x1+i];
+               if head.naxis3>1 then backgroundG[counter]:=img_loaded[1,y1+j,x1+i];
+               if head.naxis3>2 then backgroundB[counter]:=img_loaded[2,y1+j,x1+i];
+               inc(counter);
+             end;
+
            end;
         end;
         if counter>2 then
@@ -9873,18 +10048,23 @@ begin
   backgrG:=bck.backgr;
   backgrB:=bck.backgr;
 
+
+
    for fitsY:=0 to head.height-1 do
     for fitsX:=0 to head.width-1  do
     begin
       magnd:=img_temp3[0,fitsY,fitsX];
       if magnd<default then {a star from the database}
       begin
+     //     if ((abs(fitsX-2602)<5) and (abs(fitsY-1224)<5)) then
+    //      beep;
+
           star_background(round(4*hfd_median) {radius},fitsX,fitsY);//calculate background(s)
-          flux:=power(10,0.4*(head.mzero-magnd/10));
+//          flux:=power(10,0.4*(head.mzero-magnd/10));
 
-          flux:=flux*1.1;//compensate for flux errors
-          max_radius:=99999;
-
+//          flux:=flux*1.1;//compensate for flux errors
+ //         max_radius:=99999;
+          counter_noflux:=0;
           for position:=0 to length(disk)-1 do //remove star flux
           begin
             begin
@@ -9894,24 +10074,37 @@ begin
               y:=fitsY+y1;
               if ((x>=0) and (x<head.width) and (y>=0) and (y<head.height)) then //within image
               begin
-                if max_radius>100 then
-                begin
-                  if img_loaded[0,y,x]-backgrR<=0 then //reached outside of star
-                    max_radius:=1+sqrt(sqr(x1)+sqr(y1));//allow to continue for one pixel ring max
-                end
-                else
-                if sqrt(sqr(x1)+sqr(y1))>=max_radius then
+//                if max_radius>100 then
+  //              begin
+    //              if img_loaded[0,y,x]-backgrR<=0 then //reached outside of star
+      //              max_radius:=1+sqrt(sqr(x1)+sqr(y1));//allow to continue for one pixel ring max
+        //        end
+          //      else
+                if sqrt(sqr(x1)+sqr(y1))>=hfd_median*4 then
                   break;
 
-                delta:=min(flux,(img_loaded[0,y,x]-backgrR));//all photometry is only done in the red channel
-                img_loaded[0,y,x]:=img_loaded[0,y,x]-delta;
-                flux:=flux-delta;
+//                delta:=min(flux,(img_loaded[0,y,x]-backgrR));//all photometry is only done in the red channel
+
+                if counter_noflux>0.5*2*pi*sqrt(sqr(x1)+sqr(y1)) then //2*pi*r is circumference
+                  break;
+
+                delta:=img_loaded[0,y,x]-backgrR;//all photometry is only done in the red channel
+
+
+    //            flux:=flux-delta;
+
+         //       if flux<-1000 then break;
+
 
                 if delta>0 then //follow the red channel
                 begin
+                  img_loaded[0,y,x]:=img_loaded[0,y,x]-delta;
                   if head.naxis3>1 then img_loaded[1,y,x]:=img_loaded[0,y,x]*backgrG/backgrR;
                   if head.naxis3>2 then img_loaded[2,y,x]:=img_loaded[0,y,x]*backgrB/backgrR;
-                end;
+                end
+                else
+                inc(counter_noflux);
+
               end;
 
             end;
@@ -9988,12 +10181,6 @@ begin
 end;
 
 
-procedure Tstackmenu1.calibrate_prior_solving1Change(Sender: TObject);
-begin
-  if calibrate_prior_solving1.Checked then check_pattern_filter1.Checked := False;
-end;
-
-
 procedure Tstackmenu1.clear_result_list1Click(Sender: TObject);
 begin
   ListView5.Clear;
@@ -10004,7 +10191,6 @@ procedure Tstackmenu1.column_fov1Click(Sender: TObject);
 begin
   stackmenu1.listview1.columns.Items[l_sqm + 1].Caption := 'FOV';
   sqm_key:='FOV     ';//does not exist, but will be calculated
-
 end;
 
 procedure Tstackmenu1.column_lim_magn1Click(Sender: TObject);
@@ -10721,12 +10907,6 @@ begin
 end;
 
 
-procedure Tstackmenu1.align_blink1Change(Sender: TObject);
-begin
-  solve_and_annotate1.Enabled := align_blink1.Checked;
-end;
-
-
 procedure Tstackmenu1.add_noise1Click(Sender: TObject);
 var
   fitsX, fitsY, col: integer;
@@ -10867,35 +11047,36 @@ begin
 end;
 
 
-procedure load_master_dark(jd_int: integer);
+procedure load_master_dark(jd_int: integer; hd: theader);
 var
   c: integer;
   d, day_offset: double;
   filen        : string;
 
+
 begin
-  //  analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{find dimensions, head_2.exposure and temperature}
+  //  analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{find dimensions, head_dark.exposure and temperature}
   c := 0;
   day_offset := 99999999;
   filen := '';
 
-  light_exposure := round(head.exposure);{remember the requested head.exposure time}
-  light_temperature := head.set_temperature;
-  if head.egain <> '' then  dark_gain := head.egain  else dark_gain := head.gain;
+  light_exposure := round(hd.exposure);{remember the requested hd.exposure time}
+  light_temperature := hd.set_temperature;
+  if hd.egain <> '' then  dark_gain := hd.egain  else dark_gain := hd.gain;
 
   with stackmenu1 do
   while c < listview2.items.Count do
   begin
     if listview2.items[c].Checked = True then
-      if ((classify_dark_exposure1.Checked = False) or (light_exposure = round(strtofloat2(listview2.Items.item[c].subitems.Strings[D_exposure])))) then {head_2.exposure correct}
+      if ((classify_dark_exposure1.Checked = False) or (light_exposure = round(strtofloat2(listview2.Items.item[c].subitems.Strings[D_exposure])))) then {head_dark.exposure correct}
       begin
         if ((classify_dark_temperature1.Checked = False) or (abs(light_temperature - StrToInt(listview2.Items.item[c].subitems.Strings[D_temperature])) <= delta_temp_updown1.position)) then {temperature correct within one degree}
         begin
           if ((classify_dark_gain1.Checked = False) or (dark_gain = listview2.Items.item[c].subitems.Strings[D_gain])) then {gain correct}
           begin
-            if head.Width = StrToInt(listview2.Items.item[c].subitems.Strings[D_width]) then {width correct}
+            if hd.Width = StrToInt(listview2.Items.item[c].subitems.Strings[D_width]) then {width correct}
             begin
-              if head.height = StrToInt(listview2.Items.item[c].subitems.Strings[D_height]) then {height correct}
+              if hd.height = StrToInt(listview2.Items.item[c].subitems.Strings[D_height]) then {height correct}
               begin
                 d := strtofloat(listview2.Items.item[c].subitems.Strings[D_jd]);
                 if abs(d - jd_int) < day_offset then {find dark with closest date}
@@ -10906,10 +11087,10 @@ begin
                 listview2.Items.item[c].subitems.Strings[D_issues]:='';//clear issue
               end
               else
-              listview2.Items.item[c].subitems.Strings[D_issues]:='height<>'+inttostr(head.height);
+              listview2.Items.item[c].subitems.Strings[D_issues]:='height<>'+inttostr(hd.height);
             end
             else
-            listview2.Items.item[c].subitems.Strings[D_issues]:='width<>'+inttostr(head.width);
+            listview2.Items.item[c].subitems.Strings[D_issues]:='width<>'+inttostr(hd.width);
           end
           else
           listview2.Items.item[c].subitems.Strings[D_issues]:='gain<>'+dark_gain;
@@ -10928,7 +11109,7 @@ begin
     if ((head_ref.dark_count = 0){restart} or (filen <> last_dark_loaded)) then
     begin
       memo2_message('Loading master dark file ' + filen);
-      if load_fits(filen, False {light}, True, False {update memo}, 0,mainwindow.memo1.lines, head_2, img_dark) = False then
+      if load_fits(filen, False {light}, True, False {update memo}, 0,mainwindow.memo1.lines, head_dark, img_dark) = False then
       begin
         memo2_message('Error');
         head_ref.dark_count := 0;
@@ -10936,26 +11117,26 @@ begin
       end; {load master in memory img_dark}
 
       {test compatibility}
-      if ((round(head_2.exposure) <> 0 {dark exposure is measured}) and (round(head.exposure){request} <> round(head_2.exposure))) then memo2_message('█ █ █ █ █ █ Warning dark exposure time (' + floattostrF(head_2.exposure, ffFixed, 0, 0) + ') is different then the light exposure time (' + floattostrF(head.exposure, ffFixed, 0, 0) + ')! █ █ █ █ █ █ ');
-      if ((head_2.set_temperature <> 999 {dark temperature is measured}) and (head.set_temperature{request} <> head_2.set_temperature)) then  memo2_message('█ █ █ █ █ █ Warning dark sensor temperature (' + floattostrF(head_2.set_temperature, ffFixed, 0, 0) +') is different then the light sensor temperature (' + floattostrF(head.set_temperature, ffFixed, 0, 0) + ')! █ █ █ █ █ █ ');
-      if ((head_2.gain <> '' {gain in header}) and (head.gain{request} <> head_2.gain)) then
-        memo2_message('█ █ █ █ █ █ Warning dark gain (' + head_2.gain + ') is different then the light gain (' + head.gain +')! █ █ █ █ █ █ ');
-      if ((head_2.egain <> '' {gain in header}) and (head.egain{request} <> head_2.egain)) then
-        memo2_message('█ █ █ █ █ █ Warning dark egain (' + head_2.egain + ') is different then the light egain (' + head.egain +')! █ █ █ █ █ █ ');
+      if ((round(head_dark.exposure) <> 0 {dark exposure is measured}) and (round(hd.exposure){request} <> round(head_dark.exposure))) then memo2_message('█ █ █ █ █ █ Warning dark exposure time (' + floattostrF(head_dark.exposure, ffFixed, 0, 0) + ') is different then the light exposure time (' + floattostrF(hd.exposure, ffFixed, 0, 0) + ')! █ █ █ █ █ █ ');
+      if ((head_dark.set_temperature <> 999 {dark temperature is measured}) and (hd.set_temperature{request} <> head_dark.set_temperature)) then  memo2_message('█ █ █ █ █ █ Warning dark sensor temperature (' + floattostrF(head_dark.set_temperature, ffFixed, 0, 0) +') is different then the light sensor temperature (' + floattostrF(hd.set_temperature, ffFixed, 0, 0) + ')! █ █ █ █ █ █ ');
+      if ((head_dark.gain <> '' {gain in header}) and (hd.gain{request} <> head_dark.gain)) then
+        memo2_message('█ █ █ █ █ █ Warning dark gain (' + head_dark.gain + ') is different then the light gain (' + hd.gain +')! █ █ █ █ █ █ ');
+      if ((head_dark.egain <> '' {gain in header}) and (hd.egain{request} <> head_dark.egain)) then
+        memo2_message('█ █ █ █ █ █ Warning dark egain (' + head_dark.egain + ') is different then the light egain (' + hd.egain +')! █ █ █ █ █ █ ');
 
       last_dark_loaded := filen; {required for for change in light_jd}
-      if head_2.dark_count = 0 then head_2.dark_count := 1; {store in head of reference file}
+      if head_dark.dark_count = 0 then head_dark.dark_count := 1; {store in head of reference file}
     end;
   end
   else
   begin
-    memo2_message('█ █ █ █ █ █ Warning, could not find a suitable dark for ' + IntToStr(round(head.exposure)) + ' sec, temperature ' + IntToStr( head.set_temperature) + '°, gain ' + head.gain+' and width '+inttostr(head.width)+'! De-classify temperature or exposure time or add correct darks. See report in column ISSUES in tab dark.█ █ █ █ █ █ ');
-    head_2.dark_count := 0;{set back to zero}
+    memo2_message('█ █ █ █ █ █ Warning, could not find a suitable dark for ' + IntToStr(round(hd.exposure)) + ' sec, temperature ' + IntToStr( hd.set_temperature) + '°, gain ' + hd.gain+' and width '+inttostr(hd.width)+'! De-classify temperature or exposure time or add correct darks. See report in column ISSUES in tab dark.█ █ █ █ █ █ ');
+    head_dark.dark_count := 0;{set back to zero}
   end;
 end;
 
 
-procedure load_master_flat({filter: string;width1,}jd_int: integer);
+procedure load_master_flat(jd_int: integer;hd: theader);
 var
   c: integer;
   d, day_offset: double;
@@ -10968,11 +11149,11 @@ begin
   begin
     if stackmenu1.listview3.items[c].Checked = True then
     begin
-      if ((stackmenu1.classify_flat_filter1.Checked = False) or (AnsiCompareText(head.filter_name, stackmenu1.listview3.Items.item[c].subitems.Strings[F_filter]) = 0)) then {filter correct?  ignoring case}
+      if ((stackmenu1.classify_flat_filter1.Checked = False) or (AnsiCompareText(hd.filter_name, stackmenu1.listview3.Items.item[c].subitems.Strings[F_filter]) = 0)) then {filter correct?  ignoring case}
       begin
-        if head.Width = StrToInt( stackmenu1.listview3.Items.item[c].subitems.Strings[D_width]) then {width correct, matches with the light width}
+        if hd.Width = StrToInt( stackmenu1.listview3.Items.item[c].subitems.Strings[D_width]) then {width correct, matches with the light width}
         begin
-          if head.height = StrToInt( stackmenu1.listview3.Items.item[c].subitems.Strings[D_height]) then
+          if hd.height = StrToInt( stackmenu1.listview3.Items.item[c].subitems.Strings[D_height]) then
           begin
             d := strtofloat(stackmenu1.listview3.Items.item[c].subitems.Strings[F_jd]);
             if abs(d - jd_int) < day_offset then {find flat with closest date}
@@ -10983,10 +11164,10 @@ begin
             stackmenu1.listview3.Items.item[c].subitems.Strings[F_issues]:='';//clear issues
           end
           else
-          stackmenu1.listview3.Items.item[c].subitems.Strings[F_issues]:='height<>'+inttostr(head.height);
+          stackmenu1.listview3.Items.item[c].subitems.Strings[F_issues]:='height<>'+inttostr(hd.height);
         end
         else
-        stackmenu1.listview3.Items.item[c].subitems.Strings[F_issues]:='width<>'+inttostr(head.width);
+        stackmenu1.listview3.Items.item[c].subitems.Strings[F_issues]:='width<>'+inttostr(hd.width);
       end;
       // else, filter issues are handled in analyse_listview
     end;
@@ -10998,28 +11179,28 @@ begin
     if ((head_ref.flat_count = 0){restart} or (filen <> last_flat_loaded)) then {new file}
     begin
       memo2_message('Loading master flat file ' + filen);
-      if load_fits(filen, False {light}, True, False {update memo}, 0,mainwindow.memo1.lines, head_2, img_flat) = False then
+      if load_fits(filen, False {light}, True, False {update memo}, 0,mainwindow.memo1.lines, head_flat, img_flat) = False then
       begin
         memo2_message('Error');
-        head_2.flat_count := 0;
+        head_flat.flat_count := 0;
         exit;
       end;
       {load master in memory img_flat}
       last_flat_loaded := filen; {required for for change in light_jd}
-      flat_filter := head.filter_name; {mark as loaded}
+      flat_filter := hd.filter_name; {mark as loaded}
 
-      if pos('B', head_2.calstat) = 0 then
+      if pos('B', head_flat.calstat) = 0 then
       begin
         memo2_message('█ █ █ █ █ █ Warning: Flat not calibrated with a flat-dark/bias (keywords CALSTAT or BIAS_CNT). █ █ █ █ █ █')
       end;
 
-      if head_2.flat_count = 0 then head_2.flat_count := 1; {not required for astap master}
+      if head_flat.flat_count = 0 then head_flat.flat_count := 1; {not required for astap master}
     end;
   end
   else
   begin
-    memo2_message('█ █ █ █ █ █ Warning, could not find a suitable flat for "' + head.filter_name + '"! De-classify flat filter or add correct flat. See report in column ISSUES in tab flats. █ █ █ █ █ █ ');
-    head_2.flat_count := 0;{set back to zero}
+    memo2_message('█ █ █ █ █ █ Warning, could not find a suitable flat for "' + hd.filter_name + '"! De-classify flat filter or add correct flat. See report in column ISSUES in tab flats. █ █ █ █ █ █ ');
+    head_flat.flat_count := 0;{set back to zero}
   end;
 end;
 
@@ -11092,7 +11273,7 @@ begin
         path1 := extractfilepath(file_list[0]) + 'master_dark_' + IntToStr(head.dark_count) + 'x' + IntToStr(round(exposure)) + 's_at_' + IntToStr( temperatureRound) + 'C_' + copy(head.date_obs, 1, 10) + '.fit';
         update_integer('DARK_CNT=', ' / Number of dark image combined                  ' , head.dark_count);
         update_integer('CCD-TEMP=', ' / Average sensor temperature (Celsius)           ' , temperatureRound);
-        add_text('COMMENT 7', '  Dark temperature tolerance setting was ' + IntToStr(stackmenu1.delta_temp_updown1.position)+ ' degrees Celsius' );
+        add_text('COMMENT 8', '  Dark temperature tolerance setting was ' + IntToStr(stackmenu1.delta_temp_updown1.position)+ ' degrees Celsius' );
 
         { ASTAP keyword standard:}
         { interim files can contain keywords: EXPOSURE, FILTER, LIGHT_CNT,DARK_CNT,FLAT_CNT, BIAS_CNT, SET_TEMP.  These values are written and read. Removed from final stacked file.}
@@ -11184,6 +11365,7 @@ var
   flat_width,flat_height, flat_dark_width,flat_dark_height: integer;
   flatdark_used: boolean;
   file_list: array of string;
+  img_bias  : image_array;
 begin
   with stackmenu1 do
   begin
@@ -11250,7 +11432,7 @@ begin
             analyseflatdarksButton1Click(nil); {head.exposure lengths are required for selection}
             memo2_message('Selecting flat darks with exposure time ' +  floattostrF(flat_exposure, FFgeneral, 0, 2) + 'sec');
           end;
-          if average_flatdarks(flat_exposure,flat_dark_width,flat_dark_height) then  {average of bias frames. Convert to FITS if required}
+          if average_flatdarks(flat_exposure,flat_dark_width,flat_dark_height,img_bias) then  {average of bias frames. Convert to FITS if required}
           begin  //falt darks found
             flatdark_exposure := flat_exposure; {store this head.exposure for next time}
             if ((flat_width <> flat_dark_width) or (flat_height <> flat_dark_height)) then
@@ -11370,9 +11552,9 @@ begin
 end;
 
 
-function update_solution_and_save(img: image_array; hd: theader): boolean;  {plate solving, image should be already loaded create internal solution using the internal solver}
+function update_solution_and_save(img: image_array; var hd: theader): boolean;  {plate solving, image should be already loaded create internal solution using the internal solver}
 begin
-  if solve_image(img, hd, True) then {match between loaded image and star database}
+  if solve_image(img, hd, True,false) then {match between loaded image and star database}
   begin
     if fits_file_name(filename2) then
     begin
@@ -11388,59 +11570,59 @@ begin
 end;
 
 
-function apply_dark_and_flat(var img: image_array): boolean; inline; {apply dark and flat if required, renew if different head.exposure or ccd temp}
+function apply_dark_and_flat(var img: image_array; var hd : theader): boolean; inline; {apply dark and flat if required, renew if different head.exposure or ccd temp}
 var
   fitsX, fitsY, k: integer;
   Value, flat_factor, flatNorm11, flatNorm12, flatNorm21, flatNorm22, flat_norm_value: double;
 
 begin
   Result := False;
-  date_to_jd(head.date_obs,'', head.exposure {light}); {convert date-obs to global variables jd_start, jd_mid. Use this to find the dark with the best match for the light}
+  date_to_jd(hd.date_obs,'', hd.exposure {light}); {convert date-obs to global variables jd_start, jd_mid. Use this to find the dark with the best match for the light}
 
-  if pos('D', head.calstat) <> 0 then {is the light already calibrated}
+  if pos('D', hd.calstat) <> 0 then {is the light already calibrated}
     memo2_message('Skipping dark calibration, already applied. See header keyword CALSTAT')
   else
   begin
-    load_master_dark(round(jd_start)); {will only be renewed if different head.exposure or head.set_temperature.}
+    load_master_dark(round(jd_start),hd); {will only be renewed if different hd.exposure or hd.set_temperature.}
 
-    if head_2.dark_count > 0 then  {dark and flat use head_2 for status}
+    if head_dark.dark_count > 0 then  {dark and flat use head_2 for status}
     begin
       dark_norm_value := 0;
-      for fitsY := (head.Width div 2)-7 to (head.Width div 2)+8 do {do even times, 16x16 for bayer matrix}
-        for fitsX := (head.Height div 2)-7 to (head.Height div 2)+8 do
+      for fitsY := (hd.Width div 2)-7 to (hd.Width div 2)+8 do {do even times, 16x16 for bayer matrix}
+        for fitsX := (hd.Height div 2)-7 to (hd.Height div 2)+8 do
           dark_norm_value := dark_norm_value + img_dark[0, fitsY,fitsX];
       dark_norm_value := dark_norm_value /(16*16);  {scale factor to apply flat. The norm value will result in a factor one for the center.}
 
-      for fitsY := 0 to head.Height - 1 do  {apply the dark}
-        for fitsX := 0 to head.Width - 1 do
+      for fitsY := 0 to hd.Height - 1 do  {apply the dark}
+        for fitsX := 0 to hd.Width - 1 do
         begin
           Value := img_dark[0, fitsY, fitsX];{Darks are always made mono when making master dark}
-          for k := 0 to head.naxis3 - 1 do {do all colors}
+          for k := 0 to hd.naxis3 - 1 do {do all colors}
             img[k, fitsY, fitsX] := img[k, fitsY, fitsX] - Value;
         end;
 
       {for stacking}
       head_ref.calstat := 'D';
       {dark applied, store in header of reference file since it not modified while stacking}
-      head_ref.dark_count := head_2.dark_count;
-      head_ref.datamax_org := head.datamax_org - dark_norm_value;{adapt light datamax_org}
+      head_ref.dark_count := head_dark.dark_count;
+      head_ref.datamax_org := hd.datamax_org - dark_norm_value;{adapt light datamax_org}
 
       {for SQM measurement, live stacking}
-      head.calstat := 'D'; {dark applied, store in header of reference file}
-      head.dark_count := head_2.dark_count;
-      head.datamax_org := head.datamax_org - dark_norm_value;{adapt light datamax_org}
+      hd.calstat := 'D'; {dark applied, store in header of reference file}
+      hd.dark_count := head_dark.dark_count;
+      hd.datamax_org := hd.datamax_org - dark_norm_value;{adapt light datamax_org}
       Result := True;
     end;
   end;{apply dark}
 
-  if pos('F', head.calstat) <> 0 then memo2_message('Skipping flat calibration, already applied. See header keyword CALSTAT')
+  if pos('F', hd.calstat) <> 0 then memo2_message('Skipping flat calibration, already applied. See header keyword CALSTAT')
   else
   begin
-    load_master_flat({head.filter_name,head.width,}round(jd_start));
-    {will only be renewed if different filter name.  Note load will overwrite head.calstat}
+    load_master_flat(round(jd_start), hd);
+    {will only be renewed if different filter name.  Note load will overwrite hd.calstat}
     last_light_jd := round(jd_start);
 
-    if head_2.flat_count <> 0 then
+    if head_flat.flat_count <> 0 then
     begin
       flat_norm_value := 0;
       flatNorm11 := 0;
@@ -11448,8 +11630,8 @@ begin
       flatNorm21 := 0;
       flatNorm22 := 0;
 
-      for fitsY:=(head_2.Width div 2)-7 to (head_2.Width div 2)+8 do {do even times, 16x16 for Bay matrix. For OSC 8x8 pixels for each colour}
-        for fitsX:=(head_2.Height div 2)-7 to (head_2.Height div 2)+8 do
+      for fitsY:=(head_flat.Width div 2)-7 to (head_flat.Width div 2)+8 do {do even times, 16x16 for Bay matrix. For OSC 8x8 pixels for each colour}
+        for fitsX:=(head_flat.Height div 2)-7 to (head_flat.Height div 2)+8 do
         begin
           Value := img_flat[0,fitsY, fitsX];
           flat_norm_value := flat_norm_value + Value;
@@ -11481,8 +11663,8 @@ begin
         flatNorm21 :={flat_norm_value/} (flatNorm21 /(8*8));
         flatNorm22 :={flat_norm_value/} (flatNorm22 /(8*8));
 
-        for fitsY := 0 to head.Height-1 do  {apply the OSC flat}
-          for fitsX := 0 to head.Width-1 do
+        for fitsY := 0 to hd.Height-1 do  {apply the OSC flat}
+          for fitsX := 0 to hd.Width-1 do
           begin //thread the red, green and blue pixels seperately
             //bias is already combined in flat in combine_flat
             if odd(fitsX) then
@@ -11507,9 +11689,9 @@ begin
       end
       else //monochrome images (or weird images already in colour)
       begin
-        for k := 0 to head.naxis3 - 1 do {do all colors}
-        for fitsY := 0 to head.Height-1 do  {apply the flat}
-          for fitsX := 0 to head.Width-1 do
+        for k := 0 to hd.naxis3 - 1 do {do all colors}
+        for fitsY := 0 to hd.Height-1 do  {apply the flat}
+          for fitsX := 0 to hd.Width-1 do
           begin
             flat_factor := flat_norm_value / (img_flat[0, fitsY, fitsX] + 0.001);  {bias is already combined in flat in combine_flat}
             flat_factor:=min(4,max(flat_factor,-4)); {un-used sensor area? Prevent huge gain of areas only containing noise and no flat-light value resulting in very strong disturbing noise or high value if dark is missing. Typical problem for converted RAW's by Libraw}
@@ -11518,16 +11700,16 @@ begin
           end;
       end;
       {for stacking}
-      head_ref.calstat := head_ref.calstat + 'F' + head_2.calstat{B from flat};
+      head_ref.calstat := head_ref.calstat + 'F' + head_flat.calstat{B from flat};
       {mark that flat and bias have been applied. Store in the header of the reference file since it is not modified while stacking}
-      head_ref.flat_count := head_2.flat_count;
-      head_ref.flatdark_count := head_2.flatdark_count;
+      head_ref.flat_count := head_flat.flat_count;
+      head_ref.flatdark_count := head_flat.flatdark_count;
 
       {for SQM measurement, live stacking}
-      head.calstat := head.calstat + 'F' + head_2.calstat{B from flat};
+      hd.calstat := hd.calstat + 'F' + head_flat.calstat{B from flat};
       {mark that flat and bias have been applied. Store in the header of the reference file}
-      head.flat_count := head_2.flat_count;
-      head.flatdark_count := head_2.flatdark_count;
+      hd.flat_count := head_flat.flat_count;
+      hd.flatdark_count := head_flat.flatdark_count;
       Result := True;
     end;{flat correction}
   end;{do flat & flat dark}
@@ -11564,7 +11746,7 @@ begin
             exit;
           end;
 
-          if apply_dark_and_flat(img_loaded) {apply dark, flat if required, renew if different head.exposure or ccd temp} then
+          if apply_dark_and_flat(img_loaded,head) {apply dark, flat if required, renew if different head.exposure or ccd temp} then
           begin //success added dark or flat
             memo2_message('Calibrating file: ' + IntToStr(c + 1) + '-' + IntToStr(
               ListView1.items.Count) + ' "' + filename2 + '"  to average. Using ' +
@@ -11756,6 +11938,8 @@ begin
     decodetime(time, hh, mm, ss, ms);
     Result := Result + '_' + leadingzero(hh) + leadingzero(mm) + leadingzero(ss);
   end;
+
+  if stackmenu1.use_ephemeris_alignment1.Checked then result:=result + RemoveSpecialChars(stackmenu1.ephemeris_centering1.text);
   if pos('Aver', stackmenu1.stack_method1.Text) > 0 then Result := Result + '_average';
   Result := Result + '_stacked.fits';
 end;
@@ -11764,12 +11948,12 @@ end;
 procedure Tstackmenu1.stack_button1Click(Sender: TObject);
 var
   i, c, nrfiles, image_counter, object_counter,
-  first_file, total_counter, counter_colours,analyse_level, solution_type :   integer;
+  first_file, total_counter, counter_colours,analyse_level, referenceX,referenceY :   integer;
   filter_name1, filter_name2, defilter, filename3,
-  extra1, extra2, object_to_process, stack_info, thefilters,dumstr                : string;
+  extra1, extra2, object_to_process, stack_info, thefilters                       : string;
   lrgb, solution, monofile, ignore, cal_and_align,
   stitching_mode, sigma_clip, calibration_mode, calibration_mode2, skip_combine,
-  success, classify_filter, classify_object, sender_photometry, sender_stack_groups,dum      : boolean;
+  success, classify_filter, classify_object, sender_photometry, sender_stack_groups,comet     : boolean;
   startTick: qword;{for timing/speed purposes}
   min_background, max_background,back_gr    : double;
   filters_used: array [0..4] of string;
@@ -11780,6 +11964,7 @@ begin
   memo2_message('Stack method ' + stack_method1.Text);
   stitching_mode := pos('stitch', stackmenu1.stack_method1.Text) > 0;
   sigma_clip := pos('Sigma', stackmenu1.stack_method1.Text) > 0;
+  comet:=pos('Comet', stackmenu1.stack_method1.Text) > 0;
   skip_combine := pos('skip', stackmenu1.stack_method1.Text) > 0;
   cal_and_align := pos('alignment', stackmenu1.stack_method1.Text) > 0;  {calibration and alignment only}
   sender_photometry := (Sender = photom_stack1);//stack instruction from photometry tab?
@@ -11792,6 +11977,12 @@ begin
 
   if stackmenu1.use_ephemeris_alignment1.Checked then
   begin
+    if length(ephemeris_centering1.Text) <= 1 then
+    begin
+      analyse_objects_visible1Click(nil); //try to fill with one object
+      if ephemeris_centering1.items.count>1 then
+         ephemeris_centering1.itemindex:=-1;//more then one object. Can not take decision
+    end;
     if length(ephemeris_centering1.Text) <= 1 then
     begin
       memo2_message('█ █ █ █ █ █ Abort, no object selected for ephemeris alignment. At tab alignment, press analyse and select object to align on! █ █ █ █ █ █');
@@ -12064,7 +12255,7 @@ begin
             Screen.Cursor := crDefault;
             exit;
           end;
-          plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add_annotations});
+          plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add_annotations},true {use asteroid buffer. Was loaded by analyse_objects_visible});
 
           if fits_file_name(filename2) then
             success := savefits_update_header(filename2)
@@ -12198,8 +12389,7 @@ begin
         if sigma_clip then
         begin
           if length(files_to_process) <= 5 then memo2_message('█ █ █ █ █ █ Method "Sigma Clip average" does not work well for a few images. Try method "Average". █ █ █ █ █ █ ');
-          stack_sigmaclip( process_as_osc,{var}files_to_process, counterL);
-          {sigma clip combining}
+          stack_sigmaclip( process_as_osc,{var}files_to_process, counterL);       {sigma clip combining}
         end
         else
         if stitching_mode then
@@ -12211,8 +12401,13 @@ begin
           calibration_and_alignment(process_as_osc, {var}files_to_process, counterL);{saturation clip average}
         end
         else
-          stack_average(process_as_osc,{var}files_to_process, counterL);
-        {average}
+        if comet then
+        begin
+          stackmenu1.use_ephemeris_alignment1.Checked := True;  //force ephemeris alignment
+          stack_comet( process_as_osc,{var}files_to_process, counterL);
+        end
+        else
+          stack_average(process_as_osc,{var}files_to_process, counterL);    {average}
 
         if counterL > 0 then
         begin
@@ -12445,6 +12640,19 @@ begin
 
       if ((monofile){success none lrgb loop} or (counter_colours <> 0{length(extra2)>=2} {lrgb loop})) then
       begin
+
+        if  sender=stackmenu1.blink_stack_selected1 then   //blinktab, crop stack
+        begin
+          referenceX:=round(strtofloat2(stackmenu1.ListView1.Items.item[files_to_process[0].listviewindex].subitems.Strings[L_X])); {reference offset}
+          referenceY:=round(strtofloat2(stackmenu1.ListView1.Items.item[files_to_process[0].listviewindex].subitems.Strings[L_Y])); {reference offset}
+          startX:=referenceX-150;
+          stopX:=referenceX+150;
+          startY:=referenceY-150;
+          stopY:=referenceY+150;
+          mainwindow.CropFITSimage1Click(Sender);
+          plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add annotations},true {buffer_loaded});//removes also the old keywords
+        end;
+
         if counter_colours <> 0{length(extra2)>=2} {lrgb loop} then
         begin
           if stackmenu1.lrgb_auto_level1.Checked then
@@ -12526,7 +12734,7 @@ begin
         update_text('COMMENT 1', '  Written by ASTAP. www.hnsky.org');
 
         head.calstat := head.calstat + 'S'; {status stacked}
-        update_float  ('PEDESTAL=',' / Value added during calibration or stacking     ',false ,head.pedestal);//pedestal value added during calibration or stacking
+        update_float('PEDESTAL=',' / Value added during calibration or stacking     ',false ,head.pedestal);//pedestal value added during calibration or stacking
         update_text('CALSTAT =', #39 + head.calstat + #39); {calibration status}
 
 
@@ -12535,13 +12743,17 @@ begin
         update_text('DATE-OBS=', #39 + head.date_obs + #39 + '/ Date and time of the start of the observation.'); //add_text
         update_text('DATE-END=', #39 + jdToDate(jd_end_last) + #39 + '/ Date and time of the end of the observation.'); //add_text
 
-        if ((head.naxis3 = 1) and (counterL > 0)) then {works only for mono}
-        begin
-          update_float('JD-AVG  =',' / Julian Day of the observation mid-point.       ',false, jd_sum / counterL);{give midpoint of exposures}
-          head.date_avg := JdToDate(jd_sum / counterL);  {update date_avg for asteroid annotation}
 
+        if (((head.naxis3 = 1) or (process_as_osc>0)) and (counterL > 0)) then {works only for mono}
+        begin
+          if use_ephemeris_alignment1.Checked=false then
+            jd_mid:=jd_sum / counterL  //average of jd_mid
+          else
+            jd_mid:=jd_mid_reference;//stacked aligned to the minor planet of the reference image.
+          update_float('JD-AVG  =',' / Julian Day of the observation mid-point.       ',false, jd_mid);{give midpoint of exposures}
+          head.date_avg := JdToDate(jd_mid);  {update date_avg for asteroid annotation}
           update_text('DATE-AVG=', #39 + head.date_avg + #39);{give midpoint of exposures}
-          head.date_obs := JdToDate((jd_sum / counterL) - head.exposure / (2 * 24 * 60 * 60));{Estimate for date obs for stack. Accuracy could vary due to lost time between exposures};
+          head.date_obs := JdToDate((jd_mid) - head.exposure / (2 * 24 * 60 * 60));{Estimate for date obs for stack. Accuracy could vary due to lost time between exposures};
         end;
 
         head.exposure := sum_exp;
@@ -12708,11 +12920,6 @@ begin
 
   update_menu(True);
 
-  img_temp := nil;{remove used memory}
-  img_average := nil;
-  img_final := nil;
-  img_variance := nil;
-
   if write_log1.Checked then memo2.Lines.SaveToFile(ChangeFileExt(Filename2, '.txt'));
 
   if powerdown_enabled1.Checked then {power down system}
@@ -12800,9 +13007,15 @@ begin
   if classify_filter1.Checked then mode := 'LRGB ' else mode := '';
   stack_button1.Caption := 'STACK ' + mode + '(' + stack_method1.Text + ')';
 
-  if ((method >= 6 {Skip average or sigma clip LRGB combine}) and
+  if ((method >= 6 {Skip average or sigma clip LRGB combine}) and (method <=7) and
     (classify_filter1.Checked = False)) then
     memo2_message( '█ █ █ █ █ █ Warning, classify on Light Filter is not check marked !!! █ █ █ █ █ █ ');
+
+
+  if method=8 then
+  begin
+    memo2_message( 'Method Comet & Stars sharp. Will switch to ephemeris alignment!! Check your comet or asteroid database. See menu CTRL+R');
+  end;
 
   set_icon_stackbutton;  //update glyph stack button to colour or gray
 end;
@@ -12928,11 +13141,19 @@ procedure Tstackmenu1.write_video1click(Sender: TObject);
 var
   filen: string;
   crop, res: boolean;
-  nrframes, c: integer;
+  nrframes, c, cpos: integer;
 begin
   crop := False;
   case QuestionDlg('Crop', 'Crop of full size video?', mtCustom, [20, 'Crop', 21, 'Cancel', 22, 'Full size', 'IsDefault'], '') of
-    20: crop := True;
+    20:
+      begin
+        crop := True;
+        if areaX1 = areaX2 then
+        begin
+          application.messagebox(PChar('Abort!'+#10+#10+ 'Set first the area with the mouse and mouse popup menu "Set area" !'), PChar('Missing crop area'), MB_OK);
+          exit;
+        end;
+      end;
     21: exit;
   end;
 
@@ -12965,12 +13186,18 @@ begin
       video_index := 1; {y4m}
 
     stackmenu1.analyseblink1Click(nil); {analyse and secure the dimension values head_2.width, head_2.height from lights}
+
+
     if video_index = 2 then {AVI, count frames}
     begin
       nrframes := 0;
       for c := 0 to listview6.items.Count - 1 do {count frames}
       begin
-        if listview6.Items.item[c].Checked then Inc(nrframes);
+        if listview6.Items.item[c].Checked then
+        begin
+          Inc(nrframes); {for AVI, count frames}
+          cpos:=c;
+        end;
       end;
     end;
 
@@ -12979,17 +13206,14 @@ begin
       areax1 := 0;{for crop activation areaX1<>areaX2}
       areax2 := 0;
       if video_index = 2 then
-        res := write_avi_head(filen, frame_rate, nrframes, head_2.Width, head_2.Height) {open/create file. Result is false if failure}
+        res := write_avi_head(filen, frame_rate, nrframes, blink_Width, blink_Height) {open/create file. Result is false if failure}
       else
-        res := write_YUV4MPEG2_header(filen, frame_rate,((head_2.naxis3 > 1) or (mainwindow.preview_demosaic1.Checked)), head_2.Width, head_2.Height);
+        res := write_YUV4MPEG2_header(filen, frame_rate,((blink_naxis3 > 1) or (mainwindow.preview_demosaic1.Checked)), blink_Width, blink_Height);
     end
     else {crop is set by the mouse}
     begin
-      if areaX1 = areaX2 then
-      begin
-        application.messagebox(PChar('Set first the area with the mouse and mouse popup menu "Set area" !'), PChar('Missing crop area'), MB_OK);
+      if areaX1 = areaX2 then // Abort, set first the area with the mouse and mouse popup menu
         exit;
-      end;
       if video_index = 2 then
         res := write_avi_head(filen, frame_rate, nrframes, areax2 - areax1 + 1, areay2 - areay1 + 1) {open/create file. Result is false if failure}
       else

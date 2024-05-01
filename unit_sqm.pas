@@ -81,8 +81,8 @@ var
 
 function calculate_sqm(get_bk,get_his : boolean; var pedestal2 : integer) : boolean; {calculate sky background value}
 var
-  airm, correction,alt,az : double;
-  bayer,form_exist        : boolean;
+  correction,az,airm         : double;
+  bayer,form_exist           : boolean;
 begin
   form_exist:=form_sqm1<>nil;   {see form_sqm1.FormClose action to make this working reliable}
 
@@ -123,13 +123,6 @@ begin
         if form_exist then form_sqm1.green_message1.caption:=form_sqm1.error_message1.caption+'Dark already applied! Pedestal value ignored.'+#10 else memo2_message('Dark already applied! Pedestal value ignored.');
         pedestal2:=0; {prevent wrong values}
       end;
-//      if pos('P',head.calstat)>0 then
-//      begin
-//        result:=false;//invalid
-//        if form_exist then form_sqm1.error_message1.caption:=form_sqm1.error_message1.caption+'During calibration a pedestal was added. CALSTAT=P. Invalid result!!'+#10;
-//        warning_str:=warning_str+'Invalid result, CALSTAT=P';
-//        exit;
-//      end;
     end
     else
     if pedestal2=0 then
@@ -153,18 +146,28 @@ begin
 
     sqmfloat:=head.mzero - ln((bck.backgr-pedestal2-head.pedestal)/sqr(head.cdelt2*3600){flux per arc sec})*2.5/ln(10) ;// +head.pedestal was the value added calibration calibration
 
-    calculate_az_alt(1 {force calculation from ra, dec} ,head,{out}az,alt);
+    calculate_az_alt(1 {force calculation from ra, dec} ,head,{out}az,altitudefloat);
 
-    centalt:=inttostr(round(alt));{for reporting in menu sqm1}
-    if alt<>0 then
+   // centalt:=inttostr(round(alt));{for reporting in menu sqm1}
+    if altitudefloat>0 then
     begin
-      airm:=airmass_calc(alt);
+      airm:=airmass_calc(altitudefloat);
       correction:= atmospheric_absorption(airm)- 0.28 {correction at zenith is defined as zero by subtracting 0.28};
       sqmfloat:=sqmfloat+correction;
       result:=true;
+    end
+    else
+    begin
+      memo2_message('Negative altitude calculated!');
+      warning_str:=warning_str+'Negative altitude calculated!';
     end;
-  end;
 
+  end
+  else
+  begin
+    memo2_message('MZERO calibration failure!');
+    warning_str:=warning_str+'MZERO calibration failure!';
+  end;
   if backup_made then
   begin
     restore_img;
@@ -237,7 +240,7 @@ begin
         backup_img;
         backup_made:=true;//required in calculateSQM for 2x2 bining OSC
       end;
-      apply_dark_and_flat(img_loaded);{apply dark, flat if required, renew if different head.exposure or ccd temp}
+      apply_dark_and_flat(img_loaded,head);{apply dark, flat if required, renew if different head.exposure or ccd temp}
 
       if pos('D',head.calstat)>0  then {status of dark application}
       begin
@@ -252,9 +255,12 @@ begin
     end;
 
     {calc}
-    if calculate_sqm(true {get backgr},update_hist{get histogr},pedestal2)=false then {failure in calculating sqm value}
+    if calculate_sqm(true {get backgr},update_hist{get histogr},{var} pedestal2)=false then {failure in calculating sqm value}
     begin
-      if centalt='0' then error_message1.caption:=error_message1.caption+'Could not retrieve or calculate altitude. Enter the default geographic location'+#10;
+      if altitudefloat<1 then error_message1.caption:=warning_str;
+      warning_str:=''; //clear error message
+
+      //error_message1.caption+'Could not retrieve or calculate altitude. Enter the default geographic location'+#10;
       sqm1.caption:='?';
       bortle1.caption:='';
       exit;
@@ -262,7 +268,7 @@ begin
 
     {report}
     background1.caption:=inttostr(round(bck.backgr));
-    altitude1.caption:=centalt;
+    altitude1.caption:=inttostr(round(altitudefloat));
     sqm1.caption:=floattostrF(sqmfloat,ffFixed,0,2);
     bortle1.caption:=bortle(sqmfloat);
   end;

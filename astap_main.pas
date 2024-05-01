@@ -62,7 +62,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2024.02.20';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2024.05.01';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 
 type
   { Tmainwindow }
@@ -127,7 +127,6 @@ type
     grid_ra_dec1: TMenuItem;
     freetext1: TMenuItem;
     MenuItem21: TMenuItem;
-    display_adu1: TMenuItem;
     localcoloursmooth2: TMenuItem;
     fittowindow1: TMenuItem;
     flipVH1: TMenuItem;
@@ -135,6 +134,7 @@ type
     export_star_info1: TMenuItem;
     grid_az_alt1: TMenuItem;
     az_alt1: TMenuItem;
+    cal_batch1: TMenuItem;
     mpcreport1: TMenuItem;
     min2: TEdit;
     minimum1: TScrollBar;
@@ -172,7 +172,6 @@ type
     UpDown1: TUpDown;
     vizier_gaia_annotation1: TMenuItem;
     simbad_annotation_deepsky_filtered1: TMenuItem;
-    MenuItem36: TMenuItem;
     move_images1: TMenuItem;
     SelectDirectoryDialog1: TSelectDirectoryDialog;
     Separator1: TMenuItem;
@@ -407,7 +406,6 @@ type
     procedure bin_2x2menu1Click(Sender: TObject);
     procedure MenuItem22Click(Sender: TObject);
     procedure electron_to_adu_factors1Click(Sender: TObject);
-    procedure display_adu1Click(Sender: TObject);
     procedure localcoloursmooth2Click(Sender: TObject);
     procedure fittowindow1Click(Sender: TObject);
     procedure flipVH1Click(Sender: TObject);
@@ -633,11 +631,11 @@ var
   vsp : array of theauid;//for comparison stars AUID
   vsx : array of thevar;//for variable stars AUID
   img_backup      : array of timgbackup;{dynamic so memory can be freed}
-  img_loaded,img_temp,img_dark,img_flat,img_bias,img_average,img_variance,img_final :image_array;
+  img_loaded,img_dark,img_flat :  image_array;
   head,    {for lights}
-  head_2,  {for analysing lights and dark, flats}
-  head_ref {for reference light in stacking}
-    : Theader;{contains the most important header info}
+  head_ref, {for reference light in stacking}
+  head_flat,
+  head_dark : Theader;{contains the most important header info}
   bck : Tbackground;
 
   settingstring : tstrings; {settings for save and loading}
@@ -664,7 +662,7 @@ var
   {star_level,}star_bg,sd_bg, magn_limit  : double;
   object_name,
   imagetype ,sitelat, sitelong,siteelev , centalt,centaz,magn_limit_str: string;
-  focus_temp,{cblack,}cwhite,sqmfloat,pressure   :double; {from FITS}
+  focus_temp,{cblack,}cwhite,sqmfloat,altitudefloat, pressure   :double; {from FITS}
   subsamp, focus_pos  : integer;{not always available. For normal DSS =1}
   telescop,instrum,origin,sqm_value   : string;
 
@@ -816,7 +814,7 @@ procedure show_marker_shape(shape: TShape; shape_type,w,h,minimum:integer; fitsX
 function check_raw_file_extension(ext: string): boolean;{check if extension is from raw file}
 function convert_raw(loadfile,savefile :boolean;var filename3: string;out head: Theader; out img: image_array ): boolean; {convert raw to fits file using DCRAW or LibRaw. filename3 will be update with the new file extension e.g. .CR2.fits}
 
-function unpack_cfitsio(filename3: string): boolean; {convert .fz to .fits using funpack}
+function unpack_cfitsio(var filename3: string): boolean; {convert .fz to .fits using funpack}
 function pack_cfitsio(filename3: string): boolean; {convert .fz to .fits using funpack}
 
 function load_TIFFPNGJPEG(filen:string;light {load as light or dark/flat}: boolean; out head :theader; out img_loaded2: image_array) : boolean;{load 8 or 16 bit TIFF, PNG, JPEG, BMP image}
@@ -855,7 +853,7 @@ procedure celestial_to_pixel(head: theader;ra,dec: double; out fitsX,fitsY: doub
 procedure show_shape_manual_alignment(index: integer);{show the marker on the reference star}
 procedure write_astronomy_wcs(filen:string);
 function savefits_update_header(filen2:string) : boolean;{save fits file with updated header}
-procedure plot_the_annotation(x1,y1,x2,y2:integer; typ:double; name,magn :string);{plot annotation from header in ASTAP format}
+procedure plot_the_annotation(x1,y1,x2,y2:integer; typ:double; name :string);{plot annotation from header in ASTAP format}
 procedure reset_fits_global_variables(light :boolean; out head:theader ); {reset the global variable}
 function convert_to_fits(var filen: string): boolean; {convert to fits}
 procedure QuickSort(var A: array of double; iLo, iHi: Integer) ;{ Fast quick sort. Sorts elements in the array list with indices between lo and hi}
@@ -869,7 +867,7 @@ function save_tiff16_secure(img : image_array;filen2:string) : boolean;{guarante
 function find_reference_star(img : image_array) : boolean;{for manual alignment}
 function aavso_update_required : boolean; //update of downloaded database required?
 function retrieve_ADU_to_e_unbinned(head_egain :string): double; //Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
-function noise_to_electrons(adu_e, binning, sd : double): string;//reports noise in ADU's (adu_e=0) or electrons
+function noise_to_electrons(adu_e, sd : double): string;//reports noise in ADU's (adu_e=0) or electrons
 procedure calibrate_photometry;
 procedure measure_hotpixels(x1,y1, x2,y2,col : integer; sd,mean:  double; img : image_array; out hotpixel_perc, hotpixel_adu :double);{calculate the hotpixels ratio and average value}
 function duplicate(img:image_array) :image_array;//fastest way to duplicate an image
@@ -915,6 +913,7 @@ const   bufwide=1024*120;{buffer size in bytes}
 
   pi_=pi; {for evaluate in debugging}
   dialog_filter_fits_tif='FITS and TIFF files|*.fit;*.fits;*.FIT;*.FITS;*.fts;*.FTS;*.tif;*.tiff;*.TIF.TIFF';
+
 
 type  byteX3  = array[0..2] of byte;
       byteXX3 = array[0..2] of word;
@@ -963,7 +962,6 @@ var {################# initialised variables #########################}
   mouse_fitsy : double=0;
   coord_frame : integer=0; {J2000=0 or galactic=1}
   hfd_arcseconds: boolean=false; {HFD in arc seconds or pixels}
-  display_adu: boolean=false; {display adu measured}
 
   {$IFDEF Darwin}
   font_name: string= 'Courier';
@@ -1009,7 +1007,6 @@ begin
     head.cd1_2:=0;{just for the case it is not available}
     head.cd2_1:=0;{just for the case it is not available}
     head.cd2_2:=0;{just for the case it is not available}
-    bayerpat:='';{reset bayer pattern}
     xbayroff:=0;{offset to used to correct BAYERPAT due to flipping}
     ybayroff:=0;{offset to used to correct BAYERPAT due to flipping}
     roworder:='';{'BOTTOM-UP'= lower-left corner first in the file.  or 'TOP-DOWN'= top-left corner first in the file.}
@@ -1023,6 +1020,7 @@ begin
 
     centalt:='';{assume no data available}
     centaz:='';{assume no data available}
+
     x_coeff[0]:=0; {reset DSS_polynomial, use for check if there is data}
     y_coeff[0]:=0;
     a_order:=0; {SIP_polynomial, use for check if there is data}
@@ -1060,6 +1058,7 @@ begin
   head.gain:='';
   head.egain:='';{assume no data available}
   head.passband_database:='';//used to measure MZERO
+  bayerpat:='';{reset bayer pattern}
 end;{reset global variables}
 
 
@@ -1117,8 +1116,8 @@ var {################# initialised variables #########################}
 
      procedure close_fits_file; inline;
      begin
-        Reader.free;
-        TheFile.free;
+       Reader.free;
+       TheFile.free;
      end;
 
      function validate_double:double;{read floating point or integer values}
@@ -1152,7 +1151,8 @@ var {################# initialised variables #########################}
      Function get_as_string:string;{read float as string values. Universal e.g. for latitude and longitude which could be either string or float}
      var  r: integer;
      begin
-       result:='';
+       result:=header[i+10]; //This position could be the minus sign of a number -3.000000000000E+001
+       if result=#39 then result:='';//Ignore the #39 character indication a string
        r:=I+11;{pos12, single quotes should for fix format should be at position 11 according FITS standard 4.0, chapter 4.2.1.1}
        while ((header[r]<>#39){last quote} and (r<I+30)) do {read string up to position 30}
        begin
@@ -1293,6 +1293,9 @@ begin
 
          if (header[i]='B') then {B}
         begin
+          if ((header[i+1]='A')  and (header[i+2]='Y') and (header[i+3]='E') and (header[i+4]='R') and (header[i+5]='P') and (header[i+6]='A')) then {BAYERPAT, read for flats}
+             bayerpat:=get_string {BAYERPAT, bayer pattern such as RGGB}
+          else
           if ((header[i+1]='I')  and (header[i+2]='T') and (header[i+3]='P') and (header[i+4]='I') and (header[i+5]='X')) then
             nrbits:=round(validate_double) {BITPIX, read integer using double routine}
           else
@@ -1313,10 +1316,21 @@ begin
                head.flatdark_count:=round(validate_double);{read integer as double value}
         end;{B}
 
+        if (header[i]='C') then {C}
+        begin
+          if ((header[i+1]='A')  and (header[i+2]='L') and (header[i+3]='S') and (header[i+4]='T') and (header[i+5]='A')) then  {head.calstat is also for flats}
+              head.calstat:=get_string {indicates calibration state of the image; B indicates bias corrected, D indicates dark corrected, F indicates flat corrected. M could indicate master}
+          else
+          if ((header[i+1]='C')  and (header[i+2]='D') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
+             ccd_temperature:=validate_double;{read double value}
+        end;{C}
+
         if (header[i]='E') then
         begin
           if ((header[i+1]='G')  and (header[i+2]='A') and (header[i+3]='I') and (header[i+4]='N')) then  {egain}
-               head.egain:=copy(trim(get_as_string),1,5) {e-/adu gain, use 4 digits only}
+          begin
+            head.egain:=trim(get_as_string)//Do not crop anymore since it doesn't work for scientific notation, e-/adu gain
+          end
           else
           if ((header[i+1]='X')  and (header[i+2]='P')) then
           begin
@@ -1326,15 +1340,6 @@ begin
                 head.exposure:=validate_double;{read double value}
           end;
         end;
-
-        if (header[i]='C') then {C}
-        begin
-          if ((header[i+1]='A')  and (header[i+2]='L') and (header[i+3]='S') and (header[i+4]='T') and (header[i+5]='A')) then  {head.calstat is also for flats}
-              head.calstat:=get_string {indicates calibration state of the image; B indicates bias corrected, D indicates dark corrected, F indicates flat corrected. M could indicate master}
-          else
-          if ((header[i+1]='C')  and (header[i+2]='D') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
-             ccd_temperature:=validate_double;{read double value}
-        end;{C}
 
         if ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
                try head.set_temperature:=round(validate_double);{read double value} except; end; {some programs give huge values}
@@ -1476,9 +1481,6 @@ begin
 
           if (header[i]='B') then {B}
           begin
-            if ((header[i+1]='A')  and (header[i+2]='Y') and (header[i+3]='E') and (header[i+4]='R') and (header[i+5]='P') and (header[i+6]='A')) then {BAYERPAT}
-               bayerpat:=get_string {BAYERPAT, bayer pattern such as RGGB}
-            else
             if ((header[i+1]='A')  and (header[i+2]='N') and (header[i+3]='D') and (header[i+4]='P') and (header[i+5]='A') and (header[i+6]='S')) then
             begin
                BANDPASS:=validate_double;{read integer as double value. Deep sky survey keyword}
@@ -1660,11 +1662,11 @@ begin
                   dec_mount:=dec_radians;
                 end
                 else {for older MaximDL5}
-                if ((header[i+5]='A') and (header[i+6]='L') and (centalt='')) then
-                                                                              centalt:=get_as_string {universal for string and floats}
+                if ((header[i+5]='A') and (header[i+6]='L') and (centalt='')) then //OBJCTALT
+                    centalt:=get_as_string {universal for string and floats}
                 else {for older MaximDL5}
                 if ((header[i+5]='A') and (header[i+6]='Z')and (centaz='')) then
-                                     centaz:=get_as_string; {universal for string and floats}
+                    centaz:=get_as_string; {universal for string and floats}
               end {OBJCT}
               else
               if ((header[i+3]='E') and (header[i+4]='C') and (header[i+5]='T')) then {OBJECT}
@@ -2314,17 +2316,19 @@ begin
   {variables are already reset}
   count1:=mainwindow.Memo1.Lines.Count-1-1;
   ccd_temperature:=999;
+  annotated:=false;
 
   index:=1;
   while index<=count1 do {read keys}
   begin
     key:=copy(mainwindow.Memo1.Lines[index],1,9);
 
+    //should in this sequence available. If not fix.
     if index=1 then if key<>'BITPIX  =' then begin mainwindow.Memo1.Lines.insert(index,'BITPIX  =                   16 / Bits per entry                                 '); inc(count1); end;{data will be added later}
     if index=2 then if key<>'NAXIS   =' then begin mainwindow.Memo1.Lines.insert(index,'NAXIS   =                    2 / Number of dimensions                           ');inc(count1); end;{data will be added later}
     if index=3 then if key<>'NAXIS1  =' then begin mainwindow.Memo1.Lines.insert(index,'NAXIS1  =                  100 / length of x axis                               ');inc(count1); end;{data will be added later}
     if index=4 then if key<>'NAXIS2  =' then begin mainwindow.Memo1.Lines.insert(index,'NAXIS2  =                  100 / length of y axis                               ');inc(count1); end;{data will be added later}
-    if ((index=5) and (head.naxis>1)) then if key<>'NAXIS3  =' then
+    if ((index=5) and (head.naxis3>1)) then if key<>'NAXIS3  =' then
                                              begin mainwindow.Memo1.Lines.insert(index,'NAXIS3  =                    3 / length of z axis (mostly colors)               ');inc(count1); end;
 
     if key='CD1_1   =' then head.cd1_1:=read_float else
@@ -2408,7 +2412,7 @@ begin
     if key='MZEROAPT=' then head.mzero_radius:=read_float else
     if key='MZEROPAS=' then head.passband_database:=read_string else
 
-
+    if key='ANNOTATE=' then annotated:=true else
     if key='TELESCOP=' then telescop:=read_string else
     if key='INSTRUME=' then instrum:=read_string else
     if key='CENTALT =' then centalt:=read_string else
@@ -3796,9 +3800,11 @@ end;
 function binX2X3_file(binfactor:integer) : boolean; {converts filename2 to binx2 or bin3 version}
 begin
   result:=false;
-  if load_fits(filename2,true {light},true {load data},true {update memo},0,mainwindow.memo1.lines,head,img_loaded)=false then exit;
+  if load_fits(filename2,true {light},true {load data},true {update memo for naxis1,...},0,mainwindow.memo1.lines,head,img_loaded)=false then exit;
 
   bin_X2X3X4(binfactor);{bin img_loaded 2x or 3x}
+
+  remove_key('BAYERPAT=',false{all});//do not allow debayer anymore
 
   if fits_file_name(filename2) then
   begin
@@ -3893,6 +3899,7 @@ end;
 procedure Tmainwindow.localgaussian1Click(Sender: TObject);
 var
    fitsX,fitsY,dum,k : integer;
+   img_temp : image_array;
 begin
   if head.naxis=0 then exit;
   if  ((abs(stopX-startX)>2)and (abs(stopY-starty)>2)) then
@@ -3912,6 +3919,7 @@ begin
         end;
       end;
     end;{k color}
+
     gaussian_blur2(img_temp,strtofloat2(stackmenu1.blur_factor1.text));
 
     for k:=0 to head.naxis3-1 do {do all colors}
@@ -4147,8 +4155,8 @@ var
    u,v,u2,v2             : double;
    xi,eta,delta,gamma  : double;
 
-   ra1,dec1,ra2,dec2,ra3,dec3 : double;
-   i : integer;
+//   ra1,dec1,ra2,dec2,ra3,dec3 : double;
+//   i : integer;
 
 begin
   RA:=0;DEC:=0;{for case wrong index or head.cd1_1=0}
@@ -4180,7 +4188,7 @@ begin
       v2:=fitsy-head.crpix2;
     end; {mainwindow.Polynomial1.itemindex=0}
 
-    //for fomalism 0 and 1
+    //for formalism 0 and 1
     xi :=(head.cd1_1*(u2)+head.cd1_2*(v2))*pi/180;
     eta:=(head.cd2_1*(u2)+head.cd2_2*(v2))*pi/180;
 
@@ -4587,6 +4595,7 @@ begin
       end;
     end;
 
+    if valmax>valmin then //prevent runtime errors
     for i:=-rs to rs do
     begin
       if profile[1,i]<>0 then
@@ -5180,7 +5189,6 @@ var
    fitsX,fitsY,dum,counter,col,size,counter_median,required_size,iterations,i,band,flux_counter,greylevels,greylevels2 : integer;
    value,stepsize,median_position, most_common,mc_1,mc_2,mc_3,mc_4,
    sd,mean,median,bg_median,minimum, maximum,max_counter,saturated,mad,minstep,delta,range,total_flux,adu_e,center_x,center_y,a,b,hotpixel_adu,hotpixel_perc : double;
-   Save_Cursor              : TCursor;
    info_message,shapeform,shapeform2   : string;
    median_array                        : array of double;
    full_image                          : boolean;
@@ -5255,8 +5263,12 @@ begin
           inc(counter_median);
         end;
 
-        if value=maximum then max_counter:=max_counter+1; {counter at max}
-        if value>maximum then maximum:=value; {max}
+        if value=maximum then max_counter:=max_counter+1; {counter at max. Not an exact counter since maximum is adjusted}
+        if value>maximum then
+        begin
+          maximum:=value; //max
+          max_counter:=1;//reset
+        end;
         if value<minimum then minimum:=value; {min}
         if value>=64000 then saturated:=saturated+1;{saturation counter}
         if col=0 then
@@ -5310,18 +5322,18 @@ begin
     if col=2 then info_message:=info_message+#10+#10+'Blue:'+#10;
 
     info_message:=info_message+  'x̄ :    '+floattostrf(mean,ffFixed, 0, 2)+'   (sigma-clip iterations='+inttostr(iterations)+')'+#10+             {mean}
-                                 'x̃  :   '+floattostrf(median,ffFixed, 0, 2)+#10+ {median}
-                                 'Mo :  '+floattostrf(most_common,ffgeneral, 5, 5)+#10+
-                                 'σ :   '+noise_to_electrons(adu_e,head.xbinning,sd)+'   (sigma-clip iterations='+inttostr(iterations)+')'+#10+               {standard deviation}
-                                 'σ_2:   '+noise_to_electrons(adu_e,head.xbinning,get_negative_noise_level(img_loaded,col,startx,stopX,starty,stopY,most_common))+#10+
-                                 'mad:   '+floattostrf(mad,ffgeneral, 4, 4)+#10+
-                                 'm :   '+floattostrf(minimum,ffgeneral, 5, 5)+#10+
-                                 'M :   '+floattostrf(maximum,ffgeneral, 5, 5)+ '  ('+inttostr(round(max_counter))+' x)'+#10+
-                                 'Flux: '+floattostrf(total_flux,ffExponent, 4, 2)+ '  (Counts '+inttostr(flux_counter)+ ', Average '+inttostr(round(total_flux/flux_counter))+'/px)'+#10+
-                                 'BG :   '+floattostrf(bg_median,ffgeneral, 5, 5)+#10+ {median}
-                                 'Hot pixels: '+floattostrf(100*hotpixel_perc,FFfixed, 0, 1)+'%'+#10+
-                                 'Hot pixels RMS: '+noise_to_electrons(adu_e,head.xbinning,hotpixel_adu)+#10+
-                                 '≥64E3 :  '+inttostr(round(saturated));
+                                  'x̃  :   '+floattostrf(median,ffFixed, 0, 2)+#10+ {median}
+                                  'Mo :  '+floattostrf(most_common,ffgeneral, 5, 5)+#10+
+                                  'σ :   '+noise_to_electrons(adu_e,sd)+'   (sigma-clip iterations='+inttostr(iterations)+')'+#10+               {standard deviation}
+                                  'σ_2:   '+noise_to_electrons(adu_e,get_negative_noise_level(img_loaded,col,startx,stopX,starty,stopY,most_common))+#10+
+                                  'mad:   '+floattostrf(mad,ffgeneral, 4, 4)+#10+
+                                  'm :   '+floattostrf(minimum,ffgeneral, 5, 5)+#10+
+                                  'M :   '+floattostrf(maximum,ffgeneral, 5, 5)+ '  ('+inttostr(round(max_counter))+' x)'+#10+
+                                  'Flux: '+floattostrf(total_flux,ffExponent, 4, 2)+ '  (Counts '+inttostr(flux_counter)+ ', Average '+inttostr(round(total_flux/flux_counter))+'/px)'+#10+
+                                  'BG :   '+floattostrf(bg_median,ffgeneral, 5, 5)+#10+ {median}
+                                  'Hot pixels: '+floattostrf(100*hotpixel_perc,FFfixed, 0, 1)+'%'+#10+
+                                  'Hot pixels RMS: '+noise_to_electrons(adu_e,hotpixel_adu)+#10+
+                                  '≥64E3 :  '+inttostr(round(saturated));
   end;
   if ((abs(stopX-startx)>=head.width-1) and (most_common<>0){prevent division by zero}) then
   begin
@@ -5334,7 +5346,12 @@ begin
   end;
 
   if range>0 then
-         info_message:=info_message+#10+#10+'Bit depth data: '+inttostr(round(ln(range/minstep)/ln(2)));{bit range, calculate 2log}
+  begin
+    if max_counter>50 then
+      info_message:=info_message+#10+#10+'Bit depth data: '+inttostr(round(ln(range/minstep)/ln(2))){bit range, calculate 2log}
+    else
+      info_message:=info_message+#10+#10+'Bit depth data: ??  Image is not saturated.';
+  end;
 
 
   if ((nrbits=16) or (nrbits=8)) then info_message:=info_message+#10+'Greyscale levels: '+ inttostr(greylevels);
@@ -5492,7 +5509,7 @@ begin
 
   {solve internal}
   mainwindow.caption:='Solving.......';
-  save1.Enabled:=solve_image(img_loaded,head,false {get hist, is already available});{match between loaded image and star database}
+  save1.Enabled:=solve_image(img_loaded,head,false {get hist, is already available},false {check filter});{match between loaded image and star database}
   if head.cd1_1<>0 then
   begin
     mainwindow.ra1.text:=prepare_ra(head.ra0,' ');{show center of image}
@@ -5897,6 +5914,8 @@ begin
   else
   application.messagebox(pchar('No area selected! Hold the right mouse button down while selecting an area.'),'',MB_OK);
 end;
+
+
 
 
 function floattostr6(x:double):string;//always with dot decimal seperator. Float to string with 6 decimals
@@ -7892,6 +7911,8 @@ begin
       if paramcount=0 then filename2:=Sett.ReadString('main','last_file','');{if used as viewer don't override paramstr1}
       export_index:=Sett.ReadInteger('main','export_index',3);{tiff stretched}
       annotation_magn:=Sett.ReadString('main', 'anno_magn',annotation_magn);
+      cal_batch1.Checked:=Sett.ReadBool('main','cal_batch',false);
+
 
 
       dum:=Sett.ReadString('ast','mpcorb_path','');if dum<>'' then mpcorb_path:=dum;{asteroids}
@@ -7998,8 +8019,6 @@ begin
       stackmenu1.timestamp1.Checked:=Sett.ReadBool('stack','time_stamp',true);{blink}
 
       stackmenu1.force_oversize1.Checked:=Sett.ReadBool('stack','force_slow',false);
-      stackmenu1.calibrate_prior_solving1.Checked:=Sett.ReadBool('stack','calibrate_prior_solving',false);
-      stackmenu1.check_pattern_filter1.Checked:=Sett.ReadBool('stack','check_pattern_filter',false);
       stackmenu1.use_triples1.Checked:=Sett.ReadBool('stack','use_triples',false);
       stackmenu1.add_sip1.Checked:=Sett.ReadBool('stack','sip',false);
 
@@ -8083,11 +8102,18 @@ begin
       dum:=Sett.ReadString('stack','noisefilter_blur',''); if dum<>'' then stackmenu1.noisefilter_blur1.text:=dum;
       dum:=Sett.ReadString('stack','noisefilter_sd',''); if dum<>'' then stackmenu1.noisefilter_sd1.text:=dum;
 
+
       c:=Sett.ReadInteger('stack','hue_fuzziness',987654321); if c<>987654321 then stackmenu1.hue_fuzziness1.position:=c;
       c:=Sett.ReadInteger('stack','saturation_tolerance',987654321);  if c<>987654321 then stackmenu1.saturation_tolerance1.position:=c;
       stackmenu1.blend1.checked:= Sett.ReadBool('stack','blend',true);
 
       c:=Sett.ReadInteger('stack','sample_size',987654321);if c<>987654321 then stackmenu1.sample_size1.itemindex:=c;
+
+      dum:=Sett.ReadString('stack','usm_amount',''); if dum<>'' then stackmenu1.unsharp_edit_amount1.text:=dum;
+      dum:=Sett.ReadString('stack','usm_radius',''); if dum<>'' then stackmenu1.unsharp_edit_radius1.text:=dum;
+      dum:=Sett.ReadString('stack','usm_thresh',''); if dum<>'' then stackmenu1.unsharp_edit_threshold1.text:=dum;
+
+
 
       stackmenu1.mount_write_wcs1.Checked:=Sett.ReadBool('stack','wcs',true);{use wcs files for mount}
 
@@ -8105,6 +8131,7 @@ begin
       obscode:=Sett.ReadString('aavso','obscode',''); {photometry}
       delim_pos:=Sett.ReadInteger('aavso','delim_pos',0);
       baa_style:=Sett.ReadBool('aavso','baa_style',false);{aavso report}
+      hjd_date:=Sett.ReadBool('aavso','hjd_date',false);{aavso report}
       aavso_filter_index:=Sett.ReadInteger('aavso','pfilter',0);
       magnitude_slope:=Sett.ReadFloat('aavso','slope',0);
 
@@ -8186,7 +8213,6 @@ begin
 
       stackmenu1.visible:=((paramcount=0) and (Sett.ReadBool('stack','stackmenu_visible',false) ) );{do this last, so stackmenu.onshow updates the setting correctly}
       listviews_end_update; {start updating listviews. Do this after setting stack menus visible. This is faster.}
-      dum:=sett.readstring('mpc','mpc1992',''); if dum<>'' then  stackmenu1.memo3.text:=stringreplace(dum,'|',LineEnding,[rfReplaceAll]);//all in one line
     end; //with mainwindow
 
   finally {also for error it end's here}
@@ -8269,6 +8295,7 @@ begin
       sett.writestring('main','last_file',filename2);
       sett.writeInteger('main','export_index',export_index);
       sett.writestring('main','anno_magn',annotation_magn);
+      sett.writeBool('main','cal_batch',cal_batch1.checked);
 
 
       sett.writestring('ast','mpcorb_path',mpcorb_path);{asteroids}
@@ -8369,8 +8396,6 @@ begin
       sett.writeBool('stack','time_stamp',stackmenu1.timestamp1.checked);{blink}
 
       sett.writeBool('stack','force_slow',stackmenu1.force_oversize1.checked);
-      sett.writeBool('stack','calibrate_prior_solving',stackmenu1.calibrate_prior_solving1.checked);
-      sett.writeBool('stack','check_pattern_filter',stackmenu1.check_pattern_filter1.checked);
       sett.writeBool('stack','use_triples',stackmenu1.use_triples1.checked);
       sett.writeBool('stack','sip',stackmenu1.add_sip1.checked);
 
@@ -8460,6 +8485,10 @@ begin
       sett.writeInteger('stack','saturation_tolerance',stackmenu1.saturation_tolerance1.position);
       sett.WriteBool('stack','blend', stackmenu1.blend1.checked);
 
+      sett.writestring('stack','usm_amount',stackmenu1.unsharp_edit_amount1.text);
+      sett.writestring('stack','usm_radius',stackmenu1.unsharp_edit_radius1.text);
+      sett.writestring('stack','usm_thresh',stackmenu1.unsharp_edit_threshold1.text);
+
       sett.writeInteger('stack','sample_size',stackmenu1.sample_size1.itemindex);
       sett.writeBool('stack','wcs',stackmenu1.mount_write_wcs1.Checked);{uses wcs file for menu mount}
 
@@ -8474,6 +8503,7 @@ begin
       sett.writestring('aavso','obscode',obscode);
       sett.writeInteger('aavso','delim_pos',delim_pos);
       sett.writeBool('aavso','baa_style',baa_style);{AAVSO report}
+      sett.writeBool('aavso','hjd_date',hjd_date);{AAVSO report}
       sett.writeInteger('aavso','pfilter',aavso_filter_index);
       sett.writeFloat('aavso','slope', magnitude_slope);
 
@@ -8539,9 +8569,6 @@ begin
         sett.writestring('files','inspector'+inttostr(c),stackmenu1.ListView8.items[c].caption);
         sett.writeBool('files','inspector'+inttostr(c)+'_check',stackmenu1.ListView8.items[c].Checked);
       end;
-
-
-      sett.writestring('mpc','mpc1992',stringreplace(stackmenu1.memo3.text,LineEnding, '|',[rfReplaceAll]) );//all in one line
     end;{mainwindow}
   finally
     Sett.Free; {Note error detection seems not possible with tmeminifile. Tried everything}
@@ -8766,8 +8793,6 @@ end;
 function Jd_To_MPCDate(jd: double): string;{Returns Date from Julian Date,  See MEEUS 2 page 63}
 var
   A, B, C, D, E, F, G, J, M, T, Z: double;
-  {!!! 2016 by purpose, otherwise with timezone 8, 24:00 midnigth becomes 15:59 UTC}
-  HH, MM, SS: integer;
   year3,day: string;
 begin
   jd := jd + (0.5 / (24 * 3600));
@@ -8811,7 +8836,6 @@ var
    line,mag_str : string;
    hfd2,fwhm_star2,snr,flux,object_xc,object_yc,object_raM,object_decM  : double;
 begin
-//  clipboard.AsText:=inttostr(startX)+','+inttostr(startY);
   if sip=false then
      memo2_message('Warning image not solved with SIP polynomial correction! See settings tab alignment');
 
@@ -8875,15 +8899,19 @@ begin
     end;
     line:=line+'B      XXX';
 
-    plot_the_annotation(stopX+1,stopY+1,startX+1,startY+1,0,line,'');{rectangle, +1 to fits coordinates}
-    stackmenu1.memo3.Lines.add(line);
-    memo2_message('Added to report in tab MPC1992: '+line);
+    plot_the_annotation(stopX+1,stopY+1,startX+1,startY+1,0,' 📋');{rectangle, +1 to fits coordinates}
+    stackmenu1.memo2.Lines.add(line);
+    clipboard.AsText:=line;//copy to the clipboard
   end
   else
+  begin
     memo2_message('No object detection at this image location.');
+    clipboard.AsText:=('ASTAP: No object detected!');;
+  end;
 
 //  InputBox('This line to clipboard?','Format 24 00 00.0, 90 00 00.0   or   24 00, 90 00',line);
 end;
+
 
 
 procedure Tmainwindow.simbad_annotation_deepsky_filtered1Click(Sender: TObject);
@@ -8972,32 +9000,52 @@ begin
 end;
 
 
-function unpack_cfitsio(filename3: string): boolean; {convert .fz to .fits using funpack}
+function unpack_cfitsio(var filename3: string): boolean; {convert .fz to .fits using funpack}
 var
   commando :string;
+  newfilename : string;
 begin
   result:=false;
 
   commando:='-D';
+  if pos('(',filename3)>0 then //this character "(" is not processed by fpunpack
+  begin
+    newfilename:=extractfilepath(filename3)+stringreplace(extractfilename(filename3),'(','_',[rfReplaceAll]);
+    if renamefile(filename3,newfilename) then
+      filename3:=newfilename;
+    if pos('(',newfilename)>0 then begin memo2_message('Error!. Can not process a path with the "(" character');exit;  end;
+  end;
+
   {$ifdef mswindows}
-  if fileexists(application_path+'funpack.exe')=false then begin result:=false; application.messagebox(pchar('Could not find: '+application_path+'funpack.exe !!, Download and install fpack_funpack.exe' ),pchar('Error'),MB_ICONWARNING+MB_OK);exit; end;
+  if fileexists(application_path+'funpack.exe')=false then
+  begin
+    application.messagebox(pchar('Could not find: '+application_path+'funpack.exe !!, Download and install fpack_funpack.exe' ),pchar('Error'),MB_ICONWARNING+MB_OK);
+    exit;
+  end;
   ExecuteAndWait(application_path+'funpack.exe '+commando+ ' "'+filename3+'"',false);{execute command and wait}
   {$endif}
   {$ifdef Darwin}{MacOS}
-  if fileexists(application_path+'/funpack')=false then begin result:=false; application.messagebox(pchar('Could not find: '+application_path+'funpack' ),pchar('Error'),MB_ICONWARNING+MB_OK);exit; end;
+  if fileexists(application_path+'/funpack')=false then
+  begin
+    application.messagebox(pchar('Could not find: '+application_path+'funpack' ),pchar('Error'),MB_ICONWARNING+MB_OK);
+    exit;
+  end;
   execute_unix2(application_path+'/funpack '+commando+' "'+filename3+'"');
   {$endif}
   {$ifdef linux}
-  if fileexists('/usr/bin/funpack')=false then begin result:=false; application.messagebox(pchar('Could not find program funpack !!, Install this program. Eg: sudo apt-get install libcfitsio-bin' ),pchar('Error'),MB_ICONWARNING+MB_OK);;exit; end;
+  if fileexists('/usr/bin/funpack')=false then
+  begin
+    application.messagebox(pchar('Could not find program funpack !!, Install this program. Eg: sudo apt-get install libcfitsio-bin' ),pchar('Error'),MB_ICONWARNING+MB_OK);
+    exit;
+  end;
   execute_unix2('/usr/bin/funpack '+commando+' "'+filename3+'"');
   {$endif}
-   filename2:=stringreplace(filename3,'.fz', '',[]); {changeFilext doesn't work for double dots .fits.fz}
+  filename3:=stringreplace(filename3,'.fz', '',[]); {changeFilext doesn't work for double dots .fits.fz}
 
-   result:=true;
+  result:=true;
 end;
 
 function pack_cfitsio(filename3: string): boolean; {convert .fz to .fits using funpack}
-
 begin
   result:=false;
   {$ifdef mswindows}
@@ -9273,7 +9321,7 @@ begin
   if (ext='.FZ') then {CFITSIO format}
   begin
     result:=unpack_cfitsio(filen); {filename2 contains the new file name}
-    if result then filen:=filename2;
+   // if result then filen:=filename2;
   end
   else
   begin
@@ -9385,7 +9433,7 @@ begin
   if (ext1='.FZ') then {CFITSIO format}
   begin
     if unpack_cfitsio(filename2) then {successful conversion using funpack}
-    result:=load_fits(filename2,true {light},true {load data},true {update memo},0,mainwindow.memo1.lines,head,img_loaded); {load new fits file}
+      result:=load_fits(filename2,true {light},true {load data},true {update memo},0,mainwindow.memo1.lines,head,img_loaded); {load new fits file}
   end {fz}
   else
   if check_raw_file_extension(ext1) then {raw format}
@@ -9624,7 +9672,7 @@ function download_vsp(limiting_mag: double) : boolean;//AAVSO API access
 var
   s,url   : string;
   val,val2 : char;
-  count,i,j,k,fov,dummy : integer;
+  count,i,j,k,fov  : integer;
   errorRA,errorDEC :boolean;
 begin
   result:=false;
@@ -11130,7 +11178,7 @@ begin
             end
             else
             begin
-              plot_mpcorb(strtoint(maxcount_asteroid),strtofloat2(maxmag_asteroid),true {add annotations});
+              plot_mpcorb(strtoint(maxcount_asteroid),strtofloat2(maxmag_asteroid),true {add annotations},false);
               if fits_file_name(filename2) then
                 success:=savefits_update_header(filename2)
               else
@@ -11312,6 +11360,7 @@ procedure Tmainwindow.hfd_arcseconds1Click(Sender: TObject);
 begin
   hfd_arcseconds:=hfd_arcseconds1.checked;
 end;
+
 
 
 procedure Tmainwindow.add_marker_position1Click(Sender: TObject);
@@ -11773,9 +11822,9 @@ begin
 end;
 
 
-procedure plot_the_annotation(x1,y1,x2,y2:integer; typ:double; name,magn :string);{plot annotation from header in ASTAP format}
+procedure plot_the_annotation(x1,y1,x2,y2:integer; typ:double; name :string);{plot annotation from header in ASTAP format}
 var                                                                               {typ >0 line, value defines thickness line}
-  size,xcenter,ycenter,text_height,text_width  :integer;                          {type<=0 rectangle or two lines, value defines thickness lines}
+  size,xcenter,ycenter,text_height,text_width,fontsize,left,top  :integer;                          {type<=0 rectangle or two lines, value defines thickness lines}
 begin
   dec(x1); {convert to screen coordinates 0..}
   dec(y1);
@@ -11793,9 +11842,9 @@ begin
     y2:=(head.height-1)-y2;
   end;
 
-
+  if head.height<512 then fontsize:=8 else fontsize:=12;
   mainwindow.image1.Canvas.Pen.width:=max(1,round(1*abs(typ))); ;
-  mainwindow.image1.Canvas.font.size:=max(12,round(12*abs(typ)));
+  mainwindow.image1.Canvas.font.size:=max(fontsize,round(fontsize*abs(typ)));
 
   if typ>0 then {single line}
   begin
@@ -11821,9 +11870,13 @@ begin
   text_height:=round(mainwindow.image1.canvas.Textheight(name));{font size times ... to get underscore at the correct place. Fonts coordinates are all top/left coordinates }
   text_width:=round(mainwindow.image1.canvas.Textwidth(name)); {font size times ... to get underscore at the correct place. Fonts coordinates are all top/left coordinates }
 
-  if x2>=x1 then text_width:=0;
-  if y2>=y1 then text_height:=text_height div 3;
-  mainwindow.image1.Canvas.textout( -text_width+x2, -text_height + y2,name{name}+magn{magnitude});
+  if x2>=x1 then left:=x2 else left:=x2-text_width;
+  left:=min(left, head.width-text_width);{stay away from the right side}
+
+  if y2>=y1 then top:=y2 - (text_height div 3) else top:=y2- text_height;
+  top:=min(top, head.height-text_height);{stay away from the bottom}
+
+  mainwindow.image1.Canvas.textout( left,top ,name{name});
 end;
 
 
@@ -11888,9 +11941,9 @@ begin
           name:=list[5];
           if list.count>6  then  magn:=list[6] else magn:='';
 
-          plot_the_annotation(x1,y1,x2,y2,typ, name,magn);
+          plot_the_annotation(x1,y1,x2,y2,typ, name+magn);
 
-          if ((list.count>7) and (abs( (x1+x2)/2 - (startx+stopx)/2)<8 ) and  (abs((y1+y2)/2 - (starty+stopy)/2)<8)) then
+          if ((list.count>7) and (abs( (x1+x2)/2 - (startx+stopx)/2)<15 ) and  (abs((y1+y2)/2 - (starty+stopy)/2)<15)) then
               minor_planet_at_cursor:=list[7];//for mpc1992 report line
 
           if fill_combo then {add asteroid annotations to combobox for ephemeris alignment}
@@ -12038,7 +12091,7 @@ begin
 
   if sender<>Enter_rectangle_with_label1 then boldness:=head.width/image1.width else boldness:=-head.width/image1.width;
 
-  plot_the_annotation(startX,startY,text_X,text_Y,boldness,value,'');
+  plot_the_annotation(startX,startY,text_X,text_Y,boldness,value);
   add_text ('ANNOTATE=',#39+copy(inttostr(startX)+';'+inttostr(startY)+';'+inttostr(text_X)+';'+inttostr(text_Y)+';'+floattostr6(boldness)+';'+value+';',1,68)+#39);
   annotated:=true; {header contains annotations}
 end;
@@ -12247,14 +12300,6 @@ end;
 //end;
 
 
-function load_and_solve : boolean; {load image and plate solve}
-begin
-  progress_indicator(0,'');
-  result:=load_image(false,false {plot});
-  result:=((result {succesfull load?}) and (solve_image(img_loaded,head,true {get hist}) )); {find plate solution}
-end;
-
-
 procedure log_to_file(logf,mess : string);{for testing}
 var
   f   :  textfile;
@@ -12401,7 +12446,7 @@ begin
         search_field:= min(180,sqrt(regions)*0.5*field_size);{regions 1000 is equivalent to 32x32 regions. So distance form center is 0.5*32=16 region heights}
 
         stackmenu1.radius_search1.text:=floattostrF(search_field,ffFixed,0,1);{convert to radius of a square search field}
-        if ((file_loaded) and (solve_image(img_loaded,head,true {get hist}) )) then {find plate solution, filename2 extension will change to .fit}
+        if ((file_loaded) and (solve_image(img_loaded,head,true {get hist},false {check filter}) )) then {find plate solution, filename2 extension will change to .fit}
         begin
           resultstr:='Valid plate solution';
           confidence:='999';
@@ -12655,7 +12700,7 @@ end;
 procedure Tmainwindow.FormShow(Sender: TObject);
 var
   s      : string;
-  histogram_done,file_loaded,debug,filespecified,analysespecified,extractspecified,extractspecified2,focusrequest : boolean;
+  histogram_done,file_loaded,debug,filespecified,analysespecified,extractspecified,extractspecified2,focusrequest,checkfilter : boolean;
   snr_min                     : double;
   binning,focus_count,report  : integer;
   bck                         : Tbackground;
@@ -12698,7 +12743,7 @@ begin
         '-m  minimum_star_size["]'+#10+
         '-z  downsample_factor[0,1,2,3,4] {Downsample prior to solving. 0 is auto}'+#10+
         #10+
-        '-check apply[y/n] {Apply check pattern filter prior to solving. Use for raw OSC images only when binning is 1x1}' +#10+
+        '-check  {Apply check pattern filter prior to solving. Use for raw OSC images only when binning is 1x1}' +#10+
         '-d  path {Specify a path to the star database}'+#10+
         '-D  abbreviation {Specify a star database [d80,d50,..]}'+#10+
         '-o  file {Name the output files with this base path & file name}'+#10+
@@ -12783,7 +12828,7 @@ begin
         if hasoption('m') then stackmenu1.min_star_size1.text:=GetOptionValue('m');
         if hasoption('sip') then stackmenu1.add_sip1.checked:='n'<>GetOptionValue('sip');
         if hasoption('speed') then stackmenu1.force_oversize1.checked:=('slow'=GetOptionValue('speed'));
-        if hasoption('check') then stackmenu1.check_pattern_filter1.checked:=('y'=GetOptionValue('check'));
+        if hasoption('check') then checkfilter:=true else checkfilter:=false;
 
         if focusrequest then {find best focus using curve fitting}
         begin
@@ -12850,16 +12895,24 @@ begin
           if hasoption('D') then
              stackmenu1.star_database1.text:=GetOptionValue('D'); {specify a different database}
 
-          if ((file_loaded) and (solve_image(img_loaded,head,true {get hist}) )) then {find plate solution, filename2 extension will change to .fit}
+          if ((file_loaded) and (solve_image(img_loaded,head,true {get hist},checkfilter) )) then {find plate solution, filename2 extension will change to .fit}
           begin
             if hasoption('sqm') then {sky quality}
             begin
               pedestal:=round(strtofloat2(GetOptionValue('sqm')));
               if calculate_sqm(false {get backgr},false{get histogr},{var} pedestal) then {sqm found}
               begin
+                if centalt=''  then //no old altitude
+                begin
+                  centalt:=floattostr2(altitudefloat);
+                  update_text ('CENTALT =',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+                  update_text ('OBJCTALT=',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+                end;
                 update_text('SQM     = ',floattostr2(sqmfloat)+'               / Sky background [magn/arcsec^2]');//two decimals only for nice reporting
                 update_text('COMMENT SQM',', used '+inttostr(pedestal)+' as pedestal value');
-              end;
+              end
+              else
+              update_text('SQM     =',char(39)+'Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.'+char(39));
             end;
 
             if hasoption('o') then filename2:=GetOptionValue('o');{change file name for .ini file}
@@ -12993,13 +13046,16 @@ begin
   memo1.font.name:=font_name;
   memo1.font.style:=font_style;
   memo1.font.charset:=font_charset;  {note Greek=161, Russian or Cyrillic =204}
+
+  pairsplitter1.position:=image_north_arrow1.top+image_north_arrow1.height+8;//set correct for 4k screens with hiDPI settings. Works only in show. Not in create
+                     //The thing is that the LCL scales the form on the Show method, because that any scaling produced before showing the form is not applied.
 end;
 
 
 procedure Tmainwindow.batch_add_solution1Click(Sender: TObject);
 var
-  i,nrskipped, nrsolved,nrfailed,file_age,pedestal2                     : integer;
-  dobackup,add_lim_magn,solution_overwrite,solved,maintain_date,success : boolean;
+  i,nrskipped, nrsolved,nrfailed,file_age,pedestal2,oldnrbits                         : integer;
+  dobackup,add_lim_magn,solution_overwrite,solved,maintain_date,success,image_changed : boolean;
   failed,skipped,mess                           : string;
   startTick  : qword;{for timing/speed purposes}
 begin
@@ -13014,6 +13070,7 @@ begin
   if OpenDialog1.Execute then
   begin
     Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+
     nrsolved:=0;
     nrskipped:=0;
     nrfailed:=0;
@@ -13030,13 +13087,18 @@ begin
         progress_indicator(100*i/(count),' Solving');{show progress}
         solved:=false;
 
-        if fits_tiff_file_name(filename2)=false then continue; //skip wrong file types in case somebody typed *.*
+        if fits_tiff_file_name(filename2)=false then
+        begin
+           memo2_message('█ █ █ █ █ █ Skipping non FITS/TIFF file '+filename2+' █ █ █ █ █ █ ');
+           continue; //skip wrong file types in case somebody typed *.*
+        end;
 
         Application.ProcessMessages;
         if esc_pressed then  break;
         {load image and solve image}
         if load_fits(filename2,true {light},true,true {update memo},0,mainwindow.memo1.lines,head,img_loaded) then {load image success}
         begin
+          image_changed:=false;
           if ((head.cd1_1<>0) and (solution_overwrite=false)) then
           begin
             nrskipped:=nrskipped+1; {plate solved}
@@ -13045,8 +13107,25 @@ begin
           end
           else
           begin
+            if cal_batch1.checked then
+            begin
+              {preserve header and some important variable}
+              memo2_message('Calibrating image prior to solving.');
+              analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{analyse dark tab, by loading=false the loaded img will not be effected. Calstat will not be effected}
+              analyse_listview(stackmenu1.listview3,false {light},false {full fits},false{refresh});{analyse flat tab, by loading=false the loaded img will not be effected}
+
+              if apply_dark_and_flat(img_loaded,head){apply dark, flat if required, renew if different hd.exposure or ccd temp. This will clear the header in load_fits} then
+              begin //dark or flat or both applied
+                update_text ('CALSTAT =',#39+head.calstat+#39); {calibration status}
+                image_changed:=true;
+                //get_hist:=true; {update required}
+              end;
+            end;
+
+
             memo2_message('Solving '+inttostr(i+1)+'-'+inttostr(Count)+': '+filename2);
-            solved:=solve_image(img_loaded,head,true {get hist});
+            oldnrbits:=nrbits;
+            solved:=solve_image(img_loaded,head,true {get hist}, false {check filter});
             if solved then nrsolved:=nrsolved+1 {solve}
             else
             begin
@@ -13064,7 +13143,8 @@ begin
               update_float('LIM_MAGN=',' / estimated limiting magnitude for point sources',false ,magn_limit);
 
               mess:='';
-              if pedestal<>0 then
+
+              if ((pedestal<>0) or (pos('D',head.calstat)>0)) then
               begin
                 //jd_start:=0; { if altitude missing then force an date to jd conversion'}
                 pedestal2:=pedestal; {protect pedestal setting}
@@ -13072,7 +13152,19 @@ begin
                 begin
                   update_text('SQM     = ',floattostr2(sqmfloat)+'               / Sky background [magn/arcsec^2]');//two decimals only for nice reporting
                   update_text('COMMENT SQM',', used '+inttostr(pedestal2)+' as pedestal value');
-                  mess:=' and SQM'
+                  mess:=', SQM';
+                  if centalt=''  then //no old altitude
+                  begin
+                    centalt:=floattostr2(altitudefloat);
+                    update_text ('CENTALT =',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+                    update_text ('OBJCTALT=',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+                    mess:=mess+', CENT-ALT';
+                  end;
+                end
+                else
+                begin
+                  update_text('SQM     =',char(39)+'Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.'+char(39));
+                  memo2_message('Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.');
                 end;
               end
               else
@@ -13085,18 +13177,18 @@ begin
 
             if maintain_date then file_age:=Fileage(filename2);
             if fits_file_name(filename2) then
-              success:=savefits_update_header(filename2)
+            begin
+              if image_changed=false then
+                success:=savefits_update_header(filename2)
+              else
+                success:=save_fits(img_loaded,filename2,oldnrbits,true);//image was updated by calibration.
+            end
             else
               success:=save_tiff16_secure(img_loaded,filename2);{guarantee no file is lost}
-            if success=false then begin ShowMessage('Write error !!' + filename2);Screen.Cursor:=crDefault; exit;end;
+            if success=false then begin ShowMessage('Write error !!'+#10+#10 + filename2);Screen.Cursor:=crDefault; exit;end;
 
             if ((maintain_date) and (file_age>-1)) then FileSetDate(filename2,file_age);
           end;
-//          else
-//          begin
-//            memo2_message('No solution: '+filename2);
-//            failed:=failed+#13+#10+extractfilename(filename2);
-//          end;
         end;
       end;{for i:=}
 
@@ -13214,6 +13306,7 @@ end;
 procedure Tmainwindow.CropFITSimage1Click(Sender: TObject);
 var fitsX,fitsY,col,dum, formalism      : integer;
     fxc,fyc, ra_c,dec_c, ra_n,dec_n,ra_m, dec_m, delta_ra   : double;
+    img_temp : image_array;
 begin
   if ((head.naxis<>0) and (abs(stopX-startX)>3)and (abs(stopY-starty)>3)) then
   begin
@@ -13320,44 +13413,54 @@ var
   degrees : boolean;
   data    : string;
 begin
-  inp:=uppercase(inp); {upcase once instead of every stringreplace using rfIgnorecase}
-  degrees:=pos('D',inp)>0;{degrees ?}
-  inp:= stringreplace(inp, ',', '.',[rfReplaceAll]);
+  val(inp,ra,error1); //try easy conversion
+  if error1<>0 then
+  begin //do compilcated conversion
+    inp:=uppercase(inp); {upcase once instead of every stringreplace using rfIgnorecase}
+    degrees:=pos('D',inp)>0;{degrees ?}
+    inp:= stringreplace(inp, ',', '.',[rfReplaceAll]);
 
-  data:='';
-  for i := 1 to length(inp) do
-  begin
-    if (((ord(inp[i])>=48) and (ord(inp[i])<=57)) or (inp[i]='.') or (inp[i]='-')) then   data:=data+inp[i] else data:=data+' ';{replace all char by space except for numbers and dot}
-  end;
-  repeat  {remove all double spaces}
-    i:=pos('  ',data);
-    if i>0 then delete(data,i,1);
-  until i=0;
-
-
-  data:=trim(data)+' ';
-  if pos('-',data)>0 then plusmin:=-1 else plusmin:=1;
-
-  position1:=pos(' ',data);
-  val(copy(data,1,position1-1),rah,error1);
-  if degrees then rah:=rah*24/360;{input was in degrees}
+    data:='';
+    for i := 1 to length(inp) do
+    begin
+      if (((ord(inp[i])>=48) and (ord(inp[i])<=57)) or (inp[i]='.') or (inp[i]='-')) then   data:=data+inp[i] else data:=data+' ';{replace all char by space except for numbers and dot}
+    end;
+    repeat  {remove all double spaces}
+      i:=pos('  ',data);
+      if i>0 then delete(data,i,1);
+    until i=0;
 
 
-  position2:=posex(' ',data,position1+1);
-  if position2-position1>1 then {ram available}
-  begin
-    val(copy(data,position1+1,position2-position1-1),ram,error2);
+    data:=trim(data)+' ';
+    if pos('-',data)>0 then plusmin:=-1 else plusmin:=1;
 
-    {ram found try ras}
-    position3:=posex(' ',data,position2+1);
-    if position3-position2>1 then val( copy(data,position2+1,position3-position2-1),ras,error3)
-       else begin ras:=0;error3:=0;end;
+    position1:=pos(' ',data);
+    val(copy(data,1,position1-1),rah,error1);
+    if degrees then rah:=rah*24/360;{input was in degrees}
+
+
+    position2:=posex(' ',data,position1+1);
+    if position2-position1>1 then {ram available}
+    begin
+      val(copy(data,position1+1,position2-position1-1),ram,error2);
+
+      {ram found try ras}
+      position3:=posex(' ',data,position2+1);
+      if position3-position2>1 then val( copy(data,position2+1,position3-position2-1),ras,error3)
+         else begin ras:=0;error3:=0;end;
+    end
+    else
+      begin ram:=0;error2:=0; ras:=0; error3:=0; end;
+
+    ra:=plusmin*(abs(rah)+ram/60+ras/3600)*pi/12;
+    errorRA:=((error1<>0) or (error2>1) or (error3<>0) or (ra>2*pi));
+
   end
   else
-    begin ram:=0;error2:=0; ras:=0; error3:=0; end;
-
-  ra:=plusmin*(abs(rah)+ram/60+ras/3600)*pi/12;
-  errorRA:=((error1<>0) or (error2>1) or (error3<>0) or (ra>2*pi));
+  begin
+    errorRA:=false;
+    ra:=ra*pi/12; //convert to radians
+  end;
 end;
 
 
@@ -13381,40 +13484,48 @@ var
   position1,position2,position3,error1,error2,error3,plusmin,i : integer ;
   data                                                       : string;
 begin
-  inp:= stringreplace(inp, ',', '.',[rfReplaceAll]);
-  data:='';
-  for i := 1 to length(inp) do
-  begin
-    if (((ord(inp[i])>=48) and (ord(inp[i])<=57)) or (inp[i]='.') or (inp[i]='-')) then   data:=data+inp[i] else data:=data+' ';{replace all char by space except for numbers and dot}
-  end;
-  repeat  {remove all double spaces}
-    i:=pos('  ',data);
-    if i>0 then delete(data,i,1);
-  until i=0;;
+  val(inp,dec,error1);//try easy decode including scientific 6.704750E-01
+  if error1<>0 then
+  begin //try dificult decode such as '+53 20 52.510'
+    inp:= stringreplace(inp, ',', '.',[rfReplaceAll]);
+    data:='';
+    for i := 1 to length(inp) do
+    begin
+      if (((ord(inp[i])>=48) and (ord(inp[i])<=57)) or (inp[i]='.') or (inp[i]='-')) then   data:=data+inp[i] else data:=data+' ';{replace all char by space except for numbers and dot}
+    end;
+    repeat  {remove all double spaces}
+      i:=pos('  ',data);
+      if i>0 then delete(data,i,1);
+    until i=0;;
 
 
-  data:=trim(data)+' ';
-  if pos('-',data)>0 then plusmin:=-1 else plusmin:=1;
+    data:=trim(data)+' ';
+    if pos('-',data)>0 then plusmin:=-1 else plusmin:=1;
 
-  position1:=pos(' ',data);
-  val(copy(data,1,position1-1),decd,error1);
+    position1:=pos(' ',data);
+    val(copy(data,1,position1-1),decd,error1);
 
+    position2:=posex(' ',data,position1+1);
+    if position2-position1>1 then {decm available}
+    begin
+      val(copy(data,position1+1,position2-position1-1),decm,error2);
 
-  position2:=posex(' ',data,position1+1);
-  if position2-position1>1 then {decm available}
-  begin
-    val(copy(data,position1+1,position2-position1-1),decm,error2);
+      {decm found try decs}
+      position3:=posex(' ',data,position2+1);
+      if position3-position2>1 then val( copy(data,position2+1,position3-position2-1),decs,error3)
+         else begin decs:=0;error3:=0;end;
+    end
+    else
+      begin decm:=0;error2:=0;decs:=0; error3:=0; end;
 
-    {decm found try decs}
-    position3:=posex(' ',data,position2+1);
-    if position3-position2>1 then val( copy(data,position2+1,position3-position2-1),decs,error3)
-       else begin decs:=0;error3:=0;end;
-  end
+    dec:=plusmin*(abs(decd)+decm/60+decs/3600)*pi/180;
+    errorDEC:=((error1<>0) or (error2>1) or (error3<>0));
+  end//end of difficult decode
   else
-    begin decm:=0;error2:=0;decs:=0; error3:=0; end;
-
-  dec:=plusmin*(abs(decd)+decm/60+decs/3600)*pi/180;
-  errorDEC:=((error1<>0) or (error2>1) or (error3<>0));
+  begin
+    errorDec:=false;
+    dec:=dec*pi/180;//convert to radians
+  end;
 end;
 
 
@@ -13701,7 +13812,7 @@ begin
     update_float  ('CROTA1  =',' / Image twist X axis (deg)                       ',false ,head.crota1);
     update_float  ('CROTA2  =',' / Image twist Y axis (deg) E of N if not flipped.',false ,head.crota2);
   end;
-  remove_key('ANNOTATE',true{all});{this all will be invalid}
+  remove_key('ANNOTATE',true{all});{remove annotations. They would be otherwise invalid}
   add_text   ('HISTORY   ','Rotated CCW by angle '+floattostrF(angle,fffixed, 0, 2));
 
 end;
@@ -14147,7 +14258,7 @@ begin
 
   if sender=mainwindow.gaia_star_position1 then //Browser Gaia stars
   begin
-    plot_the_annotation(stopX+1,stopY+1,startX+1,startY+1,0,'','');{rectangle, +1 to fits coordinates}
+    plot_the_annotation(stopX+1,stopY+1,startX+1,startY+1,0,'');{rectangle, +1 to fits coordinates}
     url:='http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=Source,RA_ICRS,DE_ICRS,Plx,pmRA,pmDE,Gmag,BPmag,RPmag&-c='+ra8+sgn+dec8+window_size+'&-out.max=300&Gmag=<23';
     //http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=Source,RA_ICRS,DE_ICRS,pmRA,pmDE,Gmag,BPmag,RPmag&-c=86.5812345-10.3456,bm=1x1&-out.max=1000000&BPmag=%3C21.5
     //http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=Source,RA_ICRS,DE_ICRS,pmRA,pmDE,Gmag,BPmag,RPmag&-c=86.5812345-10.3456,bm=2x2&-out.max=1000000&BPmag=%3C21.5
@@ -14167,9 +14278,10 @@ begin
 
   if sender=mainwindow.hyperleda_guery1 then
   begin {sender hyperleda_guery1}
-    plot_the_annotation(stopX+1,stopY+1,startX+1,startY+1,0,'','');{rectangle, +1 to fits coordinates}
-    url:='http://leda.univ-lyon1.fr/fG.cgi?n=a000&ob=ra&c=o&p=J'+ra8+'d%2C'+sgn+dec8+'d&f='+floattostr6(max(ang_w,ang_h)/(60));  //350.1000D%2C50.50000D    &f=50
+    plot_the_annotation(stopX+1,stopY+1,startX+1,startY+1,0,'');{rectangle, +1 to fits coordinates}
+    url:='http://atlas.obs-hp.fr/hyperleda/fG.cgi?n=a000&ob=ra&c=o&p=J'+ra8+'d%2C'+sgn+dec8+'d&f='+floattostr6(max(ang_w,ang_h)/(60));  //350.1000D%2C50.50000D    &f=50
     // http://leda.univ-lyon1.fr/fG.cgi?n=a000&c=o&p=J350.1000D%2C50.50000D&f=50&ob=ra
+    // http://atlas.obs-hp.fr/hyperleda/fG.cgi?n=a000&ob=ra&c=o&p=J161.7415593981d%2C%2B11.8948545867d&f=17.877745
   end
 
   else
@@ -14192,7 +14304,7 @@ begin
     radius:=max(abs(stopX-startX),abs(stopY-startY)) div 2; {convert ellipse to circle}
     x1:=(stopX+startX) div 2;
     y1:=(stopY+startY) div 2;
-    plot_the_annotation(x1-radius+1,y1-radius+1,x1+radius+1,y1+radius+1,0,'','');{square}
+    plot_the_annotation(x1-radius+1,y1-radius+1,x1+radius+1,y1+radius+1,0,'');{square}
 
     ra8:=prepare_ra(object_raM,' '); {radialen to text, format 24: 00 00.0 }
     dec8:=prepare_dec(object_decM,' '); {radialen to text, format 90d 00 00}
@@ -14415,7 +14527,7 @@ const
 
 var
   width5,height5,i,j,r1_square,r2_square,r2, distance,distance_top_value,illuminated_pixels,signal_counter,counter,annulus_width :integer;
-  SumVal,Sumval_small, SumValX,SumValY,SumValR, Xg,Yg, r, val,pixel_counter,valmax,mad_bg, flux_e, sd_bg_e,radius    : double;
+  SumVal,Sumval_small, SumValX,SumValY,SumValR, Xg,Yg, r, val,pixel_counter,valmax,mad_bg,radius    : double;
   HistStart,boxed : boolean;
   distance_histogram : array [0..max_ri] of integer;
   background : array [0..1000] of double; {size =3*(2*PI()*(50+3)) assuming rs<=50}
@@ -14439,7 +14551,7 @@ var
       end;
     end;
 begin
-  width5:=Length(img[0,0]);    {width}
+  width5:=Length(img[0,0]);{width}
   height5:=Length(img[0]); {height}
 
   {rs should be <=50 to prevent runtime errors}
@@ -14594,19 +14706,15 @@ begin
     radius:=aperture_small; // use smaller aperture
   end;
 
-  if adu_e=0 then
-  begin {no adu to e correction}
-    flux_e:=flux;
-    sd_bg_e:=sd_bg;
-  end
-  else
+  if adu_e<>0 then
   begin //adu to e- correction
-    flux_e:=flux*adu_e*sqr(head.xbinning);// if an image is binned the adu's are averaged. So bin2x2 result in four times less adu.
-    sd_bg_e:=sd_bg*adu_e*head.xbinning;//noise is sqrt of signal. So electron noise reduces linear with binning value
+    flux:=flux*adu_e*sqr(head.xbinning);// if an image is binned the adu's are averaged. So bin2x2 result in four times less adu. Star flux should be independend of binning
+    sd_bg:=sd_bg*adu_e*head.xbinning;//noise is sqrt of signal. So electron noise reduces linear with binning value
   end;
 
+
   if flux>=1 then
-    snr:=flux_e /sqrt(flux_e +sqr(radius)*pi*sqr(sd_bg_e))
+    snr:=flux /sqrt(flux +sqr(radius)*pi*sqr(sd_bg))
   else
     snr:=0;//rare but happens. Prevent runtime errors  by /flux
   {For both bright stars (shot-noise limited) or skybackground limited situations
@@ -14716,7 +14824,7 @@ end;
 
 
 procedure local_sd(x1,y1, x2,y2,col : integer;{accuracy: double;} img : image_array; out sd,mean : double; out iterations :integer);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-var i,j,counter,counter2,w,h : integer;
+var i,j,counter,w,h                 : integer;
     value, sd_old,meanx             : double;
 
 begin
@@ -14753,7 +14861,6 @@ begin
     {sd}
     sd_old:=sd;
     counter:=0;
-    counter2:=0;
     for j:=y1 to y2  do {calculate standard deviation  of region of interest}
     for i:=x1 to x2 do {calculate standard deviation  of region of interest}
     begin
@@ -14818,12 +14925,26 @@ begin
   result:=0;// zero is calculate snr using ADU's
 end;
 
-function noise_to_electrons(adu_e, binning, sd : double): string;
+function noise_to_electrons(adu_e, sd : double): string;
 begin
+//  CMOS camera/software binning. Sky noise dominant. Software binning is sum pixels divide by four.
+//
+//                e- / pixel received	Gain         	ADU       	        EGAIN	                σ ADU  (noise)	                                σ e-   (noise)
+//  bin 1x1       100 e-	        1 (unity gain)	100 ADU	                1  e-/ADU (bin1x1)      sqrt(100)=10 ADU	                        sqrt(100 e-)=10 e-
+//  bin 2x2       400 e-	        1 (unity gain)	100 ADU                 1  e-/ADU (bin1x1)      sqrt(10ADU^2+10ADU^2+10ADU^2+10ADU^2)/4=5 ADU	sqrt(400 e-)/4=5 e-
+
+
+//                 e- / pixel received	Gain         	ADU       	        EGAIN	                σ ADU  (noise)	                                σ e-   (noise)
+//  bin 1x1        100 e-                2              200 ADU	                0.5  e-/ADU (bin1x1)	2*sqrt(100)=20 ADU	                        sqrt(100 e-)=10 e-
+//  bin 2x2  	   400 e-                2              200 ADU=2*sqrt(400)/4	0.5  e-/ADU (bin1x1)	sqrt(20ADU^2+20ADU^2+20ADU^2+20ADU^2)/4=10 ADU	sqrt(400 e-)/4=5 e-
+//
+//  Ik ga er vanuit dat het ontvangen licht in de pixels totaal 100 electrons (e-) in een echte pixel vrijmaakt. De ruis (σ) ofwel shot noise is dan ongeveer de wortel van het aantal electrons.
+//  Bij software binning halveert de pixelruis met een factor 2 voor zowel de ruis uitgedrukt in ADU als electrons. Ruis sommeer je als σ_tot:=sqrt(σ1^2+ σ2^2)
+
+  result:=floattostrF(sd,FFGeneral,3,3);
+
   if adu_e<>0 then
-    result:=floattostrF(sd*adu_e*binning,FFfixed,6,1)+' e-' // in electrons
-  else
-    result:=floattostrF(sd,FFfixed,6,1);//in adu's
+    result:=result+' e-' // in electrons
 
 end;
 
@@ -14990,7 +15111,7 @@ begin
 
      str(snr:0:0,snr_str);
      if adu_e=0 then snr_str:='SNR='+snr_str // noise based on ADU's
-                else snr_str:='SNR_e='+snr_str;// noise based on electrons
+       else snr_str:='SNR_e='+snr_str;// noise based on electrons. No unit
 
      if head.mzero<>0 then {offset calculated in star annotation call}
      begin
@@ -15006,9 +15127,13 @@ begin
                                                //prepare_ra8(object_raM,': ')+'   '+prepare_dec2(object_decM,'° '){object position in RA,DEC}
      else
        mainwindow.statusbar1.panels[1].text:=floattostrF(object_xc+1,ffFixed,7,2)+',  '+floattostrF(object_yc+1,ffFixed,7,2);{object position in FITS X,Y}
-     mainwindow.statusbar1.panels[2].text:='HFD='+hfd_str+', FWHM='+FWHM_str+', '+snr_str+mag_str{+' '+floattostr4(flux)};
-     if display_adu then
-               mainwindow.statusbar1.panels[7].text:='ADU='+floattostrF(flux,ffFixed,0,0);
+     mainwindow.statusbar1.panels[2].text:='HFD='+hfd_str+', FWHM='+FWHM_str+', '+snr_str+mag_str; {+', '+floattostrF(flux,ffFixed,0,0)};
+
+     if adu_e<>0 then
+       mainwindow.statusbar1.panels[7].text:=floattostrF(flux,ffFixed,0,0)+' e-'
+     else
+       mainwindow.statusbar1.panels[7].text:=floattostrF(flux,ffFixed,0,0)+' ADU';
+
      if star_profile1.checked then
      begin
        plot_star_profile(round(object_xc),round(object_yc));
@@ -15024,7 +15149,7 @@ begin
 
      local_sd(round(mouse_fitsX-1)-10,round(mouse_fitsY-1)-10, round(mouse_fitsX-1)+10,round(mouse_fitsY-1)+10{regio of interest},0 {col},img_loaded, sd,dummy {mean},iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
 
-     mainwindow.statusbar1.panels[2].text:='σ = '+noise_to_electrons(adu_e, head.Xbinning, sd); //reports noise in ADU's (adu_e=0) or electrons
+     mainwindow.statusbar1.panels[2].text:='σ = '+noise_to_electrons(adu_e, sd); //reports noise in ADU's (adu_e=0) or electrons
 
      if star_profile_plotted then plot_north;
      star_profile_plotted:=false;
@@ -15701,7 +15826,8 @@ end;
 procedure Tmainwindow.flip_H1Click(Sender: TObject);
 var
   col,fitsX,fitsY : integer;
-  vertical             :boolean;
+  vertical        : boolean;
+  img_temp        : image_array;
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
@@ -15788,15 +15914,10 @@ begin
 end;
 
 
-procedure Tmainwindow.display_adu1Click(Sender: TObject);
-begin
-  display_adu:=display_adu1.checked;
-end;
-
 procedure Tmainwindow.localcoloursmooth2Click(Sender: TObject);
 var
    fitsX,fitsY,dum,k,counter    : integer;
-   flux,center_x,center_y,a,b,rgb,distance,lumr : single;
+   flux,center_x,center_y,a,b,rgb, lumr : single;
    colour,mean : array[0..2] of single;
 begin
   if ((head.naxis3<>3) or (head.naxis=0)) then exit;
@@ -15894,6 +16015,8 @@ var
   I    : integer;
   succ,err : boolean;
   thepath:string;
+  head_2 : theader;
+  img_temp : image_array;
 begin
   OpenDialog1.Title := 'Select multiple files to move';
   OpenDialog1.Options := [ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
@@ -15958,7 +16081,6 @@ begin
     Screen.Cursor:=crDefault;  { Always restore to normal }
     progress_indicator(-100,'');{progresss done}
   end;
-  img_temp:=nil;
 end;
 
 
@@ -15973,6 +16095,8 @@ procedure Tmainwindow.set_modified_date1Click(Sender: TObject);
 var
   I    : integer;
   err : boolean;
+  head_2 : theader;
+  img_temp : image_array;
 begin
   OpenDialog1.Title := 'Select multiple FITS files to set "modified date" to DATE-OBS';
   OpenDialog1.Options := [ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
@@ -16018,7 +16142,6 @@ begin
     Screen.Cursor:=crDefault;  { Always restore to normal }
     progress_indicator(-100,'');{progresss done}
   end;
-  img_temp:=nil;
 end;
 
 
@@ -16032,6 +16155,7 @@ end;
 procedure Tmainwindow.Export_image1Click(Sender: TObject);
 var
   filename3:ansistring;
+  img_temp : image_array;
 begin
   filename3:=ChangeFileExt(FileName2,'');
   savedialog1.filename:=filename3;
@@ -16525,9 +16649,9 @@ procedure Tmainwindow.Stackimages1Click(Sender: TObject);
 begin
   listviews_begin_update; {speed up making stackmenu visible having a many items}
 
+  stackmenu1.windowstate:=wsNormal;
   stackmenu1.visible:=true;
   stackmenu1.setfocus;
-
   listviews_end_update;{speed up making stackmenu visible having a many items}
 end;
 
