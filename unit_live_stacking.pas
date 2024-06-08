@@ -75,7 +75,9 @@ begin
   update_integer('EXPTIME =',' / Total luminance exposure time in seconds.      ' ,round(sum_exp));
   update_text ('CALSTAT =',#39+head.calstat+#39); {calibration status}
   update_text ('DATE-OBS=',#39+JdToDate(jd_start_first)+#39);{give begin date exposures}
-  update_float('JD-AVG  =',' / Julian Day of the observation mid-point.       ',false, jd_sum/counterL);{give midpoint of exposures}
+//  update_float('JD-AVG  =',' / Julian Day of the observation mid-point.       ',false, jd_sum/counterL);{give midpoint of exposures}
+  update_generic('JD-AVG  ',floattostr6(jd_sum/counterL),'Julian Day of the observation mid-point.       ');{update header using text only}
+
   head.date_avg:=JdToDate(jd_sum/counterL); {update date_avg for asteroid annotation}
   update_text ('DATE-AVG=',#39+head.date_avg+#39);{give midpoint of exposures}
   update_integer('LIGH_CNT=',' / Light frames combined.                  ' ,counterL); {for interim lum,red,blue...files.}
@@ -254,7 +256,7 @@ begin
             begin
               binning:=report_binning(head.height);{select binning based on the height of the first light. Do this after demosaic since SuperPixel also bins}
               bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
-              find_quads(starlist1,0,quad_smallest,quad_star_distances1);{find quads for reference image}
+              find_quads(starlist1, quad_star_distances1);{find quads for reference image}
             end;
 
 
@@ -304,7 +306,7 @@ begin
             begin{internal alignment only}
               bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
 
-              find_quads(starlist2,0,quad_smallest,quad_star_distances2);{find star quads for new image}
+              find_quads(starlist2, quad_star_distances2);{find star quads for new image}
               if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
               memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.'
                      +'  Solution x:='+floattostr6(solution_vectorX[0])+'x+ '+floattostr6(solution_vectorX[1])+'y+ '+floattostr6(solution_vectorX[2])

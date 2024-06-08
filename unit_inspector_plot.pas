@@ -101,7 +101,7 @@ var
   inspector_gradations: integer=10;
 
 
-procedure CCDinspector(snr_min: double; triangle : boolean; measuring_angle: double);
+function CCDinspector(snr_min: double; screenplot,triangle : boolean; measuring_angle: double) : double;
 
 
 implementation
@@ -127,42 +127,44 @@ end;
 
 
 
-procedure CCDinspector(snr_min: double; triangle : boolean; measuring_angle: double{;x1,y1,x2,y2 : integer});
+function CCDinspector(snr_min: double; screenplot,triangle : boolean; measuring_angle: double) : double;
 var
- fitsX,fitsY,size,radius, i,j,starX,starY, retries,max_stars,x_centered,y_centered,starX2,starY2,len,
- nhfd,nhfd_outer_ring,fontsize,text_height,text_width,n,m,xci,yci,sqr_radius,left_margin,
- nhfd_11,nhfd_21,nhfd_31,
- nhfd_12,nhfd_22,nhfd_32,
- nhfd_13,nhfd_23,nhfd_33,
- x_11,x_21,x_31,y_11,y_21,y_31,
- x_12,x_22,x_32,y_12,y_22,y_32,
- x_13,x_23,x_33,y_13,y_23,y_33,
- oldNaxis3, dummy                       : integer;
+  fitsX,fitsY,size,radius, i,j,starX,starY, retries,max_stars,x_centered,y_centered,starX2,starY2,len,
+  nhfd,nhfd_outer_ring,fontsize,text_height,text_width,n,m,xci,yci,sqr_radius,left_margin,
+  nhfd_11,nhfd_21,nhfd_31,
+  nhfd_12,nhfd_22,nhfd_32,
+  nhfd_13,nhfd_23,nhfd_33,
+  x_11,x_21,x_31,y_11,y_21,y_31,
+  x_12,x_22,x_32,y_12,y_22,y_32,
+  x_13,x_23,x_33,y_13,y_23,y_33,
+  oldNaxis3, dummy                       : integer;
 
- hfd1,star_fwhm,snr,flux,xc,yc, median_worst,median_best,scale_factor, detection_level,
- hfd_min,tilt_value, aspect,theangle,theradius,screw1,screw2,screw3,sqrradius,raM,decM,
- fwhm_median,
- hfd_median, median_outer_ring,
- median_11, median_21, median_31,
- median_12, median_22, median_32,
- median_13, median_23, median_33      : double;
- hfd_list, hfdlist_outer_ring,
- hfdlist_11,hfdlist_21,hfdlist_31,
- hfdlist_12,hfdlist_22,hfdlist_32,
- hfdlist_13,hfdlist_23,hfdlist_33,
- fwhm_list                            : array of double;
+  hfd1,star_fwhm,snr,flux,xc,yc, median_worst,median_best,scale_factor, detection_level,
+  hfd_min,tilt_value, aspect,theangle,theradius,screw1,screw2,screw3,sqrradius,raM,decM,
+  fwhm_median,
+  hfd_median, median_outer_ring,
+  median_11, median_21, median_31,
+  median_12, median_22, median_32,
+  median_13, median_23, median_33      : double;
+  hfd_list, hfdlist_outer_ring,
+  hfdlist_11,hfdlist_21,hfdlist_31,
+  hfdlist_12,hfdlist_22,hfdlist_32,
+  hfdlist_13,hfdlist_23,hfdlist_33,
+  fwhm_list                            : array of double;
 
- starlistXY    :array of array of double;
- mess1,mess2,hfd_value,hfd_arcsec,report,rastr,decstr,magstr,fwhm_value,fwhm_arcsec : string;
+  starlistXY    :array of array of double;
+  mess1,mess2,hfd_value,hfd_arcsec,report,rastr,decstr,magstr,fwhm_value,fwhm_arcsec : string;
 
- Fliph, Flipv,restore_req  : boolean;
- img_bk,img_sa                         : image_array;
- style: TTextStyle;
- data_max: single;
+  Fliph, Flipv,restore_req  : boolean;
+  img_bk,img_sa                         : image_array;
+  style: TTextStyle;
+  data_max: single;
 begin
+  result:=100; //default indicating an error
   if head.naxis=0 then exit; {file loaded?}
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
+  memo2_message('Inspection of: '+filename2);
   restore_req:=false;
   oldNaxis3:=head.naxis3;//for case it is converted to mono
 
@@ -443,19 +445,8 @@ begin
         flip_xy(fliph,flipv,x_21,y_21);
         flip_xy(fliph,flipv,x_31,y_31);
 
-        image1.Canvas.Pen.width :=image1.Canvas.Pen.width*2;{thickness lines}
 
-        image1.Canvas.pen.color:=clyellow;
-
-        image1.Canvas.moveto(x_11,y_11);{draw triangle}
-        image1.Canvas.lineto(x_21,y_21);{draw triangle}
-        image1.Canvas.lineto(x_31,y_31);{draw triangle}
-        image1.Canvas.lineto(x_11,y_11);{draw triangle}
-
-        image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
-        image1.Canvas.lineto(x_21,y_21);{draw diagonal}
-        image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
-        image1.Canvas.lineto(x_31,y_31);{draw diagonal}
+        result:=median_worst-median_best; //for export
 
         tilt_value:=100*(median_worst-median_best)/hfd_median;
         mess2:='  Tilt[HFD]='+floattostrF(median_worst-median_best,ffFixed,0,2)+' ('+floattostrF(tilt_value,ffFixed,0,0)+'%';{estimate tilt value}
@@ -471,13 +462,29 @@ begin
         else
         mess2:=mess2+' extreme)';
 
+        if screenplot then//plot octagon
+        begin
+          image1.Canvas.Pen.width :=image1.Canvas.Pen.width*2;{thickness lines}
 
-        fontsize:=fontsize*4;
-        image1.Canvas.font.size:=fontsize;
-        image1.Canvas.textout(x_11,y_11,floattostrF(median_11,ffFixed,0,2));
-        image1.Canvas.textout(x_21,y_21,floattostrF(median_21,ffFixed,0,2));
-        image1.Canvas.textout(x_31,y_31,floattostrF(median_31,ffFixed,0,2));
-        image1.Canvas.textout(head.width div 2,head.height div 2,floattostrF(median_22,ffFixed,0,2));
+          image1.Canvas.pen.color:=clyellow;
+
+          image1.Canvas.moveto(x_11,y_11);{draw triangle}
+          image1.Canvas.lineto(x_21,y_21);{draw triangle}
+          image1.Canvas.lineto(x_31,y_31);{draw triangle}
+          image1.Canvas.lineto(x_11,y_11);{draw triangle}
+
+          image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
+          image1.Canvas.lineto(x_21,y_21);{draw diagonal}
+          image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
+          image1.Canvas.lineto(x_31,y_31);{draw diagonal}
+
+          fontsize:=fontsize*4;
+          image1.Canvas.font.size:=fontsize;
+          image1.Canvas.textout(x_11,y_11,floattostrF(median_11,ffFixed,0,2));
+          image1.Canvas.textout(x_21,y_21,floattostrF(median_21,ffFixed,0,2));
+          image1.Canvas.textout(x_31,y_31,floattostrF(median_31,ffFixed,0,2));
+          image1.Canvas.textout(head.width div 2,head.height div 2,floattostrF(median_22,ffFixed,0,2));
+        end;
 
       end
       else
@@ -526,25 +533,8 @@ begin
         flip_xy(fliph,flipv,x_33,y_33); {from array to image coordinates}
 
 
-        image1.Canvas.Pen.width :=image1.Canvas.Pen.width*2;{thickness lines}
-        image1.Canvas.pen.color:=clyellow;
 
-        image1.Canvas.moveto(x_11,y_11);{draw trapezium}
-        image1.Canvas.lineto(x_21,y_21);{draw trapezium}
-        image1.Canvas.lineto(x_31,y_31);{draw trapezium}
-        image1.Canvas.lineto(x_32,y_32);{draw trapezium}
-        image1.Canvas.lineto(x_33,y_33);{draw trapezium}
-        image1.Canvas.lineto(x_23,y_23);{draw trapezium}
-        image1.Canvas.lineto(x_13,y_13);{draw trapezium}
-        image1.Canvas.lineto(x_12,y_12);{draw trapezium}
-        image1.Canvas.lineto(x_11,y_11);{draw trapezium}
-
-        image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
-        image1.Canvas.lineto(x_31,y_31);{draw diagonal}
-        image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
-        image1.Canvas.lineto(x_33,y_33);{draw diagonal}
-        image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
-        image1.Canvas.lineto(x_13,y_13);{draw diagonal}
+        result:=median_worst-median_best; //for export
 
         tilt_value:=100*(median_worst-median_best)/hfd_median;
         mess2:='  Tilt[HFD]='+floattostrF(median_worst-median_best,ffFixed,0,2)+' ('+floattostrF(tilt_value,ffFixed,0,0)+'%';{estimate tilt value}
@@ -560,56 +550,84 @@ begin
         else
         mess2:=mess2+' extreme)';
 
-        fontsize:=fontsize*4;
-        image1.Canvas.font.size:=fontsize;
 
-        image1.Canvas.textout(x_11,y_11,floattostrF(median_11,ffFixed,0,2));
-        image1.Canvas.textout(x_21,y_21,floattostrF(median_21,ffFixed,0,2));
-        image1.Canvas.textout(x_31,y_31,floattostrF(median_31,ffFixed,0,2));
+        if screenplot then//plot octagon
+        begin
+          image1.Canvas.Pen.width :=image1.Canvas.Pen.width*2;{thickness lines}
+          image1.Canvas.pen.color:=clyellow;
 
-        image1.Canvas.textout(x_12,y_12,floattostrF(median_12,ffFixed,0,2));
-        image1.Canvas.textout(x_22,y_22,floattostrF(median_22,ffFixed,0,2));
-        image1.Canvas.textout(x_32,y_32,floattostrF(median_32,ffFixed,0,2));
+          image1.Canvas.moveto(x_11,y_11);{draw trapezium}
+          image1.Canvas.lineto(x_21,y_21);{draw trapezium}
+          image1.Canvas.lineto(x_31,y_31);{draw trapezium}
+          image1.Canvas.lineto(x_32,y_32);{draw trapezium}
+          image1.Canvas.lineto(x_33,y_33);{draw trapezium}
+          image1.Canvas.lineto(x_23,y_23);{draw trapezium}
+          image1.Canvas.lineto(x_13,y_13);{draw trapezium}
+          image1.Canvas.lineto(x_12,y_12);{draw trapezium}
+          image1.Canvas.lineto(x_11,y_11);{draw trapezium}
 
-        image1.Canvas.textout(x_13,y_13,floattostrF(median_13,ffFixed,0,2));
-        image1.Canvas.textout(x_23,y_23,floattostrF(median_23,ffFixed,0,2));
-        image1.Canvas.textout(x_33,y_33,floattostrF(median_33,ffFixed,0,2));
+          image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
+          image1.Canvas.lineto(x_31,y_31);{draw diagonal}
+          image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
+          image1.Canvas.lineto(x_33,y_33);{draw diagonal}
+          image1.Canvas.lineto(head.width div 2,head.height div 2);{draw diagonal}
+          image1.Canvas.lineto(x_13,y_13);{draw diagonal}
+
+          fontsize:=fontsize*4;
+          image1.Canvas.font.size:=fontsize;
+
+          image1.Canvas.textout(x_11,y_11,floattostrF(median_11,ffFixed,0,2));
+          image1.Canvas.textout(x_21,y_21,floattostrF(median_21,ffFixed,0,2));
+          image1.Canvas.textout(x_31,y_31,floattostrF(median_31,ffFixed,0,2));
+
+          image1.Canvas.textout(x_12,y_12,floattostrF(median_12,ffFixed,0,2));
+          image1.Canvas.textout(x_22,y_22,floattostrF(median_22,ffFixed,0,2));
+          image1.Canvas.textout(x_32,y_32,floattostrF(median_32,ffFixed,0,2));
+
+          image1.Canvas.textout(x_13,y_13,floattostrF(median_13,ffFixed,0,2));
+          image1.Canvas.textout(x_23,y_23,floattostrF(median_23,ffFixed,0,2));
+          image1.Canvas.textout(x_33,y_33,floattostrF(median_33,ffFixed,0,2));
+        end;
       end
       else
       begin
         mess2:='';
       end;
 
-      str(hfd_median:0:1,hfd_value);
-      str(fwhm_median:0:1,fwhm_value);
-      if head.cdelt2<>0 then
+
+      if screenplot then
       begin
-         str(hfd_median*abs(head.cdelt2)*3600:0:1,hfd_arcsec);
-         hfd_arcsec:=' ('+hfd_arcsec+'")';
-         str(fwhm_median*abs(head.cdelt2)*3600:0:1,fwhm_arcsec);
-         fwhm_arcsec:=' ('+fwhm_arcsec+'")';
-      end
-      else
-      begin
-        hfd_arcsec:='';
-        fwhm_arcsec:='';
+        str(hfd_median:0:1,hfd_value);
+        str(fwhm_median:0:1,fwhm_value);
+        if head.cdelt2<>0 then
+        begin
+           str(hfd_median*abs(head.cdelt2)*3600:0:1,hfd_arcsec);
+           hfd_arcsec:=' ('+hfd_arcsec+'")';
+           str(fwhm_median*abs(head.cdelt2)*3600:0:1,fwhm_arcsec);
+           fwhm_arcsec:=' ('+fwhm_arcsec+'")';
+        end
+        else
+        begin
+          hfd_arcsec:='';
+          fwhm_arcsec:='';
+        end;
+        mess2:='Median HFD='+hfd_value+hfd_arcsec+ mess2+'  Stars='+ inttostr(nhfd)+mess1 ;
+
+        text_width:=mainwindow.image1.Canvas.textwidth(mess2);{Calculate textwidth. This also works for 4k with "make everything bigger"}
+        fontsize:=min(60,trunc(fontsize*(head.width*0.9)/text_width));{use 90% of width}
+        image1.Canvas.font.size:=fontsize;
+        image1.Canvas.font.color:=clwhite;
+        text_height:=mainwindow.image1.Canvas.textheight('T');{the correct text height, also for 4k with "make everything bigger"}
+
+        left_margin:=min(head.width div 20,round(fontsize*2));{twice font size but not more then 5% of width. Required for small images}
+
+        image1.Canvas.Brush.Style:=bssolid; //Bsclear;
+        image1.Canvas.Brush.Color:=clBlack;
+        image1.Canvas.textout(left_margin,head.height-text_height,mess2);{median HFD and tilt indication}
+
+        mess2:=mess2+'. Median FWHM='+fwhm_value+fwhm_arcsec;
+        memo2_message(mess2);{for stacking live}
       end;
-      mess2:='Median HFD='+hfd_value+hfd_arcsec+ mess2+'  Stars='+ inttostr(nhfd)+mess1 ;
-
-      text_width:=mainwindow.image1.Canvas.textwidth(mess2);{Calculate textwidth. This also works for 4k with "make everything bigger"}
-      fontsize:=min(60,trunc(fontsize*(head.width*0.9)/text_width));{use 90% of width}
-      image1.Canvas.font.size:=fontsize;
-      image1.Canvas.font.color:=clwhite;
-      text_height:=mainwindow.image1.Canvas.textheight('T');{the correct text height, also for 4k with "make everything bigger"}
-
-      left_margin:=min(head.width div 20,round(fontsize*2));{twice font size but not more then 5% of width. Required for small images}
-
-      image1.Canvas.Brush.Style:=bssolid; //Bsclear;
-      image1.Canvas.Brush.Color:=clBlack;
-      image1.Canvas.textout(left_margin,head.height-text_height,mess2);{median HFD and tilt indication}
-
-      mess2:=mess2+'. Median FWHM='+fwhm_value+fwhm_arcsec;
-      memo2_message(mess2);{for stacking live}
     end
     else
       image1.Canvas.textout(round(fontsize*2),head.height- round(fontsize*4),'No stars detected');
@@ -1210,9 +1228,9 @@ begin
     form_inspection1.undo_button1Click(nil);{undo if required}
   executed:=1;{only refresh required to undo}
   if extra_stars=false then
-    CCDinspector(30,three_corners,strtofloat(measuring_angle))
+    CCDinspector(30,true {screenplot},three_corners,strtofloat(measuring_angle))
   else
-    CCDinspector(10,three_corners,strtofloat(measuring_angle));
+    CCDinspector(10,true {screenplot},three_corners,strtofloat(measuring_angle));
 end;
 
 

@@ -62,7 +62,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2024.05.01';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2024.06.07';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 
 type
   { Tmainwindow }
@@ -135,6 +135,7 @@ type
     grid_az_alt1: TMenuItem;
     az_alt1: TMenuItem;
     cal_batch1: TMenuItem;
+    batch_add_tilt1: TMenuItem;
     mpcreport1: TMenuItem;
     min2: TEdit;
     minimum1: TScrollBar;
@@ -152,9 +153,10 @@ type
     saturation_factor_plot1: TTrackBar;
     save1: TButton;
     Separator3: TMenuItem;
-    Shape_alignment_marker1: TShape;
-    Shape_alignment_marker2: TShape;
-    Shape_alignment_marker3: TShape;
+    Shape_var1: TShape;
+    shape_check1: TShape;
+    shape_star3: TShape;
+    shape_var2: TShape;
     shape_histogram1: TShape;
     shape_manual_alignment1: TShape;
     shape_marker1: TShape;
@@ -162,6 +164,7 @@ type
     shape_marker3: TShape;
     shape_marker4: TShape;
     shape_paste1: TShape;
+    shape_check2: TShape;
     solve_button1: TButton;
     SpeedButton1: TSpeedButton;
     star_profile1: TMenuItem;
@@ -410,6 +413,7 @@ type
     procedure fittowindow1Click(Sender: TObject);
     procedure flipVH1Click(Sender: TObject);
     procedure dust_spot_removal1Click(Sender: TObject);
+    procedure batch_add_tilt1Click(Sender: TObject);
     procedure mpcreport1Click(Sender: TObject);
     procedure simbad_annotation_deepsky_filtered1Click(Sender: TObject);
     procedure move_images1Click(Sender: TObject);
@@ -579,6 +583,8 @@ type
     calstat    : string;
     filter_name: string;
     passband_database: string;
+    airmass          : string;
+    issues           : string;
   end;
 
 type
@@ -662,7 +668,7 @@ var
   {star_level,}star_bg,sd_bg, magn_limit  : double;
   object_name,
   imagetype ,sitelat, sitelong,siteelev , centalt,centaz,magn_limit_str: string;
-  focus_temp,{cblack,}cwhite,sqmfloat,altitudefloat, pressure   :double; {from FITS}
+  focus_temp,{cblack,}cwhite,sqmfloat,altitudefloat, pressure,airmass   :double; {from FITS}
   subsamp, focus_pos  : integer;{not always available. For normal DSS =1}
   telescop,instrum,origin,sqm_value   : string;
 
@@ -712,12 +718,20 @@ var {################# initialised variables #########################}
   copy_paste :boolean=false;
   copy_paste_shape :integer=0;//rectangle
 
-  shape_fitsX: double=0;
-  shape_fitsY: double=0;
-  shape_fitsX2: double=0;
-  shape_fitsY2: double=0;
-  shape_fitsX3: double=0;
-  shape_fitsY3: double=0;
+  shape_var1_fitsX: double=0;
+  shape_var1_fitsY: double=0;
+  shape_check1_fitsX: double=0;
+  shape_check1_fitsY: double=0;
+  shape_star3_fitsX: double=0;
+  shape_star3_fitsY: double=0;
+  shape_var1_ra : double=0;
+  shape_var1_dec : double=0;
+  shape_check1_ra : double=0;
+  shape_check1_dec : double=0;
+  shape_star3_ra : double=0;
+  shape_star3_dec : double=0;
+
+
   shape_nr: integer=1;
 
   shape_marker1_fitsX: double=10;
@@ -728,6 +742,16 @@ var {################# initialised variables #########################}
   shape_marker3_fitsY: double=0;
   shape_marker4_fitsX: double=0;
   shape_marker4_fitsY: double=0;
+
+
+  shape_var2_fitsX: double=0;
+  shape_var2_fitsY: double=0;
+  shape_check2_fitsX: double=0;
+  shape_check2_fitsY: double=0;
+  shape_var2_ra : double=0;
+  shape_var2_dec : double=0;
+  shape_check2_ra : double=0;
+  shape_check2_dec : double=0;
 
 
   commandline_execution : boolean=false;{program executed in command line}
@@ -847,7 +871,6 @@ function fits_file_name(inp : string): boolean; {fits file name?}
 function fits_tiff_file_name(inp : string): boolean; {fits or tiff file name?}
 function tiff_file_name(inp : string): boolean; {tiff file name?}
 function prepare_IAU_designation(rax,decx :double):string;{radialen to text hhmmss.s+ddmmss  format}
-//procedure coordinates_to_celestial(fitsx,fitsy : double; head: Theader; out ram,decm  : double); {fitsX, Y to ra,dec}
 procedure pixel_to_celestial(head : theader; fitsx,fitsy : double; formalism : integer; out ra,dec  : double) {fitsX, Y to ra,dec};
 procedure celestial_to_pixel(head: theader;ra,dec: double; out fitsX,fitsY: double);{ra,dec to fitsX,fitsY}
 procedure show_shape_manual_alignment(index: integer);{show the marker on the reference star}
@@ -874,6 +897,8 @@ function duplicate(img:image_array) :image_array;//fastest way to duplicate an i
 procedure annotation_position(aname:string;var ra,dec : double);// calculate ra,dec position of one annotation
 procedure remove_photometric_calibration;//from header
 procedure remove_solution(keep_wcs:boolean);//remove all solution key words efficient
+procedure local_color_smooth(startX,stopX,startY,stopY: integer);//local color smooth img_loaded
+procedure place_marker_radec(shape: tshape; ra,dec:double);{place ra,dec marker in image}
 
 
 const   bufwide=1024*120;{buffer size in bytes}
@@ -1038,6 +1063,7 @@ begin
     focus_temp:=999;{assume no data available}
     focus_pos:=0;{assume no data available}
     pressure:=1010; {mbar/hPa}
+    airmass:=0;
     annotated:=false; {any annotation in the file}
     site_lat_radians:=999;
 
@@ -1059,6 +1085,7 @@ begin
   head.egain:='';{assume no data available}
   head.passband_database:='';//used to measure MZERO
   bayerpat:='';{reset bayer pattern}
+  head.issues:='';;
 end;{reset global variables}
 
 
@@ -1344,8 +1371,13 @@ begin
         if ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
                try head.set_temperature:=round(validate_double);{read double value} except; end; {some programs give huge values}
 
-        if ((header[i]='I') and (header[i+1]='M')  and (header[i+2]='A') and (header[i+3]='G') and (header[i+4]='E') and (header[i+5]='T') and (header[i+6]='Y')) then
-           imagetype:=get_string;{trim is already applied}
+        if header[i]='I' then
+        begin
+          if ((header[i+1]='M')  and (header[i+2]='A') and (header[i+3]='G') and (header[i+4]='E') and (header[i+5]='T') and (header[i+6]='Y')) then
+            imagetype:=get_string;{trim is already applied}
+          if ((header[i+1]='S')  and (header[i+2]='S') and (header[i+3]='U') and (header[i+4]='E')  and (header[i+5]='S')) then
+            head.issues:=get_string;{trim is already applied}
+        end;
 
         if (header[i]='F') then {F}
         begin
@@ -1446,7 +1478,11 @@ begin
                 val(s,nr,error3);{1 to 20}
                 y_coeff[nr-1]:=validate_double;
               end;
-            end;//AMD
+            end //AMD
+            else
+            if ((header[i+1]='I')  and (header[i+2]='R') and (header[i+3]='M') and (header[i+4]='A') and (header[i+5]='S')) then
+                airmass:=validate_double {airmass}
+            else
 
             if (header[i+1]='_') then
             begin {pixel to sky coefficient}
@@ -1748,7 +1784,7 @@ begin
           {adjustable keyword}
           if ((header[i]=sqm_key[1]{S}) and (header[i+1]=sqm_key[2]{Q}) and (header[i+2]=sqm_key[3]{M})and (header[i+3]=sqm_key[4])and (header[i+4]=sqm_key[5])and (header[i+5]=sqm_key[6])and (header[i+6]=sqm_key[7]) and (header[i+7]=sqm_key[8])) then {adjustable keyword}
           begin
-            sqm_value:=get_as_string; {universal for string and floats}{SQM, accept strings (standard) and floats}
+            sqm_value:=trim(get_as_string); {universal for string and floats}{SQM, accept strings (standard) and floats}
           end;
 
           if header[i]='X' then
@@ -2391,6 +2427,7 @@ begin
     if key='PEDESTAL=' then head.pedestal:=round(read_float) else  {will not be used unless there is a tiff 32 bit reader}
     if key='CALSTAT =' then head.calstat:=read_string else {will not be used unless there is a tiff 32 bit reader}
     if key='FILTER  =' then head.filter_name:=read_string else
+    if key='ISSUES  =' then head.issues:=read_string else
 
     if key='DATE-OBS=' then head.date_obs:=read_string else
 
@@ -2401,6 +2438,7 @@ begin
 
 
     if key='PRESSURE=' then pressure:=round(read_float) else
+    if key='AIRMASS =' then airmass:=round(read_float) else
     if key='AOCBAROM=' then pressure:=round(read_float) else
 
     if key='FOCUSTEM=' then focus_temp:=round(read_float) else
@@ -4298,7 +4336,62 @@ begin
 end;
 
 
-function place_marker_radec(data0: string): boolean;{place ra,dec marker in image}
+procedure place_marker_radec(shape: tshape; ra,dec:double);{place marker in image based on measured ra, dec. Is used when loading an new image}
+var
+  fitsx,fitsy : double;
+  data1,sipwcs  : string;
+begin
+  if ((head.naxis=0) or (head.cd1_1=0) or (shape.visible=false)) then exit;{no solution to place marker}
+
+//  shape.visible:=true;
+
+  celestial_to_pixel(head, ra,dec, fitsX,fitsY); {ra,dec to fitsX,fitsY}
+
+  //shape specific. In variables for zooming
+  if tshape(shape)=tshape(mainwindow.shape_var1) then
+  begin
+    shape_var1_fitsX:=fitsX;//store for zooming
+    shape_var1_fitsY:=fitsY;
+    show_marker_shape(shape,5 {circle},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+  end
+  else
+  if tshape(shape)=tshape(mainwindow.shape_check1) then
+  begin
+    shape_check1_fitsX:=fitsX;//store for zooming
+    shape_check1_fitsY:=fitsY;
+    show_marker_shape(shape,5 {circle},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+  end
+  else
+  if tshape(shape)=tshape(mainwindow.shape_star3) then
+  begin
+    shape_star3_fitsX:=fitsX;//store for zooming
+    shape_star3_fitsY:=fitsY;
+    show_marker_shape(shape,5 {circle},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+  end
+  else
+  if tshape(shape)=tshape(mainwindow.shape_marker3) then
+  begin
+    shape_marker3_fitsX:=fitsX;//store for zooming
+    shape_marker3_fitsY:=fitsY;
+    show_marker_shape(mainwindow.shape_marker3,0 {rectangle},50,50,10,shape_marker3_fitsX, shape_marker3_fitsY);
+  end
+  else
+  if tshape(shape)=tshape(mainwindow.shape_var2) then
+  begin
+    shape_var2_fitsX:=fitsX;//store for zooming
+    shape_var2_fitsY:=fitsY;
+    show_marker_shape( shape,9 {no change},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
+  end
+  else
+  if tshape(shape)=tshape(mainwindow.shape_check2) then
+  begin
+    shape_check2_fitsX:=fitsX;
+    shape_check2_fitsY:=fitsY;
+    show_marker_shape(shape,9 {no change},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
+  end;
+end;
+
+function place_marker3(data0: string): boolean;{place ra,dec marker in image}
 var
   ra_new,dec_new, fitsx,fitsy : double;
   data1,sipwcs  : string;
@@ -4308,13 +4401,10 @@ begin
   if decode_string(data0,ra_new,dec_new) then
   begin
     result:=true;
-    celestial_to_pixel(head, ra_new,dec_new, fitsX,fitsY); {ra,dec to fitsX,fitsY}
-    shape_marker3_fitsX:=fitsX;
-    shape_marker3_fitsY:=fitsY;
-    show_marker_shape(mainwindow.shape_marker3,0 {rectangle},20,20,10,shape_marker3_fitsX, shape_marker3_fitsY);
+    mainwindow.shape_marker3.visible:=true;
+    place_marker_radec(mainwindow.shape_marker3,ra_new,dec_new);{place ra,dec marker in image}
     if sip then sipwcs:='SIP' else sipwcs:='WCS';
     mainwindow.shape_marker3.hint:=data1+#10+sipwcs+'  x='+floattostrF(shape_marker3_fitsX,ffFixed,0,1)+'  y='+ floattostrF(shape_marker3_fitsY,ffFixed,0,1); ;
-
   end
   else
   begin
@@ -4463,8 +4553,7 @@ begin
 
     shape_marker4_fitsX:=FITSX;
     shape_marker4_fitsY:=FITSY;
-
-    show_marker_shape(mainwindow.shape_marker4,2 {activate},60,60,30{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+    show_marker_shape(mainwindow.shape_marker4,2 {activate},40,40,30{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
   end;
 end;
 
@@ -4805,7 +4894,7 @@ begin
 
   if radec=false then
   begin
-    calculate_az_alt_basic(ra0,dec0,{out} az,alt);{calculate azimuth, altitude and initialize wtime2actual/sidereal time}
+    if calculate_az_alt_basic(ra0,dec0,{out} az,alt)=false then exit;{calculate azimuth, altitude and initialize wtime2actual/sidereal time}
 
     {angle}
     az_ra(az-0.01*pi/180,alt,site_lat_radians,0,wtime2actual,{out} r1,d1);{conversion az,alt to ra,dec} {input AZ [0..2pi], ALT [-pi/2..+pi/2],lat[-0.5*pi..0.5*pi],long[0..2pi],time[0..2*pi]}
@@ -5029,10 +5118,7 @@ var
 begin
 
   if head.naxis=0 then exit;
-  if ((shape_type=9{no change})
-     and
-     (shape.visible=false)) then
-     exit;
+  if shape.visible=false then exit;
 
   xF:=(fitsX-0.5)*(mainwindow.image1.width/head.width)-0.5; //inverse of  fitsx:=0.5+(0.5+xf)/(image1.width/head.width);{starts at 1}
   yF:=-(fitsY-head.height-0.5)*(mainwindow.image1.height/head.height)-0.5; //inverse of fitsy:=0.5+head.height-(0.5+yf)/(image1.height/head.height); {from bottom to top, starts at 1}
@@ -5053,14 +5139,13 @@ begin
 
      if shape_type=0 then {rectangle}
      begin
-       shape:=stRectangle;
+       shape:=stRectangle;{0}
        visible:=true;
      end
      else
-     if shape_type=1 then {circle}
+     if shape_type=5 then {circle}
      begin {good lock on object}
-       shape:=stcircle;
-//       shape:=stellipse;
+       shape:=stcircle; {5}
        visible:=true;
      end
      else
@@ -5070,13 +5155,13 @@ begin
      end;
      {else keep as it is}
   end;
-  if tshape(shape)=tshape(mainwindow.shape_alignment_marker1) then
+  if tshape(shape)=tshape(mainwindow.shape_var1) then
     begin mainwindow.labelVar1.left:=ll+ww; mainwindow.labelVar1.top:=tt+hh; mainwindow.labelVar1.font.size:=max(hh div 4,14);  mainwindow.labelVar1.visible:=true;end
   else
-  if tshape(shape)=tshape(mainwindow.shape_alignment_marker2) then
+  if tshape(shape)=tshape(mainwindow.shape_check1) then
     begin mainwindow.labelCheck1.left:=ll+ww; mainwindow.labelCheck1.top:=tt+hh; mainwindow.labelCheck1.font.size:=max(hh div 4,14); mainwindow.labelCheck1.visible:=true;end
   else
-  if tshape(shape)=tshape(mainwindow.shape_alignment_marker3) then
+  if tshape(shape)=tshape(mainwindow.shape_star3) then
     begin mainwindow.labelThree1.left:=ll+ww; mainwindow.labelThree1.top:=tt+hh; mainwindow.labelThree1.font.size:=max(hh div 4,14); mainwindow.labelThree1.visible:=true;end;
 end;
 
@@ -5118,8 +5203,8 @@ begin
     {marker}
       show_marker_shape(mainwindow.shape_marker1,9 {no change in shape and hint},20,20,10{minimum},shape_marker1_fitsX, shape_marker1_fitsY);
       show_marker_shape(mainwindow.shape_marker2,9 {no change in shape and hint},20,20,10{minimum},shape_marker2_fitsX, shape_marker2_fitsY);
-      show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},20,20,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
-      show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,30{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+      show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
+      show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
 
      if copy_paste then
      begin
@@ -5128,15 +5213,27 @@ begin
 
     {reference point manual alignment}
      if mainwindow.shape_manual_alignment1.visible then {For manual alignment. Do this only when visible}
-       show_marker_shape(mainwindow.shape_manual_alignment1,9 {no change in shape and hint},20,20,10,shape_fitsX, shape_fitsY);
+       show_marker_shape(mainwindow.shape_manual_alignment1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
 
-     {photometry}
-     if mainwindow.shape_alignment_marker1.visible then {For manual alignment. Do this only when visible}
-       show_marker_shape(mainwindow.shape_alignment_marker1,9 {no change in shape and hint},20,20,10,shape_fitsX, shape_fitsY);
-     if mainwindow.shape_alignment_marker2.visible then {For manual alignment. Do this only when visible}
-       show_marker_shape(mainwindow.shape_alignment_marker2,9 {no change in shape and hint},20,20,10,shape_fitsX2, shape_fitsY2);
-     if mainwindow.shape_alignment_marker3.visible then {For manual alignment. Do this only when visible}
-       show_marker_shape(mainwindow.shape_alignment_marker3,9 {no change in shape and hint},20,20,10,shape_fitsX3, shape_fitsY3);
+     //update shape positions using the known fitxY, fitsY position. Ra,dec position is not required
+    show_marker_shape(mainwindow.shape_marker1,9 {no change in shape and hint},20,20,10{minimum},shape_marker1_fitsX, shape_marker1_fitsY);
+    show_marker_shape(mainwindow.shape_marker2,9 {no change in shape and hint},20,20,10{minimum},shape_marker2_fitsX, shape_marker2_fitsY);
+    show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
+    show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+
+    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+      show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+    if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+      show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+    if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
+      show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+
+    if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+    begin
+      show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
+      show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
+    end;
+
   end;
 end;
 
@@ -5749,6 +5846,7 @@ begin
 
     add_text   ('HISTORY   ','One raw colour extracted.');
 
+    remove_key('BAYERPAT=',false{all});
     update_text   ('FILTER  =',copy(#39+filtern+#39+'                   ',1,21)+'/ Filter name');
 
     mainwindow.Memo1.Lines.EndUpdate;
@@ -7367,12 +7465,27 @@ begin
     plot_north_on_image;
     plot_large_north_indicator;
     if mainwindow.add_marker_position1.checked then
-      mainwindow.add_marker_position1.checked:=place_marker_radec(marker_position);{place a marker}
+      mainwindow.add_marker_position1.checked:=place_marker3(marker_position);{place a marker}
     plot_grid(true);
     plot_grid(false);//az,alt
     plot_constellations;
     plot_text;
     if ((annotated) and (mainwindow.annotations_visible1.checked)) then plot_annotations(false {use solution vectors},false);
+
+    //place markers based on ra, dec position. Using stored fitsX, fitsY is not reliable due to drift
+    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+      place_marker_radec(mainwindow.shape_var1,shape_var1_ra,shape_var1_dec);//place ra,dec marker in image based on the ra,dec position
+    if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+      place_marker_radec(mainwindow.shape_check1,shape_check1_ra,shape_check1_dec);//place ra,dec marker in image based on the ra,dec position
+    if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
+      place_marker_radec(mainwindow.shape_star3,shape_star3_ra,shape_star3_dec);//place ra,dec marker in image based on the ra,dec position
+
+    if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+    begin
+      place_marker_radec(mainwindow.shape_var2,shape_var2_ra,shape_var2_dec);//place ra,dec marker in image
+      place_marker_radec(mainwindow.shape_check2,shape_check2_ra,shape_check2_dec);//place ra,dec marker in image
+    end;
+
 
     mainwindow.statusbar1.panels[5].text:=inttostr(head.width)+' x '+inttostr(head.height)+' x '+inttostr(head.naxis3)+'   '+inttostr(nrbits)+' BPP';{give image dimensions and bit per pixel info}
     update_statusbar_section5;{update section 5 with image dimensions in degrees}
@@ -7975,6 +8088,10 @@ begin
       stackmenu1.osc_preserve_r_nebula1.checked:=Sett.ReadBool('stack','osc_pr',true);
       dum:=Sett.ReadString('stack','osc_cw','');if dum<>'' then   stackmenu1.osc_smart_smooth_width1.text:=dum;
       dum:=Sett.ReadString('stack','osc_sd','');  if dum<>'' then stackmenu1.osc_smart_colour_sd1.text:=dum;
+
+      dum:=Sett.ReadString('stack','smooth_dia','');if dum<>'' then   stackmenu1.smooth_diameter1.text:=dum;
+      dum:=Sett.ReadString('stack','smooth_stars','');  if dum<>'' then stackmenu1.smooth_stars1.text:=dum;
+
       dum:=Sett.ReadString('stack','sqm_key',''); if dum<>'' then sqm_key:=copy(dum,1,8);{remove * character used for protection spaces}
       dum:=Sett.ReadString('stack','centaz_key',''); if dum<>'' then centaz_key:=copy(dum,1,8);{remove * character used for protection spaces}
 
@@ -7982,6 +8099,12 @@ begin
       stackmenu1.green_purple_filter1.checked:=Sett.ReadBool('stack','green_fl',false);
       stackmenu1.lrgb_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_cs',true);
       stackmenu1.lrgb_preserve_r_nebula1.checked:=Sett.ReadBool('stack','lrgb_pr',true);
+
+      stackmenu1.lrgb_stars_smooth1.checked:=Sett.ReadBool('stack','lrgb_sm',true);
+      dum:=Sett.ReadString('stack','lrgb_smd','');if dum<>'' then   stackmenu1.lrgb_smooth_diameter1.text:=dum;
+      dum:=Sett.ReadString('stack','lrgb_sms','');  if dum<>'' then stackmenu1.lrgb_smooth_stars1.text:=dum;
+
+
       dum:=Sett.ReadString('stack','lrgb_sw','');if dum<>'' then stackmenu1.lrgb_smart_smooth_width1.text:=dum;
       dum:=Sett.ReadString('stack','lrgb_sd','');if dum<>'' then  stackmenu1.lrgb_smart_colour_sd1.text:=dum;
 
@@ -8000,7 +8123,7 @@ begin
       stackmenu1.classify_flat_filter1.checked:= Sett.ReadBool('stack','classify_flat_filter',false);
       stackmenu1.classify_dark_date1.checked:= Sett.ReadBool('stack','classify_dark_date',false);
       stackmenu1.classify_flat_date1.checked:= Sett.ReadBool('stack','classify_flat_date',false);
-      stackmenu1.classify_flat_exposure1.checked:= Sett.ReadBool('stack','classify_flat_exposure',false);
+      stackmenu1.classify_flat_duration1.checked:= Sett.ReadBool('stack','classify_flat_duration',false);
 
       stackmenu1.add_time1.checked:= Sett.ReadBool('stack','add_time',false); {add a copy of the settings at image path}
       stackmenu1.save_settings_image_path1.checked:= Sett.ReadBool('stack','copy_sett',false); {add time to resulting stack file name}
@@ -8094,6 +8217,7 @@ begin
       dum:=Sett.ReadString('stack','annulus_radius',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
       c:=Sett.ReadInteger('stack','annotate_m',0); stackmenu1.annotate_mode1.itemindex:=c;
       c:=Sett.ReadInteger('stack','reference_d',0); stackmenu1.reference_database1.itemindex:=c;
+      stackmenu1.measure_all1.Checked:=Sett.ReadBool('stack','measure_all',false);
 
 
       dum:=Sett.ReadString('stack','sigma_decolour',''); if dum<>'' then stackmenu1.sigma_decolour1.text:=dum;
@@ -8125,7 +8249,6 @@ begin
       dum:=Sett.ReadString('stack','contour_grid',''); if dum<>'' then stackmenu1.detection_grid1.text:=dum;
       groupsizeStr:=Sett.ReadString('stack','groupsize','');
 
-//      stackmenu1.streak_filter1.Checked:=Sett.ReadBool('stack','streak_filter',false);
 
 
       obscode:=Sett.ReadString('aavso','obscode',''); {photometry}
@@ -8354,14 +8477,22 @@ begin
       sett.writeString('stack','osc_sw',stackmenu1.osc_smart_smooth_width1.text);
       sett.writestring('stack','osc_sd',stackmenu1.osc_smart_colour_sd1.text);
 
-      sett.writestring('stack','sqm_key',sqm_key+'*' );{add a * to prevent the spaces are removed.Should be at least 8 char}
+      sett.writeString('stack','smooth_dia',stackmenu1.smooth_diameter1.text);
+      sett.writestring('stack','smooth_stars',stackmenu1.smooth_stars1.text);
 
+      sett.writestring('stack','sqm_key',sqm_key+'*' );{add a * to prevent the spaces are removed.Should be at least 8 char}
 
       sett.writeBool('stack','lrgb_al',stackmenu1.lrgb_auto_level1.checked);
       sett.writeBool('stack','green_fl',stackmenu1.green_purple_filter1.checked);
 
       sett.writeBool('stack','lrgb_cs',stackmenu1.lrgb_colour_smooth1.checked);
       sett.writeBool('stack','lrgb_pr',stackmenu1.lrgb_preserve_r_nebula1.checked);
+
+      sett.writeBool('stack','lrgb_sm',stackmenu1.lrgb_stars_smooth1.checked);
+      sett.writeString('stack','lrgb_smd',stackmenu1.lrgb_smooth_diameter1.text);
+      sett.writestring('stack','lrgb_sms',stackmenu1.lrgb_smooth_stars1.text);
+
+
       sett.writestring('stack','lrgb_sw',stackmenu1.lrgb_smart_smooth_width1.text);
       sett.writestring('stack','lrgb_sd',stackmenu1.lrgb_smart_colour_sd1.text);
 
@@ -8383,7 +8514,7 @@ begin
       sett.writeBool('stack','classify_flat_filter',stackmenu1.classify_flat_filter1.Checked);
       sett.writeBool('stack','classify_dark_date',stackmenu1.classify_dark_date1.Checked);
       sett.writeBool('stack','classify_flat_date',stackmenu1.classify_flat_date1.Checked);
-      sett.writeBool('stack','classify_flat_exposure',stackmenu1.classify_flat_exposure1.Checked);
+      sett.writeBool('stack','classify_flat_duration',stackmenu1.classify_flat_duration1.Checked);
 
       sett.writeBool('stack','add_time',stackmenu1.add_time1.Checked);
       sett.writeBool('stack','copy_sett',stackmenu1.save_settings_image_path1.Checked);
@@ -8411,6 +8542,7 @@ begin
       sett.writestring('stack','solve_search_field',stackmenu1.search_fov1.text);
       sett.writestring('stack','radius_search',stackmenu1.radius_search1.text);
       sett.writestring('stack','quad_tolerance',stackmenu1.quad_tolerance1.text);
+
       sett.writestring('stack','maximum_stars',stackmenu1.max_stars1.text);
       sett.writestring('stack','min_star_size',stackmenu1.min_star_size1.text);
       sett.writestring('stack','min_star_size_stacking',stackmenu1.min_star_size_stacking1.text);
@@ -8474,6 +8606,7 @@ begin
       sett.writestring('stack','annulus_radius',stackmenu1.annulus_radius1.text);
       sett.writeInteger('stack','annotate_m',stackmenu1.annotate_mode1.itemindex);
       sett.writeInteger('stack','reference_d',stackmenu1.reference_database1.itemindex);
+      sett.WriteBool('stack','measure_all', stackmenu1.measure_all1.checked);
 
       sett.writestring('stack','sigma_decolour',stackmenu1.sigma_decolour1.text);
 
@@ -8788,6 +8921,71 @@ begin
   application.messagebox(pchar('No area selected! Hold the right mouse button down while selecting an area.'),'',MB_OK);
 end;
 
+procedure Tmainwindow.batch_add_tilt1Click(Sender: TObject);
+var
+  I: integer;
+  err,success   : boolean;
+  dobackup : boolean;
+  tilt     : double;
+begin
+  OpenDialog1.Title:='Select multiple  files to measure and store tilt in header using keyword TILT';
+  OpenDialog1.Options:=[ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
+  opendialog1.Filter:=dialog_filter_fits_tif;
+
+  opendialog1.initialdir:=ExtractFileDir(filename2);
+  esc_pressed:=false;
+  err:=false;
+  if OpenDialog1.Execute then
+  begin
+    Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+    dobackup:=img_loaded<>nil;
+    if dobackup then backup_img;{preserve img array and fits header of the viewer}
+
+    try { Do some lengthy operation }
+      with OpenDialog1.Files do
+      for I := 0 to Count - 1 do
+      begin
+        Application.ProcessMessages;
+        if esc_pressed then begin err:=true;break; end;
+        filename2:=Strings[I];
+        mainwindow.caption:=filename2+' file nr. '+inttostr(i+1)+'-'+inttostr(Count);;
+        if load_image(false {recenter},false {plot}) then
+        begin
+          if extra_stars=false then
+            tilt:=CCDinspector(30,false {screenplot},false{three_corners},strtofloat(measuring_angle))
+          else
+            tilt:=CCDinspector(10,false {screenplot},false{three_corners},strtofloat(measuring_angle));
+
+          if tilt<100 then
+          begin
+            update_text('TILT    = ',floattostr2(tilt)+'                / Delta HFD between wrost and best corner');;//two decimals only for nice reporting
+            if fits_file_name(filename2) then
+              success:=savefits_update_header(filename2)
+            else
+              success:=save_tiff16_secure(img_loaded,filename2);{guarantee no file is lost}
+            if success=false then begin ShowMessage('Write error !!' + filename2);Screen.Cursor:=crDefault; exit;end;
+          end
+          else
+          memo2_message('Error adding tilt measurement: '+filename2);
+        end
+        else err:=true;
+      end;
+      if err=false then
+      begin
+         mainwindow.caption:='Completed, all files processed.';
+         memo2_message('Completed, all files processed.');
+      end
+      else
+      begin
+        beep;
+        ShowMessage('Errors!! Files modified but with errors or stopped!!');
+      end;
+      finally
+      if dobackup then restore_img;{for the viewer}
+      Screen.Cursor:=crDefault;  { Always restore to normal }
+    end;
+  end;
+end;
 
 
 function Jd_To_MPCDate(jd: double): string;{Returns Date from Julian Date,  See MEEUS 2 page 63}
@@ -8911,7 +9109,6 @@ begin
 
 //  InputBox('This line to clipboard?','Format 24 00 00.0, 90 00 00.0   or   24 00, 90 00',line);
 end;
-
 
 
 procedure Tmainwindow.simbad_annotation_deepsky_filtered1Click(Sender: TObject);
@@ -9474,14 +9671,6 @@ begin
 end;
 
 
-
-//procedure Tmainwindow.FormClose(Sender: TObject; var Action: TCloseAction);
-//begin
-//  esc_pressed:=true;{stop processing. Required for reliable stopping by APT}
-//  save_settings2;
-//end;
-
-
 procedure Tmainwindow.receivemessage(Sender: TObject);{For OneInstance, called from timer (linux) or SimpleIPCServer1MessageQueued (Windows)}
 begin
   if SimpleIPCServer1.PeekMessage(1,True) then
@@ -9491,6 +9680,7 @@ begin
     load_image(true,true {plot});{show image of parameter1}
   end;
 end;
+
 
 procedure convert_mono(var img: image_array; var head: Theader);
 var
@@ -9940,12 +10130,12 @@ begin
 //10,Annotation online DB mag 99 & measure all
 
   case stackmenu1.annotate_mode1.itemindex of
-       0,1,7: begin lim_magn:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
-       2,8:   begin lim_magn:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
-       3,9:   begin lim_magn:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
-       4,10: lim_magn:=13;
-       5,11: lim_magn:=15;
-       6,12:lim_magn:=99;
+       0,1: begin lim_magn:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
+       2:   begin lim_magn:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
+       3:   begin lim_magn:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
+       4: lim_magn:=13;
+       5: lim_magn:=15;
+       6:lim_magn:=99;
        else
           lim_magn:=99;
      end; //case
@@ -9988,9 +10178,9 @@ end;
 procedure Tmainwindow.inspection1click(Sender: TObject);
 begin
   if extra_stars=false then
-    CCDinspector(30,three_corners,strtofloat(measuring_angle))
+    CCDinspector(30,true {screenplot},three_corners,strtofloat(measuring_angle))
   else
-    CCDinspector(10,three_corners,strtofloat(measuring_angle));
+    CCDinspector(10,true {screenplot},three_corners,strtofloat(measuring_angle));
 end;
 
 
@@ -10394,7 +10584,7 @@ begin
     image1.refresh;{important, show update}
   end
   else
-    plot_fits(mainwindow.image1,false,true); {clear indiicator}
+    plot_fits(mainwindow.image1,false,true); {clear indicator}
 end;
 
 
@@ -10502,7 +10692,6 @@ begin
   opendialog1.Filter:=dialog_filter_fits_tif;
 
   opendialog1.initialdir:=ExtractFileDir(filename2);
-//  fits_file:=false;
   esc_pressed:=false;
   err:=false;
   if OpenDialog1.Execute then
@@ -11371,7 +11560,7 @@ begin
     if marker_position='' then begin add_marker_position1.checked:=false; exit; end;
 
     mainwindow.shape_marker3.visible:=true;
-    add_marker_position1.checked:=place_marker_radec(marker_position);{place a marker}
+    add_marker_position1.checked:=place_marker3(marker_position);{place a marker}
   end
   else
     mainwindow.shape_marker3.visible:=false;
@@ -11509,6 +11698,7 @@ begin
 end;
 
 
+
 procedure Tmainwindow.UpDown1Click(Sender: TObject; Button: TUDBtnType);
 begin
   if ((last_extension) and (button=btNext)) then
@@ -11579,7 +11769,7 @@ begin
   end;
 end;
 
-procedure update_mainmenu;// for Mac
+procedure update_mainmenu_mac;// for Mac
 begin
   with mainwindow do
   begin
@@ -11640,7 +11830,8 @@ begin
     with Menufind2 do shortcut:=(shortcut and $BFFF) or $1000;//replace Ctrl equals $4000 by Meta equals $1000
     with select_all2 do shortcut:=(shortcut and $BFFF) or $1000;//replace Ctrl equals $4000 by Meta equals $1000
   end;
-end;
+ end;
+
 
 
 procedure Tmainwindow.FormCreate(Sender: TObject);
@@ -11693,7 +11884,7 @@ begin
   head.naxis:=0; {not fits files available}
 
  {$IfDef Darwin}// for MacOS
-  if commandline_execution=false then update_mainmenu;
+  if commandline_execution=false then update_mainmenu_mac;
  {$endif}
 end;
 
@@ -11715,7 +11906,7 @@ begin
     mainwindow.shape_marker1.Visible:=false
   else
   begin
-    shape_marker1_fitsX:=startX+1;
+     shape_marker1_fitsX:=startX+1;
     shape_marker1_fitsY:=startY+1;
     show_marker_shape(mainwindow.shape_marker1,0 {rectangle},20,20,0 {minimum size},shape_marker1_fitsX, shape_marker1_fitsY);
     shape_marker1.hint:='Marker x='+floattostrF(shape_marker1_fitsX,ffFixed,0,1)+' y='+ floattostrF(shape_marker1_fitsY,ffFixed,0,1);
@@ -11921,7 +12112,7 @@ begin
           x2:=round(strtofloat2(list[2]));
           y2:=round(strtofloat2(list[3]));
 
-          if (  ( abs(shape_fitsX-(x1+x2)/2) <30) and (abs(shape_fitsY-(y1+y2)/2)<30)) then
+          if (  ( abs(shape_var1_fitsX-(x1+x2)/2) <30) and (abs(shape_var1_fitsY-(y1+y2)/2)<30)) then
           begin
             var_lock:=list[5];
           end;
@@ -12149,7 +12340,7 @@ begin
   else
   if coord_frame=3 then
   begin
-    calculate_az_alt_basic(ra,dec,{out} az,alt);{calculate azimuth, altitude including refraction}
+    if calculate_az_alt_basic(ra,dec,{out} az,alt)=false then exit;{calculate azimuth, altitude including refraction}
     result:=floattostrF(az*180/pi, FFfixed, 0, 1)+'°'+sep+floattostrF(alt*180/pi, FFfixed, 0, 1)+'°';
   end
   else
@@ -12227,8 +12418,23 @@ begin
     image_move_to_center:=false;{mark as job done}
 
     {update shapes to new position}
-    show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},20,20,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
-    show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,30{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+//    show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
+//    show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+
+//    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+  //     show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+//     if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+  //     show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+ //    if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
+  //     show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+
+//    if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+  //  begin
+ //     place_marker_radec(mainwindow.shape_var2,shape_var2_ra,shape_var2_dec);//place ra,dec marker in image
+   //   place_marker_radec(mainwindow.shape_check2,shape_check2_ra,shape_check2_dec);//place ra,dec marker in image
+//    end;
+
+
   end;
 end;
 
@@ -12270,11 +12476,26 @@ begin
   mw:=mainwindow.width;
   mainwindow.image1.left:=(mw-w) div 2;
 
-  {update shape positions}
+  {update shape positions using the fitxY, fitsY position. Ra,dec position are not required}
   show_marker_shape(mainwindow.shape_marker1,9 {no change in shape and hint},20,20,10{minimum},shape_marker1_fitsX, shape_marker1_fitsY);
   show_marker_shape(mainwindow.shape_marker2,9 {no change in shape and hint},20,20,10{minimum},shape_marker2_fitsX, shape_marker2_fitsY);
-  show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},20,20,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
-  show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,30{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+  show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
+  show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
+
+  if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+    show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+  if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+    show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+  if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
+    show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+
+  if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+  begin
+    show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
+    show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
+  end;
+
+
 end;
 
 //procedure stretch_image(w,h: integer);
@@ -12346,11 +12567,11 @@ begin
 end;
 
 
-procedure write_ini(solution:boolean);{write solution to ini file}
+procedure write_ini(filen:string; solution:boolean);{write solution to ini file}
 var
    f: text;
 begin
-  assignfile(f,ChangeFileExt(filename2,'.ini'));
+  assignfile(f,ChangeFileExt(filen,'.ini'));
   rewrite(f);
   if solution then
   begin
@@ -12514,7 +12735,7 @@ begin
         {note SGP uses PlateSolve2 v2.29. This version writes APM always with dot as decimal separator}
 
         {extra log}
-        write_ini(solved);{write solution to ini file}
+        write_ini(filename2,solved);{write solution to ini file}
         count:=0;
         while  ((fileexists(ChangeFileExt(filename2,'.apm'))=false) and  (count<60)) do begin sleep(50);inc(count); end;{wait maximum 3 seconds till solution file is available before closing the program}
       end {list count}
@@ -12696,14 +12917,38 @@ end;
 
 //end;
 
+procedure FixHiddenFormProblem(Screen: TScreen; theform: TForm ); //for users who change from two to one monitor
+var
+  i,left,right,top,bottom : integer;
+begin
+  left:=0;
+  right:=0;
+  top:=0;
+  bottom:=0;
+
+  for i := 0 To screen.MonitorCount - 1 do
+  begin
+    left:=math.min(left,screen.Monitors[i].BoundsRect.left);
+    right:=math.max(right, screen.Monitors[i].BoundsRect.right);
+    top:=math.min(top,screen.Monitors[i].BoundsRect.top);
+    bottom:=math.max(bottom,screen.Monitors[i].BoundsRect.bottom);
+  end;
+
+  theform.Left:=max(theform.left,left);//prevent too left
+  theform.Left:=min(theform.left,right-theform.width);//prevent too right
+  theform.top:=max(theform.top,top);//prevent too high
+  theform.top:=min(theform.top,bottom-theform.height);//prevent too low
+end;
+
 
 procedure Tmainwindow.FormShow(Sender: TObject);
 var
   s      : string;
-  histogram_done,file_loaded,debug,filespecified,analysespecified,extractspecified,extractspecified2,focusrequest,checkfilter : boolean;
+  histogram_done,file_loaded,debug,filespecified,analysespecified,extractspecified,extractspecified2,focusrequest,checkfilter, wresult : boolean;
   snr_min                     : double;
   binning,focus_count,report  : integer;
   bck                         : Tbackground;
+  filename_output             : string;
 begin
   user_path:=GetAppConfigDir(false);{get user path for app config}
 
@@ -12762,7 +13007,7 @@ begin
         '-annotate  {Produce deepsky annotated jpg file}' +#10+
         '-debug  {Show GUI and stop prior to solving}' +#10+
         '-tofits  binning[1,2,3,4]  {Make new fits file from PNG/JPG file input}'+#10+
-        '-sqm pedestal  {add measured sqm value to the solution}'+#10+
+        '-sqm pedestal  {add measured sqm, centalt, airmass values to the solution}'+#10+
         '-focus1 file1.fit -focus2 file2.fit ....  {Find best focus using files and hyperbola curve fitting. Errorlevel is focuspos*1E4 + rem.error*1E3}'+#10+
         '-stack  path {startup with live stack tab and path selected}'+#10+
         #10+
@@ -12825,6 +13070,7 @@ begin
         if hasoption('s') then
                  stackmenu1.max_stars1.text:=GetOptionValue('s');
         if hasoption('t') then stackmenu1.quad_tolerance1.text:=GetOptionValue('t');
+
         if hasoption('m') then stackmenu1.min_star_size1.text:=GetOptionValue('m');
         if hasoption('sip') then stackmenu1.add_sip1.checked:='n'<>GetOptionValue('sip');
         if hasoption('speed') then stackmenu1.force_oversize1.checked:=('slow'=GetOptionValue('speed'));
@@ -12895,6 +13141,12 @@ begin
           if hasoption('D') then
              stackmenu1.star_database1.text:=GetOptionValue('D'); {specify a different database}
 
+          if hasoption('o') then
+            filename_output:=GetOptionValue('o') {for the .ini and .wcs files}
+          else
+            filename_output:=filename2; //use same filename for .ini and .wcs files
+
+
           if ((file_loaded) and (solve_image(img_loaded,head,true {get hist},checkfilter) )) then {find plate solution, filename2 extension will change to .fit}
           begin
             if hasoption('sqm') then {sky quality}
@@ -12913,29 +13165,39 @@ begin
               end
               else
               update_text('SQM     =',char(39)+'Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.'+char(39));
+              if airmass=0 then
+              begin
+                airmass:=AirMass_calc(altitudefloat);
+                update_generic('AIRMASS ',floattostr4(airmass),'Relative optical path.                        ');{update header using text only}
+              end;
             end;
 
-            if hasoption('o') then filename2:=GetOptionValue('o');{change file name for .ini file}
-            write_ini(true);{write solution to ini file}
+            write_ini(filename_output,true);{write solution to ini file}
 
             add_long_comment('cmdline:'+cmdline);{log command line in wcs file}
 
             if hasoption('update') then
             begin
-              if fits_file_name(filename2) then savefits_update_header(filename2) {update the fits file header}
+              if fits_file_name(filename2) then wresult:=savefits_update_header(filename2) {update the fits file header}
               else
-              if tiff_file_name(filename2) then save_tiff16_secure(img_loaded,filename2){guarantee no file is lost}
+              if tiff_file_name(filename2) then wresult:=save_tiff16_secure(img_loaded,filename2){guarantee no file is lost}
               else
-              save_fits(img_loaded,ChangeFileExt(filename2,'.fits'),16, true {override});{save original png,tiff jpg to 16 fits file}
+              wresult:=save_fits(img_loaded,ChangeFileExt(filename2,'.fits'),16, true {override});{save original png,tiff jpg to 16 fits file}
+
+              if wresult=false then //write error
+              begin
+                 memo2_message('█ █ █ Error updating input file !! █ █ █');//qill be reported if -log is specified in command line
+                 errorlevel:=34;{Error updating input file}
+              end;
             end;
 
             remove_key('NAXIS1  =',true{one});
             remove_key('NAXIS2  =',true{one});
             update_integer('NAXIS   =',' / Minimal header                                 ' ,0);{2 for mono, 3 for colour}
             if hasoption('wcs') then
-              write_astronomy_wcs(ChangeFileExt(filename2,'.wcs'))  {write WCS astronomy.net style}
+              write_astronomy_wcs(ChangeFileExt(filename_output,'.wcs'))  {write WCS astronomy.net style}
             else
-              try mainwindow.Memo1.Lines.SavetoFile(ChangeFileExt(filename2,'.wcs'));{save header as wcs file} except {sometimes error using APT, locked?} end;
+              try mainwindow.Memo1.Lines.SavetoFile(ChangeFileExt(filename_output,'.wcs'));{save header as wcs file} except {sometimes error using APT, locked?} end;
 
             histogram_done:=false;
             if hasoption('annotate') then
@@ -12943,7 +13205,7 @@ begin
               use_histogram(img_loaded,false {update, already done for solving}); {plot histogram, set sliders}
               histogram_done:=true;
               plot_fits(mainwindow.image1,true {center_image},true);{center and stretch with current settings}
-              save_annotated_jpg(filename2);{save viewer as annotated jpg}
+              save_annotated_jpg(filename_output);{save viewer as annotated jpg}
             end;
             if hasoption('tofits') then {still to be tested}
             begin
@@ -12952,7 +13214,7 @@ begin
                 binning:=round(strtofloat2(GetOptionValue('tofits')));
                 if binning>1 then bin_X2X3X4(binning);{bin img_loaded 2x or 3x or 4x}
                 if histogram_done=false then use_histogram(img_loaded,false {update, already done for solving}); {plot histogram, set sliders}
-                save_fits(img_loaded,changeFileExt(filename2,'.fit'),8,true {overwrite});
+                save_fits(img_loaded,changeFileExt(filename_output,'.fit'),8,true {overwrite});
               end;
             end;
 
@@ -12964,8 +13226,8 @@ begin
           end {solution}
           else
           begin {no solution}
-            if hasoption('o') then filename2:=GetOptionValue('o'); {change file name for .ini file}
-            write_ini(false);{write solution to ini file}
+            //if hasoption('o') then filename2:=GetOptionValue('o'); {change file name for .ini file}
+            write_ini(filename_output,false);{write solution to ini file}
             if errorlevel=0 then errorlevel:=1;{no solution}
           end;
 
@@ -12979,9 +13241,9 @@ begin
 
 
           esc_pressed:=true;{kill any running activity. This for APT}
-          if commandline_log then stackmenu1.Memo2.Lines.SavetoFile(ChangeFileExt(filename2,'.log'));{save Memo3 log to log file}
+          if commandline_log then stackmenu1.Memo2.Lines.SavetoFile(ChangeFileExt(filename_output,'.log'));{save Memo2 log to log file}
 
-          halt(errorlevel); {don't save only do mainwindow.destroy. Note  mainwindow.close causes a window flash briefly, so don't use}
+          halt(errorlevel); {don't save only, do mainwindow.destroy. Note  mainwindow.close causes a window flash briefly, so don't use}
 
           //  Exit status:
           //  0 no errors.
@@ -12992,6 +13254,7 @@ begin
 
           // 32 no star database found.
           // 33 error reading star database.
+          // 34 error updating input file
 
           // ini file is always written. Could contain:
           // ERROR=......
@@ -13049,6 +13312,10 @@ begin
 
   pairsplitter1.position:=image_north_arrow1.top+image_north_arrow1.height+8;//set correct for 4k screens with hiDPI settings. Works only in show. Not in create
                      //The thing is that the LCL scales the form on the Show method, because that any scaling produced before showing the form is not applied.
+
+  FixHiddenFormProblem( Screen,mainwindow);//when users change from two to one monitor
+  FixHiddenFormProblem( Screen,stackmenu1);
+
 end;
 
 
@@ -13172,6 +13439,12 @@ begin
                 update_text('SQM     =',char(39)+'Error! Specify first fixed pedestal value in the SQM menu (ctrl+Q).'+char(39));
                 memo2_message('Can not measure SQM. Specifiy first a fixed pedestal value in the SQM menu. De pedestal value is the median dark or bias value');
               end;
+              if airmass=0 then
+              begin
+                airmass:=AirMass_calc(altitudefloat);
+                update_generic('AIRMASS ',floattostr4(airmass),'Relative optical path.                        ');{update header using text only}
+                mess:=mess+', AIRMASS';
+              end;
               memo2_message('Added keyword(s) LIM_MAGN'+mess);
             end;
 
@@ -13203,7 +13476,7 @@ begin
     if nrskipped<>0 then memo2_message(skipped);
     if nrfailed<>0 then memo2_message(failed);
     if solution_overwrite then
-       memo2_message(inttostr(nrsolved)+' images solved, '+inttostr(nrfailed)+' no solution. Duration '+floattostr(round((GetTickCount64 - startTick)/100)/10)+ ' sec. For re-solve set option "overwrite solution.')
+       memo2_message(inttostr(nrsolved)+' images solved, '+inttostr(nrfailed)+' no solution. Duration '+floattostr(round((GetTickCount64 - startTick)/100)/10)+ ' sec. For re-solve set option "overwrite solutions".')
     else
       memo2_message(inttostr(nrsolved)+' images solved, '+inttostr(nrskipped)+' existing solutions, '+inttostr(nrfailed)+' no solution. Duration '+floattostr(round((GetTickCount64 - startTick)/100)/10)+ ' sec.');
   end;
@@ -14364,8 +14637,8 @@ begin
 
   if hfd2<90 then {detected something}
   begin
-    shape_fitsX:=xc+1;{calculate fits positions}
-    shape_fitsY:=yc+1;
+    shape_var1_fitsX:=xc+1;{calculate fits positions}
+    shape_var1_fitsY:=yc+1;
     result:=true;
   end;
 end;
@@ -14401,18 +14674,18 @@ begin
         for c := 0 to listview1.Items.Count - 1 do
           if listview1.Items[c].Selected then
           begin
-            listview_add_xy(c,shape_fitsX,shape_fitsY);{add to list of listview1}
+            listview_add_xy(c,shape_var1_fitsX,shape_var1_fitsY);{add to list of listview1}
             {$ifdef darwin} {MacOS}
             {bugfix darwin green red colouring}
             stackmenu1.ListView1.Items.item[c].Subitems.strings[L_result]:='✓ star';
             {$endif}
             break;
           end;
-      show_marker_shape(mainwindow.shape_manual_alignment1,shapetype,20,20,10{minimum},shape_fitsX, shape_fitsY);
+      show_marker_shape(mainwindow.shape_manual_alignment1,shapetype,20,20,10{minimum},shape_var1_fitsX, shape_var1_fitsY);
     end;
   end
   else
-  if stackmenu1.pagecontrol1.tabindex=8 {photometry} then
+  if ((stackmenu1.pagecontrol1.tabindex=8) and   (stackmenu1.measure_all1.checked=false))  then {photometry}
   begin
     {star alignment}
     HFD(img_loaded,startX,startY,14{annulus radius},99 {flux aperture restriction},0 {adu_e},hfd2,fwhm_star2,snr,flux,xc,yc); {auto center using HFD function}
@@ -14423,32 +14696,39 @@ begin
       ycf:=yc+1;
       if shape_nr=1 then
       begin
-        if ((abs(shape_fitsX2-xcf)<=3) and (abs(shape_fitsY2-ycf)<=3)) then begin shape_fitsX2:=shape_fitsX;shape_fitsY2:=shape_fitsY;end{swap, prevent overlapping}
+        if ((abs(shape_check1_fitsX-xcf)<=3) and (abs(shape_check1_fitsY-ycf)<=3)) then
+          begin shape_check1_fitsX:=shape_var1_fitsX;shape_check1_fitsY:=shape_var1_fitsY;end{swap, prevent overlapping}
         else
-        if ((abs(shape_fitsX3-xcf)<=3) and (abs(shape_fitsY3-ycf)<=3)) then begin shape_fitsX3:=shape_fitsX;shape_fitsY3:=shape_fitsY;end;
-        shape_fitsX:=xcf; shape_fitsY:=ycf;
+          if ((abs(shape_star3_fitsX-xcf)<=3) and (abs(shape_star3_fitsY-ycf)<=3)) then begin shape_star3_fitsX:=shape_var1_fitsX;shape_star3_fitsY:=shape_var1_fitsY;end;
+        shape_var1_fitsX:=xcf; shape_var1_fitsY:=ycf;
+        pixel_to_celestial(head,xcf,ycf,0,shape_var1_ra,shape_var1_dec);{store shape position in ra,dec for positioning accurate at an other image}
       end
       else
       if shape_nr=2 then
       begin
-        if ((abs(shape_fitsX-xcf)<=3) and (abs(shape_fitsY-ycf)<=3)) then begin shape_fitsX:=shape_fitsX2;shape_fitsY:=shape_fitsY2;end{swap, prevent overlapping}
+        if ((abs(shape_var1_fitsX-xcf)<=3) and (abs(shape_var1_fitsY-ycf)<=3)) then
+          begin shape_var1_fitsX:=shape_check1_fitsX;shape_var1_fitsY:=shape_check1_fitsY;end{swap, prevent overlapping}
         else
-        if ((abs(shape_fitsX3-xcf)<=3) and (abs(shape_fitsY3-ycf)<=3)) then begin shape_fitsX3:=shape_fitsX2;shape_fitsY3:=shape_fitsY2;end;
-        shape_fitsX2:=xcf; shape_fitsY2:=ycf; {calculate fits positions}
+          if ((abs(shape_star3_fitsX-xcf)<=3) and (abs(shape_star3_fitsY-ycf)<=3)) then begin shape_star3_fitsX:=shape_check1_fitsX;shape_star3_fitsY:=shape_check1_fitsY;end;
+        shape_check1_fitsX:=xcf; shape_check1_fitsY:=ycf; {calculate fits positions}
+        pixel_to_celestial(head,xcf,ycf,0,shape_check1_ra,shape_check1_dec);{store shape position in ra,dec for positioning accurate at an other image}
+
       end
       else
       if shape_nr=3 then
       begin
-        if ((abs(shape_fitsX-xcf)<=3) and (abs(shape_fitsY-ycf)<=3)) then begin shape_fitsX:=shape_fitsX3;shape_fitsY:=shape_fitsY3;end{swap, prevent overlapping}
+        if ((abs(shape_var1_fitsX-xcf)<=3) and (abs(shape_var1_fitsY-ycf)<=3)) then
+          begin shape_var1_fitsX:=shape_star3_fitsX;shape_var1_fitsY:=shape_star3_fitsY;end{swap, prevent overlapping}
         else
-        if ((abs(shape_fitsX2-xcf)<=3) and (abs(shape_fitsY2-ycf)<=3)) then begin shape_fitsX2:=shape_fitsX3;shape_fitsY2:=shape_fitsY3;end;
-        shape_fitsX3:=xcf; shape_fitsY3:=ycf;
+          if ((abs(shape_check1_fitsX-xcf)<=3) and (abs(shape_check1_fitsY-ycf)<=3)) then begin shape_check1_fitsX:=shape_star3_fitsX;shape_check1_fitsY:=shape_star3_fitsY;end;
+        shape_star3_fitsX:=xcf; shape_star3_fitsY:=ycf;
+        pixel_to_celestial(head,xcf,ycf,0,shape_star3_ra,shape_star3_dec);{store shape position in ra,dec for positioning accurate at an other image}
       end;
-      Shape_alignment_marker1.HINT:='?';//reset any labels
-      Shape_alignment_marker2.HINT:='?';
-      show_marker_shape(mainwindow.shape_alignment_marker1,shapetype,20,20,10{minimum},shape_fitsX, shape_fitsY);
-      show_marker_shape(mainwindow.shape_alignment_marker2,shapetype,20,20,10{minimum},shape_fitsX2, shape_fitsY2);
-      show_marker_shape(mainwindow.shape_alignment_marker3,shapetype,20,20,10{minimum},shape_fitsX3, shape_fitsY3);
+      Shape_var1.HINT:='?';//reset any labels
+      shape_check1.HINT:='?';
+      show_marker_shape(mainwindow.shape_var1,shapetype,20,20,10{minimum},shape_var1_fitsX, shape_var1_fitsY);
+      show_marker_shape(mainwindow.shape_check1,shapetype,20,20,10{minimum},shape_check1_fitsX, shape_check1_fitsY);
+      show_marker_shape(mainwindow.shape_star3,shapetype,20,20,10{minimum},shape_star3_fitsX, shape_star3_fitsY);
 
       inc(shape_nr);
       if shape_nr>=4 then
@@ -14462,7 +14742,7 @@ begin
         if var_lock<>'' then
         begin
           memo2_message('Var locked on object: '+var_lock);
-          mainwindow.Shape_alignment_marker1.HINT:=var_lock;
+          mainwindow.shape_var1.HINT:=var_lock;
         end;
       end;
 
@@ -14665,11 +14945,14 @@ begin
       if distance_histogram[r_aperture]>0 then HistStart:=true;{continue until we found a value>0, center of defocused star image can be black having a central obstruction in the telescope}
       if distance_top_value<distance_histogram[r_aperture] then distance_top_value:=distance_histogram[r_aperture]; {this should be 2*pi*r_aperture if it is nice defocused star disk}
     until ( (r_aperture>=rs) or (HistStart and (distance_histogram[r_aperture]<=0.1*distance_top_value {drop-off detection})));{find a distance where there is no pixel illuminated, so the border of the star image of interest}
-    if r_aperture>=rs then exit; {star is equal or larger then box, abort}
+    if r_aperture>=rs then
+        exit; {star is equal or larger then box, abort}
 
-    if (r_aperture>2)and(illuminated_pixels<0.35*sqr(r_aperture+r_aperture-2)){35% surface} then exit;  {not a star disk but stars, abort with hfd 999}
+    if (r_aperture>2)and(illuminated_pixels<0.35*sqr(r_aperture+r_aperture-2)){35% surface} then
+       exit;  {not a star disk but stars, abort with hfd 999}
 
     except
+
   end;
 
   // Get HFD
@@ -14983,16 +15266,23 @@ begin
        end;
        if ((abs(y-down_y)>2) or (abs(x-down_x)>2)) then
        begin
-         {three markers}
+         //update shape positions using the known fitxY, fitsY position. Ra,dec position is not required
          if mainwindow.shape_manual_alignment1.visible then {For manual alignment. Do this only when visible}
-           show_marker_shape(mainwindow.shape_manual_alignment1,9 {no change in shape and hint},20,20,10,shape_fitsX, shape_fitsY);
+           show_marker_shape(mainwindow.shape_manual_alignment1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
 
-         if mainwindow.shape_alignment_marker1.visible then {For manual alignment. Do this only when visible}
-           show_marker_shape(mainwindow.shape_alignment_marker1,9 {no change in shape and hint},20,20,10,shape_fitsX, shape_fitsY);
-          if mainwindow.shape_alignment_marker2.visible then {For manual alignment. Do this only when visible}
-            show_marker_shape(mainwindow.shape_alignment_marker2,9 {no change in shape and hint},20,20,10,shape_fitsX2, shape_fitsY2);
-          if mainwindow.shape_alignment_marker3.visible then {For manual alignment. Do this only when visible}
-            show_marker_shape(mainwindow.shape_alignment_marker3,9 {no change in shape and hint},20,20,10,shape_fitsX3, shape_fitsY3);
+         {photometry measure all markers}
+         if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+           show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+         if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+           show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+         if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
+           show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+
+          if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+          begin
+            show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
+            show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
+          end;
        end;
      end;
 
@@ -15913,12 +16203,91 @@ begin
   ,inttostr(egain_extra_factor))));
 end;
 
+procedure local_color_smooth(startX,stopX,startY,stopY: integer);//local color smooth img_loaded
+var
+  fitsX,fitsY,dum,k,counter    : integer;
+  flux,center_x,center_y,a,b,rgb, lumr : single;
+  colour,mean : array[0..2] of single;
+begin
+  if startX>stopX then begin dum:=stopX; stopX:=startX; startX:=dum; end;{swap}
+  if startY>stopY then begin dum:=stopY; stopY:=startY; startY:=dum; end;
+  startX:=max(0,startX);
+  startY:=max(0,startY);
+  stopX:=min(stopX,length(img_loaded[0,0])-1);
+  stopY:=min(stopY,length(img_loaded[0])-1);
+
+  center_x:=(startx+stopX)/2;
+  center_y:=(startY+stopY)/2;
+  a:=(stopX-1-startx)/2;
+  b:=(stopY-1-startY)/2;
+
+
+  colour[0]:=0;
+  colour[1]:=0;
+  colour[2]:=0;
+  mean[0]:=0;
+  mean[1]:=0;
+  mean[2]:=0;
+
+  counter:=0;
+
+  //mean background
+  for fitsY:=startY to stopY-1 do
+  for fitsX:=startX to stopX-1 do
+  begin
+    if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)>1 then // standard equation of the ellipse, out side ellipse
+    begin
+      for k:=0 to head.naxis3-1 do {do all colors}
+       mean[k]:=mean[k]+img_loaded[k,fitsY,fitsX];
+       counter:=counter+1;
+    end;
+  end;
+  if counter=0 then exit;
+  for k:=0 to head.naxis3-1 do mean[k]:=mean[k]/counter;
+
+  //mean colour
+  for fitsY:=startY to stopY-1 do
+  for fitsX:=startX to stopX-1 do
+  begin
+    if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)<1 then // standard equation of the ellipse, within the ellipse
+    begin
+      for k:=0 to head.naxis3-1 do {do all colors}
+      begin
+        colour[k]:=colour[k]+img_loaded[k,fitsY,fitsX]-mean[k];
+      end;
+    end;
+  end;
+
+  rgb:=colour[0]+colour[1]+colour[2]+0.00001; {mean pixel flux. Factor 0.00001, prevent dividing by zero}
+
+  for fitsY:=startY to stopY-1 do
+  for fitsX:=startX to stopX-1 do
+  begin
+    if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)<1 then // standard equation of the ellipse, within the ellipse
+    begin
+      flux:=(img_loaded[0,fitsY,fitsX]-mean[0]
+            +img_loaded[1,fitsY,fitsX]-mean[1]
+            +img_loaded[2,fitsY,fitsX]-mean[2]);//flux of one pixel
+
+
+//        strongest_colour_local:=max(red,max(green,blue));
+//        top:=bg + strongest_colour_local*(flux/rgb);{calculate the highest colour value}
+//        if top>=65534.99 then flux:=flux-(top-65534.99)*rgb/strongest_colour_local;{prevent values above 65535}
+
+      {apply average colour to pixel}
+      lumr:=flux/rgb;
+      img_loaded[0,fitsY,fitsX]:={new_noise[k]}+ mean[0]+colour[0]*lumr;
+      img_loaded[1,fitsY,fitsX]:={new_noise[k]}+ mean[1]+colour[1]*lumr;
+      img_loaded[2,fitsY,fitsX]:={new_noise[k]}+ mean[2]+colour[2]*lumr;
+
+    end;
+  end;
+end;
+
 
 procedure Tmainwindow.localcoloursmooth2Click(Sender: TObject);
 var
    fitsX,fitsY,dum,k,counter    : integer;
-   flux,center_x,center_y,a,b,rgb, lumr : single;
-   colour,mean : array[0..2] of single;
 begin
   if ((head.naxis3<>3) or (head.naxis=0)) then exit;
   if  ((abs(stopX-startX)>2)and (abs(stopY-starty)>2)) then
@@ -15926,75 +16295,7 @@ begin
     Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
     backup_img;
-
-    center_x:=(startx+stopX)/2;
-    center_y:=(startY+stopY)/2;
-    a:=(stopX-1-startx)/2;
-    b:=(stopY-1-startY)/2;
-
-    if startX>stopX then begin dum:=stopX; stopX:=startX; startX:=dum; end;{swap}
-    if startY>stopY then begin dum:=stopY; stopY:=startY; startY:=dum; end;
-
-    colour[0]:=0;
-    colour[1]:=0;
-    colour[2]:=0;
-    mean[0]:=0;
-    mean[1]:=0;
-    mean[2]:=0;
-
-    counter:=0;
-
-    //mean background
-    for fitsY:=startY to stopY-1 do
-    for fitsX:=startX to stopX-1 do
-    begin
-      if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)>1 then // standard equation of the ellipse, out side ellipse
-      begin
-        for k:=0 to head.naxis3-1 do {do all colors}
-         mean[k]:=mean[k]+img_loaded[k,fitsY,fitsX];
-         counter:=counter+1;
-      end;
-    end;
-    if counter=0 then exit;
-    for k:=0 to head.naxis3-1 do mean[k]:=mean[k]/counter;
-
-    //mean colour
-    for fitsY:=startY to stopY-1 do
-    for fitsX:=startX to stopX-1 do
-    begin
-      if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)<1 then // standard equation of the ellipse, within the ellipse
-      begin
-        for k:=0 to head.naxis3-1 do {do all colors}
-        begin
-          colour[k]:=colour[k]+img_loaded[k,fitsY,fitsX]-mean[k];
-        end;
-      end;
-    end;
-
-    rgb:=colour[0]+colour[1]+colour[2]+0.00001; {mean pixel flux. Factor 0.00001, prevent dividing by zero}
-
-    for fitsY:=startY to stopY-1 do
-    for fitsX:=startX to stopX-1 do
-    begin
-      if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)<1 then // standard equation of the ellipse, within the ellipse
-      begin
-        flux:=(img_loaded[0,fitsY,fitsX]-mean[0]
-              +img_loaded[1,fitsY,fitsX]-mean[1]
-              +img_loaded[2,fitsY,fitsX]-mean[2]);//flux of one pixel
-
-
-//        strongest_colour_local:=max(red,max(green,blue));
-//        top:=bg + strongest_colour_local*(flux/rgb);{calculate the highest colour value}
-//        if top>=65534.99 then flux:=flux-(top-65534.99)*rgb/strongest_colour_local;{prevent values above 65535}
-
-        {apply average colour to pixel}
-        lumr:=flux/rgb;
-        img_loaded[0,fitsY,fitsX]:={new_noise[k]}+ mean[0]+colour[0]*lumr;
-        img_loaded[1,fitsY,fitsX]:={new_noise[k]}+ mean[1]+colour[1]*lumr;
-        img_loaded[2,fitsY,fitsX]:={new_noise[k]}+ mean[2]+colour[2]*lumr;
-
-      end;
-    end;
+    local_color_smooth(startX,stopX,startY,stopY);
 
     plot_fits(mainwindow.image1,false,true);
     Screen.Cursor:=crDefault;

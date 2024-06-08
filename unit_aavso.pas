@@ -11,7 +11,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, math,
-  clipbrd, ExtCtrls, Menus, Buttons;
+  clipbrd, ExtCtrls, Menus, Buttons,strutils;
 
 type
 
@@ -24,6 +24,7 @@ type
     Image_photometry1: TImage;
     Label10: TLabel;
     Label11: TLabel;
+    measure_all_mode1: TLabel;
     Label9: TLabel;
     name_variable1: TComboBox;
     name_variable2: TEdit;
@@ -45,7 +46,9 @@ type
     obscode1: TEdit;
     Label1: TLabel;
     Filter1: TComboBox;
+    SaveDialog1: TSaveDialog;
     procedure delta_bv2Change(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
     procedure FormResize(Sender: TObject);
     procedure hjd1Change(Sender: TObject);
     procedure Image_photometry1MouseMove(Sender: TObject; Shift: TShiftState;
@@ -121,11 +124,20 @@ begin
   end;
 end;
 
+function clean_abreviation(s: string): string;
+var
+  space : integer;
+begin
+  space:= pos(' ',s);
+  if space>0 then
+     s:=copy(s,1,space-1);
+  result:=stringreplace(s,'_',' ',[rfReplaceAll]);
+end;
 
 procedure Tform_aavso1.report_to_clipboard1Click(Sender: TObject);
 var
     c,date_column  : integer;
-    err,err_message,snr_str,airmass_str, delim,fn,fnG,detype,baa_extra,magn_type,filter_used,settings,date_format: string;
+    err,err_message,snr_str,airmass_str, delim,fnG,detype,baa_extra,magn_type,filter_used,settings,date_format,date_observation: string;
     stdev_valid : boolean;
     snr_value,err_by_snr  : double;
     PNG: TPortableNetworkGraphic;{FPC}
@@ -141,6 +153,23 @@ var
 
 begin
   get_info;
+
+
+  if length(name_var)<1 then
+  begin
+    name_variable1.color:=clred;
+    exit;
+  end
+  else
+    name_variable1.color:=cldefault;
+
+  if length(abbreviation_check)<1 then
+  begin
+    name_check1.color:=clred;
+    exit;
+  end
+  else
+    name_check1.color:=cldefault;
 
   stdev_valid:=(photometry_stdev>0.0001);
   if stdev_valid then
@@ -213,7 +242,7 @@ begin
          err:='na';
        end
        else
-       str(max(err_by_snr, photometry_stdev):1:4,err);{standard deviation of Check  star}
+       str(math.max(err_by_snr, photometry_stdev):1:4,err);{standard deviation of Check  star}
 
        airmass_str:=listview7.Items.item[c].subitems.Strings[P_airmass];
        if airmass_str='' then  airmass_str:='na' else airmass_str:=stringreplace(airmass_str,',','.',[]);
@@ -230,7 +259,7 @@ begin
          else
            filter_used:=copy(filter1.text,1,2);//manual input
 
-         aavso_report:= aavso_report+ stringreplace(name_var,'_',' ',[rfReplaceAll])+delim+
+         aavso_report:= aavso_report+ clean_abreviation(name_var)+delim+
                         StringReplace(listview7.Items.item[c].subitems.Strings[date_column],',','.',[])+delim+
                         transform_magn(listview7.Items.item[c].subitems.Strings[column_var{P_magn1}])+delim+
                         err+
@@ -239,13 +268,14 @@ begin
                        'STD'+delim+
                        'ENSEMBLE'+delim+
                        'na'+delim+
-                       abbreviation_check+delim+
+                       clean_abreviation(abbreviation_check)+delim+
                        stringreplace(listview7.Items.item[c].subitems.Strings[column_check{P_magn2}],',','.',[])+delim+
                        airmass_str+delim+
                        'na'+delim+ {group}
                        abbreviation_var_IAU+delim+
                        'Ensemble of Gaia DR3 stars'+magn_type+' '+err_message+#13+#10;
 
+         date_observation:=copy(listview7.Items.item[c].subitems.Strings[P_date],1,10);
        end;
      end;
    end;
@@ -258,19 +288,22 @@ begin
     Clipboard.AsText:=aavso_report
   else
   begin
-    fn:=ChangeFileExt(filename2,'_report.txt');
-    log_to_file2(fn, aavso_report);
-
-    png:= TPortableNetworkGraphic.Create;   {FPC}
-    try
-      PNG.Assign(Image_photometry1.Picture.Graphic);    //Convert data into png
-      fnG:=ChangeFileExt(filename2,'_graph.png');
-      PNG.SaveToFile(fnG);
-      finally
-       PNG.Free;
+    savedialog1.filename:=name_variable1.text+'_'+date_observation+'_report.txt';
+    savedialog1.initialdir:=ExtractFilePath(filename2);
+    savedialog1.Filter := '(*.txt)|*.txt';
+    if savedialog1.execute then
+    begin
+      log_to_file2(savedialog1.filename, aavso_report);
+      png:= TPortableNetworkGraphic.Create;   {FPC}
+      try
+        PNG.Assign(Image_photometry1.Picture.Graphic);    //Convert data into png
+        fnG:=ChangeFileExt(savedialog1.filename,'_graph.png');
+        PNG.SaveToFile(fnG);
+        finally
+         PNG.Free;
+      end;
+      memo2_message('AAVSO report written to: '+savedialog1.filename + '   and   '+fnG);
     end;
-
-    memo2_message('AAVSO report written to: '+fn +' and '+fnG );
   end;
   save_settings2; {for aavso settings}
 
@@ -300,53 +333,77 @@ begin
   plot_graph;
 end;
 
+
 procedure Tform_aavso1.name_check1DropDown(Sender: TObject);
 var
-  i,start: integer;
-  abrv    : string;
+  i,j: integer;
+  abrv,old,filter       : string;
 begin
+  //prepare filtering if any
+  old:=uppercase(name_check1.text);
+  filter:='';
+  for j:=0 to name_check1.items.count-1 do
+  begin
+    if length(old)<>length( name_check1.items[j]) then
+      if pos(old,name_check1.items[j])>0 then
+      begin
+        filter:=old;
+        break;
+      end;
+  end;
+
   name_check1.items.clear;
+  name_check1.color:=cldefault;
 
-  name_check1.items.add(mainwindow.Shape_alignment_marker2.HINT);
-  name_check1.items.add(abbreviation_check);//the last name
-  name_check1.items.add(name_check_IAU);// created from position
+   if stackmenu1.measure_all1.checked=false then
+   begin
+     name_check1.items.add(mainwindow.shape_check1.HINT);
+     name_check1.items.add(abbreviation_check);//the last name
+     name_check1.items.add(name_check_IAU);// created from position
+   end;
 
 
+  begin
   for i:=p_nr_norm+1+1 to p_nr do
     if odd(i+1) then //not snr column
     begin
       abrv:=stackmenu1.listview7.Column[i].Caption;
-      if pos('000',abrv)>0 then //check star
-        name_check1.items.add(abrv);
+      if copy(abrv,1,4)='000-' then //check star
+        if ((filter='') or (pos(filter,abrv)>0)) then
+        begin
+          with tcombobox(sender) do
+          begin
+            {$ifdef mswindows}
+            {begin adjust width automatically}
+            if (Canvas.TextWidth(abrv)> ItemWidth) then
+            ItemWidth:=20+ Canvas.TextWidth((abrv));{adjust dropdown with if required}
+            Perform(352{windows,CB_SETDROPPEDWIDTH}, ItemWidth, 0);
+            {end adjust width automatically}
+            {$else} {unix}
+            ItemWidth:=form_aavso1.Canvas.TextWidth((abrv));{works only second time};
+            {$endif}
+            items.add(abrv);
+          end;
+        end;
     end;
+
+  end;//loop twice if filtering is required
 end;
 
 
-procedure Tform_aavso1.name_variable1Change(Sender: TObject);
-begin
-  plot_graph;
-end;
-
-
-procedure Tform_aavso1.name_variable1DropDown(Sender: TObject);
+function find_correct_check_column : integer;
 var
   i: integer;
-  abrv : string;
 begin
-  name_variable1.items.clear;
-
-  name_variable1.items.add(mainwindow.Shape_alignment_marker1.HINT);
-  name_variable1.items.add(object_name);//from header
-  name_variable1.items.add(name_var);
-
   for i:=p_nr_norm+1 to p_nr do
-    if odd(i+1) then // not a snr column
+    if ((odd(i+1)) and (form_aavso1.name_check1.text=stackmenu1.listview7.Column[i].Caption)) then
     begin
-      abrv:=stackmenu1.listview7.Column[i].Caption;
-      if pos('000',abrv)=0 then //not a check star
-         name_variable1.items.add(abrv);
+      result:=i-1;
+      exit;
     end;
+  result:=P_magn2;
 end;
+
 
 function find_correct_var_column : integer;
 var
@@ -363,17 +420,127 @@ begin
   result:=P_magn1;
 end;
 
-function find_correct_check_column : integer;
+
+procedure find_best_check_star;
 var
-  i: integer;
+  magn,magn_avgV,magn_minV,mag_var,magC,diff,delt : double;
+  c,i,b,e,err,counter: integer;
+  abrv, abrv_selected,dum: string;
 begin
-  for i:=p_nr_norm+1 to p_nr do
-    if ((odd(i+1)) and (form_aavso1.name_check1.text=stackmenu1.listview7.Column[i].Caption)) then
+  magn_avgV:=0;
+  magn_minV:=99;
+  column_var:= find_correct_var_column;
+  counter:=0;
+
+  //find average  magnitude Variable
+  with stackmenu1 do
+  for c:=0 to listview7.items.count-1 do {retrieve data from listview}
+  begin
+    if listview7.Items.item[c].checked then
     begin
-      result:=i-1;
-      exit;
+      dum:=(listview7.Items.item[c].subitems.Strings[column_var]);{var star}
+      if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then
+      begin
+        magn:=strtofloat(dum);
+        magn_avgV:=magn_avgV+magn;
+        counter:=counter+1;
+        magn_minV:=min(magn_minV,magn);
+      end;
     end;
-  result:=P_magn2;
+  end;
+  if counter=0 then exit;
+  magn_avgV:=magn_avgV/counter;
+  abrv_selected:='';
+  diff:=99;
+
+  for i:=p_nr_norm+1+1 to p_nr do
+  begin
+     if odd(i+1) then //not snr column
+     begin
+       abrv:=stackmenu1.listview7.Column[i].Caption;
+       if pos('000',abrv)>0 then //check star
+       begin
+        b:=pos('=',abrv);
+        e:=posex('_',abrv,b);
+        val(copy(abrv,b+1,e-b-1),magC, err);
+        if err=0 then
+        begin
+           delt:=abs(magn_avgV- magC);
+           if ((magC+0.2>=magn_minV) and (delt<diff)) then //max magn 0.2 brighter
+           begin
+             abrv_selected:=abrv;
+             diff:=delt; //new check star found with close magnitude
+           end;
+        end;
+      end;
+     end;
+  end;
+  form_aavso1.name_check1.text:=abrv_selected;
+
+end;
+
+
+
+procedure Tform_aavso1.name_variable1Change(Sender: TObject);
+begin
+  if stackmenu1.measure_all1.checked then
+    find_best_check_star;
+  plot_graph;
+end;
+
+
+procedure Tform_aavso1.name_variable1DropDown(Sender: TObject);
+var
+  i,ww,j            : integer;
+  abrv,filter,old   : string;
+begin
+  //prepare filtering if any
+  old:=uppercase(name_variable1.text);
+  filter:='';
+  for j:=0 to name_variable1.items.count-1 do
+  begin
+    if length(old)<>length( name_variable1.items[j]) then
+      if pos(old,name_variable1.items[j])>0 then
+      begin
+        filter:=old;
+        break;
+      end;
+  end;
+
+  name_variable1.color:=cldefault;
+  name_variable1.items.clear;
+  ww:=0;
+
+  if stackmenu1.measure_all1.checked=false then
+  begin
+    name_variable1.items.add(mainwindow.Shape_var1.HINT);
+    name_variable1.items.add(object_name);//from header
+    name_variable1.items.add(name_var);
+  end;
+
+  for i:=p_nr_norm+1 to p_nr do
+    if odd(i+1) then // not a snr column
+    begin
+      abrv:=stackmenu1.listview7.Column[i].Caption;
+      if copy(abrv,1,4)<>'000-' then //Not a check star
+        if ((filter='') or (pos(filter,abrv)>0)) then
+        begin
+          with tcombobox(sender) do
+          begin
+            {$ifdef mswindows}
+            {begin adjust width automatically}
+            if (Canvas.TextWidth(abrv)> ItemWidth) then
+            ItemWidth:=20+ Canvas.TextWidth((abrv));{adjust dropdown with if required}
+            Perform(352{windows,CB_SETDROPPEDWIDTH}, ItemWidth, 0);
+            {end adjust width automatically}
+            {$else} {unix}
+            ItemWidth:=form_aavso1.Canvas.TextWidth((abrv));{works only second time};
+            {$endif}
+
+            items.add(abrv);
+          end;
+        end;
+    end;
 end;
 
 
@@ -393,11 +560,34 @@ begin
 end;
 
 
+procedure Tform_aavso1.FormCreate(Sender: TObject);
+begin
+  measure_all_mode1.visible:=p_nr>p_nr_norm;
+end;
+
+
+procedure annotate_star_of_column(column,column2: integer);
+begin
+  // RA, DEC position is stored as integers in tag   [0..864000], DEC[-324000..324000]
+  shape_var2_ra:= stackmenu1.listview7.column[column].tag*2*pi/864000;
+  shape_var2_dec:= stackmenu1.listview7.column[column+1].tag*0.5*pi/324000;
+  mainwindow.shape_var2.visible:=true;
+  place_marker_radec(mainwindow.shape_var2,shape_var2_ra,shape_var2_dec);{place ra,dec marker in image}
+
+  shape_check2_ra:= stackmenu1.listview7.column[column2].tag*2*pi/864000;
+  shape_check2_dec:= stackmenu1.listview7.column[column2+1].tag*0.5*pi/324000;
+  mainwindow.shape_check2.visible:=true;
+  place_marker_radec(mainwindow.shape_check2,shape_check2_ra,shape_check2_dec);{place ra,dec marker in image}
+end;
+
+
+
+
 procedure plot_graph; {plot curve}
 var
-  x1,y1,c,textp1,textp2,textp3,nrmarkX, nrmarkY,wtext,date_column : integer;
+  x1,y1,c,textp1,textp2,textp3,textp4, nrmarkX, nrmarkY,wtext,date_column : integer;
   scale,range         : double;
-  text1,text2,date_format  : string;
+  text1,text2,text3, date_format  : string;
   bmp: TBitmap;
   dum:string;
   data : array of array of double;
@@ -445,8 +635,6 @@ begin
     date_column:=P_jd_mid;
   end;
 
-
-
   w:=max(form_aavso1.Image_photometry1.width,(len*2)*stackmenu1.listview7.items.count);{make graph large enough for all points}
   h:=max(100,form_aavso1.Image_photometry1.height);
   bspace:=2*mainwindow.image1.Canvas.textheight('T');{{border space graph. Also for 4k with "make everything bigger"}
@@ -454,6 +642,9 @@ begin
 
   column_var:= find_correct_var_column;
   column_check:=find_correct_check_column;
+
+  annotate_star_of_column(column_var,column_check);
+
   setlength(data,4, stackmenu1.listview7.items.count);
   with stackmenu1 do
   for c:=0 to listview7.items.count-1 do {retrieve data from listview}
@@ -557,10 +748,13 @@ begin
     textp3:=textp2+40+bmp.canvas.textwidth(text2);
     bmp.canvas.textout(textp3,len*3,'3');
 
+
+    textp4:=textp3+60;
+
     if object_name<>'' then
-      bmp.canvas.textout(w div 2,len*3,object_name)
+      bmp.canvas.textout(textp4,len*3,object_name)
     else
-      bmp.canvas.textout(w div 2,len*3,ExtractFilePath(filename2));
+      bmp.canvas.textout(textp4,len*3,ExtractFilePath(filename2));
 
     nrmarkX:=trunc(w*5/1000);
     for c:=0 to nrmarkX do {markers x line}
@@ -627,26 +821,39 @@ begin
 
   closeaction:=caFree; {delete form}
   form_aavso1:=nil;
+  mainwindow.shape_marker3.visible:=false;
+  mainwindow.shape_marker4.visible:=false;
+
 end;
 
 
 procedure Tform_aavso1.FormShow(Sender: TObject);
 var
-  dum : string;
+  dum,object_name2,abrv : string;
+  i : integer;
 begin
   obscode1.text:=obscode;
-//  if length(mainwindow.Shape_alignment_marker1.HINT)>0 then
-    name_variable1.text:=mainwindow.Shape_alignment_marker1.HINT;
-//  else
-//    if object_name<>'' then name_variable1.text:=object_name
-//  else
-//  name_variable1.text:=name_var;
 
+  if stackmenu1.measure_all1.checked=false then
+  begin
+    name_variable1.text:=mainwindow.Shape_var1.HINT;
+    name_check1.text:=mainwindow.shape_check1.HINT ;
 
-//  if length(mainwindow.Shape_alignment_marker2.HINT)>0 then
-    name_check1.text:=mainwindow.Shape_alignment_marker2.HINT ;
-//  else
-//    name_check1.text:=abbreviation_check;
+  end
+  else
+  begin //find the variable of interest for header object
+    object_name2:=stringreplace(object_name,' ','_',[]);
+    for i:=p_nr_norm+1 to p_nr do
+      if odd(i+1) then // not a snr column
+      begin
+        abrv:=stackmenu1.listview7.Column[i].Caption;
+        if  Comparetext(object_name2,copy(abrv,1,length(object_name2)))=0 then
+        begin
+         name_variable1.text:=abrv;
+         break;
+        end;
+      end;
+  end;
 
   delimiter1.itemindex:=delim_pos;
   baa_style1.checked:=baa_style;

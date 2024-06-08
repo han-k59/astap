@@ -1,8 +1,8 @@
 object mainwindow: Tmainwindow
-  Left = 78
+  Left = 247
   Height = 634
   Hint = ' '
-  Top = 184
+  Top = 216
   Width = 1333
   AllowDropFiles = True
   Caption = 'Astrometric Stacking Program and fits viewer (ASTAP)'
@@ -795,7 +795,7 @@ object mainwindow: Tmainwindow
           Stretch = True
           Visible = False
         end
-        object Shape_alignment_marker1: TShape
+        object Shape_var1: TShape
           Left = 9
           Height = 11
           Top = 105
@@ -896,7 +896,7 @@ object mainwindow: Tmainwindow
           ShowHint = True
           Visible = False
         end
-        object Shape_alignment_marker2: TShape
+        object shape_check1: TShape
           Left = 9
           Height = 11
           Top = 137
@@ -911,7 +911,7 @@ object mainwindow: Tmainwindow
           ShowHint = True
           Visible = False
         end
-        object Shape_alignment_marker3: TShape
+        object shape_star3: TShape
           Left = 9
           Height = 11
           Hint = '3'
@@ -1002,6 +1002,38 @@ object mainwindow: Tmainwindow
           Pen.EndCap = pecSquare
           Pen.JoinStyle = pjsMiter
           Pen.Mode = pmXor
+          Visible = False
+        end
+        object shape_var2: TShape
+          Left = 16
+          Height = 50
+          Hint = 'Var'
+          Top = 216
+          Width = 50
+          Brush.Style = bsClear
+          Enabled = False
+          ParentShowHint = False
+          Pen.Color = clLime
+          Pen.Mode = pmNotXor
+          Pen.Width = 3
+          Shape = stDiamond
+          ShowHint = True
+          Visible = False
+        end
+        object shape_check2: TShape
+          Left = 16
+          Height = 50
+          Hint = 'Check'
+          Top = 272
+          Width = 50
+          Brush.Style = bsClear
+          Enabled = False
+          ParentShowHint = False
+          Pen.Color = clLime
+          Pen.Mode = pmNotXor
+          Pen.Width = 3
+          Shape = stDiamond
+          ShowHint = True
           Visible = False
         end
       end
@@ -1197,8 +1229,8 @@ object mainwindow: Tmainwindow
         end
         object add_limiting_magn_check1: TMenuItem
           AutoCheck = True
-          Caption = '          ☑ option "Add limiting magnitude, SQM, CENTALT"'
-          Hint = 'Add estimated limiting magnitude and SQM to the file header. The keyword LIM_MAGN and SQM can be configured in tab lights. For SQM enter a fixed pedestal value in viewer menu SQM report. Will also add CENTALT if missing.'
+          Caption = '          ☑ option "Add LIM_MAGN, SQM, CENTALT, AIRMASS"'
+          Hint = 'Add estimated LIM-MAGN, SQM, CENTALT, AIRMASS to the file header. The display of these keywords can be configured in tab lights popup menu. For SQM enter a fixed pedestal value in viewer menu SQM report.'
           ShowAlwaysCheckable = True
         end
         object maintain_date1: TMenuItem
@@ -1342,6 +1374,11 @@ object mainwindow: Tmainwindow
           Caption = 'Batch annotate asteroids && comets'
           Hint = 'This will add asteroid or comet annotations to the fits header. Intended for the blinking routine or manual stacking. Batch solve the images first.'
           OnClick = batch_annotate1Click
+        end
+        object batch_add_tilt1: TMenuItem
+          Caption = 'Batch measure tilt and store to header keyword TILT'
+          Hint = 'A keyword TILT is added to the image headers. This keyword can be read by the configurable last column of tab lights'
+          OnClick = batch_add_tilt1Click
         end
       end
       object N6: TMenuItem
@@ -1934,7 +1971,7 @@ object mainwindow: Tmainwindow
       Hint = 'Local adjustments'
       ImageIndex = 42
       object localcoloursmooth2: TMenuItem
-        Caption = 'Local colour smooth stars (▭, ⬭)'
+        Caption = 'Local colour smooth stars (⬭)'
         OnClick = localcoloursmooth2Click
       end
       object remove_colour1: TMenuItem
