@@ -31,7 +31,6 @@ var
 
 var
   SIN_dec0,COS_dec0,x_new_float,y_new_float,SIN_dec_ref,COS_dec_ref : double;
-  gain_refxxx: string;
 
 
 implementation
@@ -352,7 +351,7 @@ begin
             if use_astrometry_internal then {internal solver, create new solutions for the R, G, B and L stacked images if required}
             begin
               memo2_message('Preparing astrometric solution for interim file: '+filename2);
-              if head.cd1_1=0 then solution:= update_solution_and_save(img_loaded,head) else solution:=true;
+              if head.cd1_1=0 then solution:= update_solution_and_save(img_loaded,head,mainwindow.memo1.lines) else solution:=true;
               if solution=false {load astrometry.net solution succesfull} then begin memo2_message('Abort, No astrometric solution for '+filename2); exit;end;{no solution found}
             end
             else
@@ -431,7 +430,7 @@ begin
               if use_astrometry_internal then
                  astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-              aa:=solution_vectorX[0];//move to local variable to improve speed a little
+              aa:=solution_vectorX[0];//move to local variable for minor faster processing
               bb:=solution_vectorX[1];
               cc:=solution_vectorX[2];
               dd:=solution_vectorY[0];
@@ -666,7 +665,7 @@ begin
             old_height:=head.height;
             old_naxis3:=head.naxis3;
 
-            add_text('COMMENT 9', '  Reference file was ' + filename2);
+            add_text(mainwindow.memo1.lines,'COMMENT 9', '  Reference file was ' + filename2);
             head_ref:=head;{backup solution}
             initialise_calc_sincos_dec0;{set variables correct. Do this before apply dark}
             //initialise_var2;{set variables correct}
@@ -1407,7 +1406,7 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable to improve speed a little
+          aa:=solution_vectorX[0];//move to local variable for minor faster processing
           bb:=solution_vectorX[1];
           cc:=solution_vectorX[2];
           dd:=solution_vectorY[0];
@@ -1419,7 +1418,6 @@ begin
           begin
             x_new:=round(aa*(fitsx)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
             y_new:=round(dd*(fitsx)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
-
 
             if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
             begin
@@ -1524,7 +1522,7 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable to improve speed a little
+          aa:=solution_vectorX[0];//move to local variable for minor faster processing
           bb:=solution_vectorX[1];
           cc:=solution_vectorX[2];
           dd:=solution_vectorY[0];
@@ -1637,7 +1635,7 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable to improve speed a little
+          aa:=solution_vectorX[0];//move to local variable for minor faster processing
           bb:=solution_vectorX[1];
           cc:=solution_vectorX[2];
           dd:=solution_vectorY[0];
@@ -1878,7 +1876,7 @@ begin
           end;
 
 
-          aa:=solution_vectorX[0];//move to local variable to improve speed a little
+          aa:=solution_vectorX[0];//move to local variable for minor faster processing
           bb:=solution_vectorX[1];
           cc:=solution_vectorX[2];
           dd:=solution_vectorY[0];
@@ -1913,8 +1911,6 @@ begin
         end;
       end;{try}
     end;  {find the JD moment when the pixel is at max value}
-
-
 
     // combine images but throw out the moments when a star is drifting to each pixel. This moment is detected by the max value and recorded in phase 1 in img_variance.
     begin
@@ -1994,20 +1990,14 @@ begin
             background_correction[col]:=solutions[c].cblack[col] - target_background;//try to get backgrounds equal
           head.datamax_org:=min($FFFF,head.datamax_org-background_correction[0]);
 
-
-          {phase 2}
-//          if use_astrometry_internal then
-//             astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
-
-          aa:=solution_vectorX[0];//move to local variable to improve speed a little
+          aa:=solution_vectorX[0];//move to local variable for minor faster processing
           bb:=solution_vectorX[1];
           cc:=solution_vectorX[2];
           dd:=solution_vectorY[0];
           ee:=solution_vectorY[1];
           ff:=solution_vectorY[2];
 
-
-           //phase 2
+          //phase 2
           for fitsY:=0 to head.height-1 do
           for fitsX:=0 to head.width-1  do
           begin
@@ -2178,7 +2168,6 @@ begin
           end;
         end;
 
-
         if init=false then {init}
         begin
           height_max:=head.height;
@@ -2203,7 +2192,6 @@ begin
               img_average[col,fitsY,fitsX]:=0; {clear img_average}
               img_temp[col,fitsY,fitsX]:=0; {clear img_temp}
             end;
-
 
         solution:=true;
         if use_astrometry_internal then sincos(head.dec0,SIN_dec0,COS_dec0) {do this in advance since it is for each pixel the same}
@@ -2248,7 +2236,7 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable to improve speed a little
+          aa:=solution_vectorX[0];//move to local variable for minor faster processing
           bb:=solution_vectorX[1];
           cc:=solution_vectorX[2];
           dd:=solution_vectorY[0];
@@ -2272,7 +2260,6 @@ begin
             end;
           end;
         end;
-
 
         {scale to number of pixels}
         head.height:=height_max;
@@ -2303,37 +2290,34 @@ begin
         {save}
         filename2:=ChangeFileExt(Filename2,'_aligned.fit');{rename}
 
+        mainwindow.Memo1.Lines.beginUpdate;
         if head.cd1_1<>0 then
         begin
           {quick and dirty method to roughly correct existing solutions}
           head.crpix1:=solution_vectorX[0]*(head.crpix1-1)+solution_vectorX[1]*(head.crpix2-1)+solution_vectorX[2];{correct for marker_position at ra_dec position}
           head.crpix2:=solution_vectorY[0]*(head.crpix1-1)+solution_vectorY[1]*(head.crpix2-1)+solution_vectorY[2];
-
-          mainwindow.Memo1.Lines.EndUpdate;
-          update_float  ('CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);
-          update_float  ('CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);
-          update_text   ('COMMENT S','  After alignment only CRPIX1 & CRPIX2 existing solution corrected.');
-          mainwindow.Memo1.Lines.EndUpdate;
+          update_float(mainwindow.memo1.lines,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);
+          update_float(mainwindow.memo1.lines,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);
+          update_text(mainwindow.memo1.lines,'COMMENT S','  After alignment only CRPIX1 & CRPIX2 existing solution corrected.');
         end;
+        update_text(mainwindow.memo1.lines,'COMMENT 1','  Calibrated & aligned by ASTAP. www.hnsky.org');
+        update_float(mainwindow.memo1.lines,'PEDESTAL=',' / Value added during calibration or stacking     ',false ,head.pedestal);//pedestal value added during calibration or stacking
+        update_integer(mainwindow.memo1.lines,'DARK_CNT=',' / Darks used for luminance.               ' ,head.dark_count);{for interim lum,red,blue...files. Compatible with master darks}
+        update_integer(mainwindow.memo1.lines,'FLAT_CNT=',' / Flats used for luminance.               ' ,head.flat_count);{for interim lum,red,blue...files. Compatible with master flats}
+        update_integer(mainwindow.memo1.lines,'BIAS_CNT=',' / Flat-darks used for luminance.          ' ,head.flatdark_count);{for interim lum,red,blue...files. Compatible with master flats}
+        mainwindow.Memo1.Lines.EndUpdate;
 
-
-
-        update_text   ('COMMENT 1','  Calibrated & aligned by ASTAP. www.hnsky.org');
-        update_float  ('PEDESTAL=',' / Value added during calibration or stacking     ',false ,head.pedestal);//pedestal value added during calibration or stacking
-        add_integer('DARK_CNT=',' / Darks used for luminance.               ' ,head.dark_count);{for interim lum,red,blue...files. Compatible with master darks}
-        add_integer('FLAT_CNT=',' / Flats used for luminance.               ' ,head.flat_count);{for interim lum,red,blue...files. Compatible with master flats}
-        add_integer('BIAS_CNT=',' / Flat-darks used for luminance.          ' ,head.flatdark_count);{for interim lum,red,blue...files. Compatible with master flats}
-         { ASTAP keyword standard:}
-         { interim files can contain keywords: head.exposure, FILTER, LIGHT_CNT,DARK_CNT,FLAT_CNT, BIAS_CNT, SET_TEMP.  These values are written and read. Removed from final stacked file.}
-         { final files contains, LUM_EXP,LUM_CNT,LUM_DARK, LUM_FLAT, LUM_BIAS, RED_EXP,RED_CNT,RED_DARK, RED_FLAT, RED_BIAS.......These values are not read}
+        { ASTAP keyword standard:}
+        { interim files can contain keywords: head.exposure, FILTER, LIGHT_CNT,DARK_CNT,FLAT_CNT, BIAS_CNT, SET_TEMP.  These values are written and read. Removed from final stacked file.}
+        { final files contains, LUM_EXP,LUM_CNT,LUM_DARK, LUM_FLAT, LUM_BIAS, RED_EXP,RED_CNT,RED_DARK, RED_FLAT, RED_BIAS.......These values are not read}
 
         if nrbits=16 then
         begin
-          if save_fits(img_loaded,filename2,16,true)=false then exit;//exit if save error
+          if save_fits(img_loaded,mainwindow.memo1.lines,filename2,16,true)=false then exit;//exit if save error
         end
         else
         begin
-          if save_fits(img_loaded,filename2,-32,true)=false then exit;//exit if save error
+          if save_fits(img_loaded,mainwindow.memo1.lines,filename2,-32,true)=false then exit;//exit if save error
         end;
          memo2_message('New aligned image created: '+filename2);
         report_results(object_name,inttostr(round(head.exposure)),0,999 {color icon});{report result in tab result using modified filename2}
