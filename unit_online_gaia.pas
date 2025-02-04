@@ -14,7 +14,7 @@ uses
   Classes, SysUtils,strutils,forms,math,astap_main,unit_download,unit_star_align,unit_stack;
 
 function read_stars_online(telescope_ra,telescope_dec,search_field, magli: double): boolean;{read star from star database}
-procedure convert_magnitudes(filter : string); //convert gaia magnitude to a new magnitude
+procedure convert_magnitudes(passband : string); //convert gaia magnitude to a new magnitude
 function transform_gaia(filter : string; magG,magBP,magRP: double):double;//transformation of Gaia magnitudes
 procedure report_one_star_magnitudes(ra,dec : double; out b,v,r,sg,sr,si,g,bp,rp :double); //report the database magnitudes for a specfic position. Not efficient but simple
 
@@ -22,6 +22,7 @@ var
   online_database : star_list;//The output. Filled with ra,dec,magn
   gaia_ra: double=0;
   gaia_dec: double=0;
+  gaia_magn_limit : double=0;
 
 implementation
 
@@ -105,14 +106,14 @@ begin
 end;
 
 
-procedure convert_magnitudes(filter : string); //convert gaia magnitude to a new magnitude
+procedure convert_magnitudes(passband : string); //convert gaia magnitude to a new magnitude
 var
   i : integer;
 begin
-  if filter=passband_active then exit;//no action. Already the correct type
+  if passband=passband_active then exit;//no action. Already the correct type
   for i:=0 to length(online_database[0])-1 do
-    online_database[5,i]:=transform_gaia(filter,online_database[2,i]{G},online_database[3,i]{BP},online_database[4,i]{RP});
-  passband_active:=filter;//remember last transformation
+    online_database[5,i]:=transform_gaia(passband,online_database[2,i]{G},online_database[3,i]{BP},online_database[4,i]{RP});
+  passband_active:=passband;//remember last transformation
 end;
 
 
@@ -174,6 +175,7 @@ begin
 
   datalines:=false;
   count2:=0;
+  passband_active:=''; //By definition since new stars are loaded. So the procedure convert_magnitudes should convert the magnitudes again.
 
   setlength(online_database,6,slist.count);//position 5 will contain later the converted magnitude
   count:=35;{skip first part}
@@ -181,7 +183,6 @@ begin
   begin
     regel:=slist[count];
     inc(count);
-
     if datalines then //Data from Vizier
     begin
       {magnitude}
@@ -215,8 +216,8 @@ begin
   end;
 
   SetLength(online_database,6,count2);{set array length}
+ // memo2_message(inttostr(count2)+' Gaia stars available');
 end;
-
 
 
 function read_stars_online(telescope_ra,telescope_dec,search_field, magli : double): boolean;{read star from star database}
@@ -240,14 +241,16 @@ begin
   try
     slist := TStringList.Create;
 
-    mag_lim:=floattostrF(magli,ffGeneral,3,1); {BP~GP+0.5}
+    mag_lim:=floattostrF(magli,ffFixed,0,2); {BP~GP+0.5}
     memo2_message('Downloading Gaia stars from Vizier down to magnitude '+mag_lim+'. This can take 60 seconds or more ......');
 
     if search_field*180/pi>=3.5 then
       memo2_message('Warning, for this large FOV the star retrieval from Vizier will likely take minutes or fail!!!');
 
-    url:='http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=RA_ICRS,DE_ICRS,Gmag,BPmag,RPmag&-c='+ra8+sgn+dec8+window_size+'&-out.max=200000&Gmag=<'+mag_lim;
-       // http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=RA_ICRS,DE_ICRS,Gmag,BPmag,RPmag&-c=10.6722703144%2B41.2237647285&-c.bs=7862.054205/7862.054205&-out.max=200000&Gmag=<12.6
+    url:='http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=RA_ICRS,DE_ICRS,Gmag,BPmag,RPmag&-c='+ra8+sgn+dec8+window_size+'&-out.max=200000&BPmag=<'+mag_lim;
+       // http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=RA_ICRS,DE_ICRS,Gmag,BPmag,RPmag&-c=41.9723905228%2B15.5128350596&-c.bs=9968.171892/9968.171892&-out.max=200000&BPmag=<16.90
+
+    // see also https://vizier.cds.unistra.fr/doc/asu-summary.htx
     slist.Text := get_http(url);//move info to Tstringlist
     application.processmessages;
     if esc_pressed then
@@ -258,9 +261,10 @@ begin
       memo2_message('List received is empthy! url: '+url)
     else
     begin
-      memo2_message('Stars list received');
+      memo2_message('About '+inttostr(slist.count-31)+' stars downloaded.');
       gaia_ra:=telescope_ra; //store to test if data is still valid
-      gaia_dec:=telescope_dec;
+      gaia_dec:=telescope_dec;//store to test if data is still valid
+      gaia_magn_limit:=magli;//store limiting magnitude
       extract_stars(slist );
       result:=true;{no errors}
     end;

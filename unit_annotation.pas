@@ -11,16 +11,16 @@ interface
 uses
    forms,Classes, SysUtils,strutils, math,graphics, Controls {for tcursor},astap_main,  unit_stars_wide_field;
 
-procedure plot_deepsky(fill_variable_list: boolean);{plot the deep sky object on the image}
-procedure plot_vsx_vsp;{plot downloaded variable and comp stars}
+procedure plot_deepsky(extract_visible: boolean;font_size: integer);{plot the deep sky object on the image. If extract is true then extract visible to variable_list}
+procedure plot_vsx_vsp(extract_visible: boolean);{plot downloaded variable and comp stars}
 procedure load_deep;{load the deepsky database once. If loaded no action}
 procedure load_hyperleda;{load the HyperLeda database once. If loaded no action}
 procedure load_variable;{load variable stars. If loaded no action}
 procedure load_variable_13;{load variable stars. If loaded no action}
 procedure load_variable_15;{load variable stars. If loaded no action}
-procedure plot_and_measure_stars(flux_calibration,plot_stars, report_lim_magn: boolean);{flux calibration,  annotate, report limiting magnitude}
+procedure plot_and_measure_stars(img : image_array; memo: tstrings; var head : Theader; flux_calibration,plot_stars, report_lim_magn: boolean);{flux calibration,  annotate, report limiting magnitude}
 procedure measure_distortion(out stars_measured: integer);{measure or plot distortion}
-procedure plot_artificial_stars(img: image_array;head:theader;magnlimit: double);{plot stars as single pixel with a value as the mangitude. For super nova search}
+function plot_artificial_stars(img: image_array;head:theader) : boolean;{plot stars as single pixel with a value as the mangitude. For super nova search}
 procedure plot_stars_used_for_solving(starlist1,starlist2: star_list; hd: Theader;correctionX,correctionY: double); {plot image stars and database stars used for the solution}
 function read_deepsky(searchmode:char; telescope_ra,telescope_dec, cos_telescope_dec {cos(telescope_dec},fov : double; out ra2,dec2,length2,width2,pa : double): boolean;{deepsky database search}
 procedure annotation_to_array(thestring : ansistring;transparant:boolean;colour,size, x,y {screen coord}: integer; var img: image_array);{string to image array as annotation, result is flicker free since the annotion is plotted as the rest of the image}
@@ -42,6 +42,8 @@ type
     ra  : double;
     dec  : double;
     abbr : string;
+    Source : integer; //0 local, 1=VSX, 2=VSP, 3=not in AAVSO
+    index  : integer; //source index
   end;
 
 var
@@ -1096,7 +1098,7 @@ begin
          exit;
        end;
     end;
-    if copy(deepstring.strings[0],1,4)<>'V001' then
+    if copy(deepstring.strings[0],1,4)<>'V003' then
       application.messagebox(pchar('Please download and install a new version of the "Variable_stars" database!'),'',0{MB_OK});
   end;
 end;
@@ -1119,7 +1121,7 @@ begin
          exit;
        end;
     end;
-    if copy(deepstring.strings[0],1,4)<>'V001' then
+    if copy(deepstring.strings[0],1,4)<>'V003' then
       application.messagebox(pchar('Please download and install a new version of the "Variable_stars" database!'),'',0{MB_OK});
   end;
 
@@ -1250,7 +1252,7 @@ begin
     inc(linepos);
     x:=1; z:=0; y:=0;
 
-    P1 := Pointer(REGEL);
+    P1 := Pointer(regel);
     length_regel:=length(regel);
 
     repeat
@@ -1375,7 +1377,7 @@ begin
 end;
 
 
-procedure plot_deepsky(fill_variable_list: boolean);{plot the deep sky object on the image}
+procedure plot_deepsky(extract_visible: boolean;font_size: integer);{plot the deep sky object on the image. If extract is true then extract visible to variable_list}
 type
   textarea = record
      x1,y1,x2,y2 : integer;
@@ -1395,11 +1397,11 @@ begin
     flip_vertical:=mainwindow.flip_vertical1.Checked;
     flip_horizontal:=mainwindow.flip_horizontal1.Checked;
 
-    if fill_variable_list=false then //for photometry
+    if extract_visible then //for photometry
     begin
-      fill_variable_list:=false;
       variable_list:=nil;
-      variable_list_length:=0;
+      variable_list_length:=0;//declare empthy
+      setlength(variable_list,1000);//make space
     end;
 
     {6. Passage (x,y) -> (RA,DEC) to find head.ra0,head.dec0 for middle of the image. See http://alain.klotz.free.fr/audela/libtt/astm1-fr.htm}
@@ -1412,13 +1414,17 @@ begin
     linepos:=2;{Set pointer to the beginning. First two lines are comments}
     if head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1>0 then flipped:=-1 {n-s or e-w flipped} else flipped:=1;  {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
     {$ifdef mswindows}
-     mainwindow.image1.Canvas.Font.Name :='default';
+    if font_size<6 then
+       mainwindow.image1.Canvas.Font.Name:='Small fonts'
+    else
+       mainwindow.image1.Canvas.Font.Name:='Default';
+
     {$endif}
     {$ifdef linux}
-    mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+    mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
     {$endif}
     {$ifdef darwin} {MacOS}
-    mainwindow.image1.Canvas.Font.Name :='Helvetica';
+    mainwindow.image1.Canvas.Font.Name:='Helvetica';
     {$endif}
 
 
@@ -1446,11 +1452,11 @@ begin
         begin
           if ((database_nr>=3) and (database_nr<=5)) then //variables
           begin
-            if ((abs(x-shape_var1_fitsX)<5) and  (abs(y-shape_var1_fitsY)<5)) then // note shape_var1_fitsX/Y are in sensor coordinates
-                  mainwindow.Shape_var1.HINT:=copy(naam2,1,posex(' ',naam2,4)-1);
+            with mainwindow do
+            for i:=0 to high(Fshapes) do
+            if ((abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+                     Fshapes[i].shape.HINT:=naam2;//copy(naam2,1,posex(' ',naam2,4)-1);
 
-            if ((abs(x-shape_check1_fitsX)<5) and  (abs(y-shape_check1_fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
-                      mainwindow.shape_check1.HINT:=copy(naam2,1,posex(' ',naam2,4)-1);
           end;
 
           gx_orientation:=(pa+head.crota2)*flipped;
@@ -1472,9 +1478,17 @@ begin
             else
             name:=naam2+'/'+naam3+'/'+naam4;
 
-            mainwindow.image1.Canvas.font.size:=round(min(20,max(8,len /2)));
+            mainwindow.image1.Canvas.font.size:=round(min(20,max(max(6,font_size),len /2)));
 
-            if copy(naam2,1,1)='0' then  mainwindow.image1.Canvas.font.color:=cllime;{AAVSO reference star, Plot green}
+            if copy(naam2,1,1)='0' then
+            begin
+               mainwindow.image1.Canvas.font.color:=cllime;{AAVSO reference star, Plot green}
+               if font_size<=3 then
+                  name:=copy(name,5,7) //remove 000-
+               else
+               if font_size<=4 then
+                 name:=copy(name,1,11); //remove all after abbreviation
+            end;
 
             {get text dimensions}
             th:=mainwindow.image1.Canvas.textheight(name);
@@ -1529,14 +1543,15 @@ begin
            end;
            mainwindow.image1.Canvas.textout(x1,y1,name);
 
-           if ((fill_variable_list) and (text_counter<length(variable_list))) then //special option to add objects to list for photometry
+           if ((extract_visible) and (text_counter<length(variable_list))) then //special option to add objects to list for photometry
            begin
              variable_list[text_counter].ra:=ra2;
              variable_list[text_counter].dec:=dec2;
              variable_list[text_counter].abbr:=naam2;
+             variable_list[text_counter].source:=0; //local
+
              variable_list_length:=text_counter;
            end;
-
            inc(text_counter);
            if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+200);{increase size dynamic array}
          end;{centre object visible}
@@ -1574,27 +1589,25 @@ begin
 end;{plot deep_sky}
 
 
-procedure plot_vsx_vsp;{plot downloaded variable and comp stars}
+procedure plot_vsx_vsp(extract_visible: boolean);{plot downloaded variable and comp stars}
 type
   textarea = record
      x1,y1,x2,y2 : integer;
   end;
+
 var
   dra,ddec, telescope_ra,telescope_dec, delta_ra,det,SIN_dec_ref,COS_dec_ref,SIN_dec_new,
-  COS_dec_new,SIN_delta_ra,COS_delta_ra,hh,u0,v0,ra,dec,fitsX,fitsY : double;
-  name: string;
+  COS_dec_new,SIN_delta_ra,COS_delta_ra,hh,u0,v0,ra,dec,fitsX,fitsY,var_epoch,var_period,delta : double;
+  abbreviation: string;
   flip_horizontal, flip_vertical: boolean;
   text_dimensions  : array of textarea;
-  i,text_counter,th,tw,x1,y1,x2,y2,x,y,count,counts,mode : integer;
-  overlap          : boolean;
-
-
+  i,text_counter,th,tw,x1,y1,x2,y2,x,y,count,counts,mode,nrcount, font_size  : integer;
+  overlap      : boolean;
 begin
   if ((head.naxis<>0) and (head.cd1_1<>0)) then
   begin
     flip_vertical:=mainwindow.flip_vertical1.Checked;
     flip_horizontal:=mainwindow.flip_horizontal1.Checked;
-
 
     {6. Passage (x,y) -> (RA,DEC) to find head.ra0,head.dec0 for middle of the image. See http://alain.klotz.free.fr/audela/libtt/astm1-fr.htm}
     {find RA, DEC position of the middle of the image}
@@ -1603,21 +1616,37 @@ begin
 
     cos_telescope_dec:=cos(telescope_dec);
 
+    font_size:=stackmenu1.font_size_photometry_UpDown1.position;
     {$ifdef mswindows}
-     mainwindow.image1.Canvas.Font.Name :='default';
+     if font_size<6 then
+        mainwindow.image1.Canvas.Font.Name:='Small fonts'
+     else
+        mainwindow.image1.Canvas.Font.Name:='Default';
     {$endif}
     {$ifdef linux}
-    mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+    mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
     {$endif}
     {$ifdef darwin} {MacOS}
-    mainwindow.image1.Canvas.Font.Name :='Helvetica';
+    mainwindow.image1.Canvas.Font.Name:='Helvetica';
     {$endif}
 
 
     mainwindow.image1.canvas.pen.color:=annotation_color;
     mainwindow.image1.canvas.pen.mode:=pmXor;
     mainwindow.image1.Canvas.brush.Style:=bsClear;
-    mainwindow.image1.Canvas.font.size:=8;//round(min(20,max(8,len /2)));
+
+    mainwindow.image1.Canvas.font.size:=max(6,font_size);
+
+
+
+
+   if extract_visible then //for photometry
+   begin
+     variable_list:=nil;
+     variable_list_length:=0;//declare empthy
+     setlength(variable_list,1000);//make space
+     nrcount:=0;
+   end;
 
     text_counter:=0;
     setlength(text_dimensions,200);
@@ -1649,104 +1678,171 @@ begin
           { 3) If the text crosses the right side of the image then move the text to the left.}
           { 4) If the text is moved in y then connect the text to the deepsky object with a vertical line.}
 
-          if mode=1 then
+          if mode=1 then //plot variable
           begin
-            name:=vsx[count].name+'_'+vsx[count].maxmag+'-'+vsx[count].minmag+'_'+vsx[count].category+'_Period_'+vsx[count].period;
-            if ((abs(x-shape_var1_fitsX)<5) and  (abs(y-shape_var1_fitsY)<5)) then // note shape_var1_fitsX/Y are in sensor coordinates
-              mainwindow.Shape_var1.HINT:=vsx[count].name;
+            if font_size<5 then
+              abbreviation:=vsx[count].name
+            else
+              abbreviation:=vsx[count].name+' '+vsx[count].maxmag+'-'+vsx[count].minmag+'_'+vsx[count].category+'_Period_'+vsx[count].period;
+
+//            if ((abs(x-shape_var1_fitsX)<5) and  (abs(y-shape_var1_fitsY)<5)) then // note shape_var1_fitsX/Y are in sensor coordinates
+//              mainwindow.Shape_var1.HINT:=vsx[count].name;
+            with mainwindow do
+            for i:=0 to high(Fshapes) do
+            if ((abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+                     Fshapes[i].shape.HINT:=vsx[count].name;
+
+
+            var_epoch:=strtofloat1(vsx[count].epoch);
+            var_period:=strtofloat1(vsx[count].period);
+            if ((var_epoch<>0) and (var_period<>0)) then
+            begin
+              delta:=frac((jd_mid-var_epoch)/var_period);//in periods. Should jd_helio but that takes more computing
+              if ((delta>0.95) or (delta<0.05)) then
+                 abbreviation:=abbreviation+ '[AT MAX]';
+
+                 //  if pos('AD CMi',abbreviation)>0 then
+                 //  memo2_message(filename2+',  '+floattostr(jd_mid)+ ',   '+floattostr(delta));
+            end;
+
+            if ((extract_visible) and (nrcount<length(variable_list))) then //special option to add objects to list for photometry
+            begin
+              variable_list[nrcount].ra:=vsx[count].ra;
+              variable_list[nrcount].dec:=vsx[count].dec;
+              variable_list[nrcount].abbr:=abbreviation;
+              variable_list[nrcount].source:=1;//vsx
+              variable_list[nrcount].index:=count;//to retrieve all mangitudes
+              variable_list_length:=nrcount;
+              inc(nrcount);
+            end;
+
+
           end
           else
-          begin
-            name:=vsp[count].auid;
-            if ((abs(x-shape_check1_fitsX)<5) and  (abs(y-shape_check1_fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
-                  mainwindow.shape_check1.HINT:=name;
+          begin //plot check stars
+            abbreviation:=vsp[count].auid;
 
-            if vsp[count].Vmag<>'?' then name:=name+'_V='+vsp[count].Vmag+'('+vsp[count].Verr+')';//display V always
+            if font_size>=5 then
+            begin
+              abbreviation:=abbreviation+' V='+vsp[count].Vmag+'('+vsp[count].Verr+')';//display V always
 
-            if ((pos('S',head.passband_database)>0) or (stackmenu1.reference_database1.itemindex>5)) then   //check passband_active in case auto selection is used.
-            begin //Sloan filters used
-              if vsp[count].SGmag<>'?' then name:=name+'_SG='+vsp[count].Vmag+'('+vsp[count].Verr+')';
-              if vsp[count].SRmag<>'?' then name:=name+'_SR='+vsp[count].Bmag+'('+vsp[count].Berr+')';
-              if vsp[count].SImag<>'?' then name:=name+'_SI='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+              if ((pos('S',head.passband_database)>0) or (stackmenu1.reference_database1.itemindex>5)) then   //check passband_active in case auto selection is used.
+              begin //Sloan filters used
+                if vsp[count].SGmag<>'?' then abbreviation:=abbreviation+'_SG='+vsp[count].Vmag+'('+vsp[count].Verr+')';
+                if vsp[count].SRmag<>'?' then abbreviation:=abbreviation+'_SR='+vsp[count].Bmag+'('+vsp[count].Berr+')';
+                if vsp[count].SImag<>'?' then abbreviation:=abbreviation+'_SI='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+              end
+              else
+              begin //UBVR
+                if vsp[count].Bmag<>'?' then abbreviation:=abbreviation+'_B='+vsp[count].Bmag+'('+vsp[count].Berr+')';
+                if vsp[count].Rmag<>'?' then abbreviation:=abbreviation+'_R='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+              end;
             end
             else
-            begin //UBVR
-              if vsp[count].Bmag<>'?' then name:=name+'_B='+vsp[count].Bmag+'('+vsp[count].Berr+')';
-              if vsp[count].Rmag<>'?' then name:=name+'_R='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
-            end
+            if font_size=3 then
+            begin
+               if copy(abbreviation,1,2)='00' then
+               delete(abbreviation,1,4);//remove 000-
+            end;
+
+//            if ((abs(x-shape_check1_fitsX)<5) and  (abs(y-shape_check1_fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+//                  mainwindow.shape_check1.HINT:=abbreviation;
+//            if ((abs(x-shape_comp1_fitsX)<5) and  (abs(y-shape_comp1_fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+//                  mainwindow.shape_comp1.HINT:=abbreviation;//comparison star
+
+            with mainwindow do
+            for i:=0 to high(Fshapes) do
+            if ((abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+                     Fshapes[i].shape.HINT:=abbreviation;//copy(naam2,1,posex(' ',naam2,4)-1);
 
 
+            if ((extract_visible) and (nrcount<length(variable_list))) then //special option to add objects to list for photometry
+            begin
+              variable_list[nrcount].ra:=vsp[count].ra;
+              variable_list[nrcount].dec:=vsp[count].dec;
+              variable_list[nrcount].abbr:=abbreviation;
+              variable_list[nrcount].source:=2;//vsp
+              variable_list[nrcount].index:=count;//to retrieve all mangitudes
+              variable_list_length:=nrcount;
+              inc(nrcount);
+            end;
           end;
 
-          if flip_horizontal then begin x:=(head.width-1)-x;  end;
-          if flip_vertical then  else y:=(head.height-1)-y;
-
-
-          {get text dimensions}
-          th:=mainwindow.image1.Canvas.textheight(name);
-          tw:=mainwindow.image1.Canvas.textwidth(name);
-          x1:=x;
-          y1:=y;
-          x2:=x+ tw;
-          y2:=y+ th ;
-
-          if ((x1<=head.width) and (x2>head.width)) then begin x1:=x1-(x2-head.width);x2:=head.width;end; {if text is beyond right side, move left}
-
-          if text_counter>0 then {find free space in y for text}
+          if abbreviation<>'' then
           begin
-            repeat {find free text area}
-              overlap:=false;
-              i:=0;
-              repeat {test overlap}
-                if ( ((x1>=text_dimensions[i].x1) and (x1<=text_dimensions[i].x2) and (y1>=text_dimensions[i].y1) and (y1<=text_dimensions[i].y2)) {left top overlap} or
-                     ((x2>=text_dimensions[i].x1) and (x2<=text_dimensions[i].x2) and (y1>=text_dimensions[i].y1) and (y1<=text_dimensions[i].y2)) {right top overlap} or
-                     ((x1>=text_dimensions[i].x1) and (x1<=text_dimensions[i].x2) and (y2>=text_dimensions[i].y1) and (y2<=text_dimensions[i].y2)) {left bottom overlap} or
-                     ((x2>=text_dimensions[i].x1) and (x2<=text_dimensions[i].x2) and (y2>=text_dimensions[i].y1) and (y2<=text_dimensions[i].y2)) {right bottom overlap} or
+            if flip_horizontal then begin x:=(head.width-1)-x;  end;
+            if flip_vertical then  else y:=(head.height-1)-y;
 
-                     ((text_dimensions[i].x1>=x1) and (text_dimensions[i].x1<=x2) and (text_dimensions[i].y1>=y1) and (text_dimensions[i].y1<=y2)) {two corners of text_dimensions[i] within text} or
-                     ((text_dimensions[i].x2>=x1) and (text_dimensions[i].x2<=x2) and (text_dimensions[i].y2>=y1) and (text_dimensions[i].y2<=y2)) {two corners of text_dimensions[i] within text}
-                   ) then
-                begin
-                  overlap:=true; {text overlaps an existing text}
-                  y1:=y1+(th div 3);{try to shift text one third of the text height down}
-                  y2:=y2+(th div 3);
-                  if y2>=head.height then {no space left, use original position}
+
+            {get text dimensions}
+            th:=mainwindow.image1.Canvas.textheight(abbreviation);
+            tw:=mainwindow.image1.Canvas.textwidth(abbreviation);
+            x1:=x;
+            y1:=y;
+            x2:=x+ tw;
+            y2:=y+ th ;
+
+            if ((x1<=head.width) and (x2>head.width)) then begin x1:=x1-(x2-head.width);x2:=head.width;end; {if text is beyond right side, move left}
+
+            if text_counter>0 then {find free space in y for text}
+            begin
+              repeat {find free text area}
+                overlap:=false;
+                i:=0;
+                repeat {test overlap}
+                  if ( ((x1>=text_dimensions[i].x1) and (x1<=text_dimensions[i].x2) and (y1>=text_dimensions[i].y1) and (y1<=text_dimensions[i].y2)) {left top overlap} or
+                       ((x2>=text_dimensions[i].x1) and (x2<=text_dimensions[i].x2) and (y1>=text_dimensions[i].y1) and (y1<=text_dimensions[i].y2)) {right top overlap} or
+                       ((x1>=text_dimensions[i].x1) and (x1<=text_dimensions[i].x2) and (y2>=text_dimensions[i].y1) and (y2<=text_dimensions[i].y2)) {left bottom overlap} or
+                       ((x2>=text_dimensions[i].x1) and (x2<=text_dimensions[i].x2) and (y2>=text_dimensions[i].y1) and (y2<=text_dimensions[i].y2)) {right bottom overlap} or
+
+                       ((text_dimensions[i].x1>=x1) and (text_dimensions[i].x1<=x2) and (text_dimensions[i].y1>=y1) and (text_dimensions[i].y1<=y2)) {two corners of text_dimensions[i] within text} or
+                       ((text_dimensions[i].x2>=x1) and (text_dimensions[i].x2<=x2) and (text_dimensions[i].y2>=y1) and (text_dimensions[i].y2<=y2)) {two corners of text_dimensions[i] within text}
+                     ) then
                   begin
-                    y1:=y;
-                    y2:=y+th ;
-                    overlap:=false;{stop searching}
-                    i:=$FFFFFFF;{stop searching}
+                    overlap:=true; {text overlaps an existing text}
+                    y1:=y1+(th div 3);{try to shift text one third of the text height down}
+                    y2:=y2+(th div 3);
+                    if y2>=head.height then {no space left, use original position}
+                    begin
+                      y1:=y;
+                      y2:=y+th ;
+                      overlap:=false;{stop searching}
+                      i:=$FFFFFFF;{stop searching}
+                    end;
                   end;
-                end;
-                inc(i);
-              until ((i>=text_counter) or (overlap) );{until all tested or found overlap}
-            until overlap=false;{continue till no overlap}
-          end;
+                  inc(i);
+                until ((i>=text_counter) or (overlap) );{until all tested or found overlap}
+              until overlap=false;{continue till no overlap}
+            end;
 
-          text_dimensions[text_counter].x1:=x1;{store text dimensions in array}
-          text_dimensions[text_counter].y1:=y1;
-          text_dimensions[text_counter].x2:=x2;
-          text_dimensions[text_counter].y2:=y2;
+            text_dimensions[text_counter].x1:=x1;{store text dimensions in array}
+            text_dimensions[text_counter].y1:=y1;
+            text_dimensions[text_counter].x2:=x2;
+            text_dimensions[text_counter].y2:=y2;
 
-          if y1<>y then {there was textual overlap}
-          begin
-            mainwindow.image1.Canvas.moveto(x,round(y+th/4));
-            mainwindow.image1.Canvas.lineto(x,y1);
-          end;
-          mainwindow.image1.Canvas.textout(x1,y1,name);
-          inc(text_counter);
-          if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+200);{increase size dynamic array}
-
-          {plot deepsky object}
-          mainwindow.image1.Canvas.Pen.width :=1;//min(4,max(1,round(len/70)));
+            if y1<>y then {there was textual overlap}
+            begin
+              mainwindow.image1.Canvas.moveto(x,round(y+th/4));
+              mainwindow.image1.Canvas.lineto(x,y1);
+            end;
 
 
+              mainwindow.image1.Canvas.textout(x1,y1,abbreviation);
+            inc(text_counter);
+            if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+200);{increase size dynamic array}
 
-          mainwindow.image1.canvas.pixels[x-2,y+2]:=annotation_color;
-          mainwindow.image1.canvas.pixels[x+2,y+2]:=annotation_color;
-          mainwindow.image1.canvas.pixels[x-2,y-2]:=annotation_color;
-          mainwindow.image1.canvas.pixels[x+2,y-2]:=annotation_color;
+            {plot deepsky object}
+            mainwindow.image1.Canvas.Pen.width :=1;//min(4,max(1,round(len/70)));
 
+
+
+
+            mainwindow.image1.canvas.pixels[x-2,y+2]:=annotation_color;
+            mainwindow.image1.canvas.pixels[x+2,y+2]:=annotation_color;
+            mainwindow.image1.canvas.pixels[x-2,y-2]:=annotation_color;
+            mainwindow.image1.canvas.pixels[x+2,y-2]:=annotation_color;
+
+          end;//abbreviation<>''
 
         end;
         inc(count);
@@ -1782,14 +1878,12 @@ begin
 end;
 
 
-procedure get_best_mean(list: array of double; leng : integer; out mean,standard_error_mean,cv : double);{Remove outliers from population using MAD. }
+procedure get_best_mean(list,snr_list: array of double; leng : integer; out mean,standard_error_mean: double);{Remove outliers from population using MAD. }
 var  {idea from https://eurekastatistics.com/using-the-median-absolute-deviation-to-find-outliers/}
-  i,count         : integer;
-  median, mad,sd  : double;
+  i                     : integer;
+  median, mad,sd,count,noise  : double;
 
 begin
-  cv:=0;
-
   if leng=1 then begin mean:=list[0];exit end
   else
   if leng=2 then begin mean:=(list[0]+list[1])/2;exit end;
@@ -1797,23 +1891,27 @@ begin
   mad_median(list,leng,mad,median);{calculate mad and median without modifying the data}
 
   sd:=mad*1.4826;//standard deviation calculated from mad
-  if median>0 then cv:=sd/median;  {Coefficient of variation,  defined as the ratio of the standard deviation to the mean}
 
   count:=0;
   mean:=0;
   standard_error_mean:=0;
 
   for i:=0 to leng-1 do
-    if abs(list[i]-median)<1.50*sd then {offset less the 1.5*sigma.}
+  begin
+    noise:=abs(list[i]-median);
+    if noise<1.50*sd then {offset less the 1.5*sigma.}
+//     if noise<2*sd then {offset less the 1.5*sigma.}
     begin
-      mean:=mean+list[i];{Calculate mean. This gives a little less noise then calculating median again. Note weighted mean gives poorer result and is not applied.}
-      inc(count);
+      mean:=mean+list[i]*snr_list[i];//Calculate weighted mean. This gives a little less noise then calculating median again.
+      count:=count+snr_list[i];
+      standard_error_mean:=standard_error_mean+sqr(noise*snr_list[i]);//for weighted standard error
     end;
-   if count>0 then
-   begin
-     mean:=mean/count;  {mean without using outliers}
-     standard_error_mean:=sd/sqrt(count); //https://onlinestatbook.com/2/estimation/mean.html
-   end;
+  end;
+  if count>0 then
+  begin
+    mean:=mean/count;  {mean without using outliers}
+    standard_error_mean:=sqrt(standard_error_mean/sqr(count));
+  end;
 
 end;
 
@@ -1875,20 +1973,18 @@ begin
 end;
 
 
-procedure plot_and_measure_stars(flux_calibration,plot_stars, report_lim_magn: boolean);{flux calibration,  annotate, report limiting magnitude}
+procedure plot_and_measure_stars(img : image_array; memo: tstrings; var head : Theader; flux_calibration,plot_stars, report_lim_magn: boolean);{flux calibration,  annotate, report limiting magnitude}
 var
   telescope_ra,telescope_dec,fov,ra2,dec2, magn,Bp_Rp, hfd1,star_fwhm,snr, flux, xc,yc, sep,SIN_dec_ref,COS_dec_ref,
-  standard_error_mean,fov_org,fitsX,fitsY, frac1,frac2,frac3,frac4,u0,v0,x,y,x2,y2,flux_snr_7,apert,cv                                         : double;
-  star_total_counter,len, max_nr_stars, area1,area2,area3,area4,nrstars_required2,count,nrstars                                                : integer;
-  flip_horizontal, flip_vertical     : boolean;
-  mzero_array,hfd_x_sd          : array of double;
-  database_passband : string;
+  standard_error_mean,fov_org,fitsX,fitsY, frac1,frac2,frac3,frac4,x,y,x2,y2,flux_snr_7,apert,avg_flux_ratio,adu_e,mag_saturation,correction  : double;
+  star_total_counter,len, max_nr_stars, area1,area2,area3,area4,nrstars_required2,count,nrstars                                               : integer;
+  flip_horizontal, flip_vertical                        : boolean;
+  flux_ratio_array,hfd_x_sd, flux_peak_ratio,snr_list   : array of double;
+  selected_passband : string;
   data_max          : single;
   starlist1         : star_list;
 
     procedure plot_star;
-    var
-      u,v,u2,v2 : double;
     begin
       if ((flux_calibration) and ( bp_rp>12) and (bp_rp<>999){mono colour database})then exit;{too red star for flux calibration. Bp-Rp>1.2 for about 30% of the stars}
       celestial_to_pixel(head,ra2,dec2, fitsX,fitsY);{ra,dec to fitsX,fitsY}
@@ -1917,41 +2013,43 @@ var
         end;
 
         if ((flux_calibration) and (Bp_Rp<>-128 {if -128 then unreliable Johnson-V magnitude, either Bp or Rp is missing in Gaia})) then
-//        if ((x>70) and (x<head.width-70) and (y>70) and (y<head.height-70)) then // at least 10 pixels from sides
-//        if  sqrt(sqr(x-head.width/2)+sqr(y-head.height/2))<(head.height/2)-20  then //within a circle of center
         begin
-       //   annulus_radius:=8;
-      //    head.mzero_radius:=3.9;
-
-          HFD(img_loaded,round(x),round(y), annulus_radius{14,annulus radius},head.mzero_radius,0 {adu_e. SNR only in ADU for consistency}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
+          HFD(img,round(x),round(y), annulus_radius{14,annulus radius},head.mzero_radius,adu_e {adu_e. SNR only in ADU for consistency}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
           if ((hfd1<15) and (hfd1>=0.8) {two pixels minimum}) then
-          if snr>30 then {star detected in img_loaded. 30 is found emperical}
+           if snr>30 then {star detected in img. 30 is found emperical}
           begin
-            if ((img_loaded[0,round(yc),round(xc)]<data_max-1000) and
-                (img_loaded[0,round(yc-1),round(xc)]<data_max-1000) and
-                (img_loaded[0,round(yc+1),round(xc)]<data_max-1000) and
-                (img_loaded[0,round(yc),round(xc-1)]<data_max-1000) and
-                (img_loaded[0,round(yc),round(xc+1)]<data_max-1000) and
+            if ((img[0,round(yc),round(xc)]<data_max-1000) and
+                (img[0,round(yc-1),round(xc)]<data_max-1000) and
+                (img[0,round(yc+1),round(xc)]<data_max-1000) and
+                (img[0,round(yc),round(xc-1)]<data_max-1000) and
+                (img[0,round(yc),round(xc+1)]<data_max-1000) and
 
-                (img_loaded[0,round(yc-1),round(xc-1)]<data_max-1000) and
-                (img_loaded[0,round(yc-1),round(xc+1)]<data_max-1000) and
-                (img_loaded[0,round(yc+1),round(xc-1)]<data_max-1000) and
-                (img_loaded[0,round(yc+1),round(xc+1)]<data_max-1000)  ) then {not saturated}
+                (img[0,round(yc-1),round(xc-1)]<data_max-1000) and
+                (img[0,round(yc-1),round(xc+1)]<data_max-1000) and
+                (img[0,round(yc+1),round(xc-1)]<data_max-1000) and
+                (img[0,round(yc+1),round(xc+1)]<data_max-1000)  ) then {not saturated}
             begin
-              if counter_flux_measured>=length(mzero_array) then
+              if counter_flux_measured>=length(flux_ratio_array) then //increase array sizes
               begin
-               SetLength(mzero_array,counter_flux_measured+500);{increase length array}
-               if report_lim_magn then  SetLength(hfd_x_sd,counter_flux_measured+500);{increase length array}
+                SetLength(flux_ratio_array,counter_flux_measured+500);
+                SetLength(snr_list,counter_flux_measured+500);
+                if report_lim_magn then
+                begin
+                  SetLength(hfd_x_sd,counter_flux_measured+500);
+                  SetLength(flux_peak_ratio,counter_flux_measured+500);
+                end;
               end;
+              flux_ratio_array[counter_flux_measured]:=flux/(power(10,(21 {bias}-magn/10)/2.5)); //Linear flux ratio,  should be constant for all stars.
+              snr_list[counter_flux_measured]:=snr;
 
-              mzero_array[counter_flux_measured]:=magn/10 + 2.5 * ln(flux)/ln(10); //should be constant for all stars
-
+             // memo2_message(#9+floattostr4(magn/10)+#9+floattostr4(2.5 * ln(flux)/ln(10) ));
               if report_lim_magn then
               begin
-                hfd_x_sd[counter_flux_measured]:=hfd1*sd_bg;{calculate hfd*SD. sd_bg  is a global variable from procedure hfd. The minimum diameter for star detection is 4}
+                hfd_x_sd[counter_flux_measured]:=hfd1*sd_bg;//calculate hfd*SD. sd_bg  is a global variable from procedure hfd. The minimum diameter for star detection is 4
+                flux_peak_ratio[counter_flux_measured]:=flux/img[0,round(yc),round(xc)];
               end;
 
-//              memo2_message(#9+floattostr4(snr)+#9+floattostr4(hfd1)+#9+floattostr4(R_aperture)+#9+floattostr4(sd_bg) );
+              //  memo2_message(#9+floattostr4(snr)+#9+floattostr4(hfd1)+#9+floattostr4(R_aperture)+#9+floattostr4(sd_bg) );
               inc(counter_flux_measured); {increase counter of number of stars analysed}
             end;
 
@@ -1980,20 +2078,19 @@ begin
 
 
     {$ifdef mswindows}
-    mainwindow.image1.Canvas.Font.Name :='default';
+    mainwindow.image1.Canvas.Font.Name:='Default';
     {$endif}
     {$ifdef linux}
-    mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+    mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
     {$endif}
     {$ifdef darwin} {MacOS}
-    mainwindow.image1.Canvas.Font.Name :='Helvetica';
+    mainwindow.image1.Canvas.Font.Name:='Helvetica';
     {$endif}
 
     mainwindow.image1.Canvas.font.size:=8; //round(14*head.height/mainwindow.image1.height);{adapt font to image dimensions}
     mainwindow.image1.Canvas.brush.Style:=bsClear;
 
     mainwindow.image1.Canvas.font.color:=$00B0FF ;{orange}
-
 
     star_total_counter:=0;{total counter}
     counter_flux_measured:=0;
@@ -2005,11 +2102,14 @@ begin
     if flux_calibration then
     begin
       max_nr_stars:=round(head.width*head.height*(730/(2328*1760))); {limit to the brightest stars. Fainter stars have more noise}
-
-      //max_nr_stars:=10;
-
-      setlength(mzero_array,max_nr_stars);
-      if report_lim_magn then setlength(hfd_x_sd,max_nr_stars);
+      setlength(flux_ratio_array,max_nr_stars);
+      setlength(snr_list,max_nr_stars);
+      if report_lim_magn then
+      begin
+        setlength(hfd_x_sd,max_nr_stars);
+        setlength(flux_peak_ratio,max_nr_stars);
+      end;
+      adu_e := retrieve_ADU_to_e_unbinned(head.egain);
     end;
 
     {sets file290 so do before fov selection}
@@ -2021,16 +2121,19 @@ begin
     end
     else
     begin  //Reading online database. Update if required
-      get_database_passband(head.filter_name,database_passband);//report local or online database and the database passband
+      get_database_passband(head.filter_name,{out} selected_passband);//report selected Gaia passband
 
-      ang_sep(telescope_ra,telescope_dec,gaia_ra,gaia_dec,sep);
+      if gaia_magn_limit+0.01<mag2/10 then sep:=999 //update required based on magnitude
+      else
+      ang_sep(telescope_ra,telescope_dec,gaia_ra,gaia_dec,sep);//update required based on position
+
       if ((sep>0.15*fov_org) or (online_database=nil)) then  //other sky area, update Gaia database online
       begin
         if select_star_database(stackmenu1.star_database1.text,fov_org {fov})=false then exit;
 
          if read_stars(telescope_ra,telescope_dec,fov_org, database_type, max_nr_stars,{out} starlist1,{out} nrstars) then {read star from local star database to find the maximum magnitude required for this. Max magnitude is stored in mag2}
         begin //maximum magnitude mag2 is known for the amount of stars for calibration using online stars
-          memo2_message('Requires stars down to magnitude '+floattostrF(mag2/10,FFgeneral,3,1)+ ' for '+inttostr( max_nr_stars)+' stars')  ;
+          memo2_message('Requires stars down to magnitude '+floattostrF(mag2/10,FFFixed,0,2)+ ' for '+inttostr( max_nr_stars)+' stars')  ;
           if read_stars_online(telescope_ra,telescope_dec,fov_org, mag2/10 {max_magnitude})= false then
           begin
             memo2_message('Error. failure accessing Vizier for Gaia star database!');
@@ -2047,7 +2150,7 @@ begin
       end;
       database_type:=0;//online
 
-      convert_magnitudes(database_passband {set in call to get_database_passband}) //convert gaia magnitude to a new magnitude. If the type is already correct, no action will follow
+      convert_magnitudes(selected_passband {set in call to get_database_passband}) //convert Gaia magnitude to a new magnitude. If the type is already correct, no action will follow
                         //database_passband will be stored in passband_active
     end; //online
 
@@ -2095,8 +2198,6 @@ begin
         nrstars_required2:=trunc(max_nr_stars * (frac1+frac2+frac3+frac4));
         while ((star_total_counter<nrstars_required2) and (readdatabase290(telescope_ra,telescope_dec, fov,{var} ra2,dec2, magn,Bp_Rp)) ) do plot_star;{add star}
       end;
-
-
       close_star_database;
     end
     else
@@ -2139,19 +2240,21 @@ begin
     begin
       if counter_flux_measured>=3 then {at least three stars}
       begin
-        get_best_mean(mzero_array,counter_flux_measured {length},head.mzero,standard_error_mean,cv );//calculate and store mzero in header
+        get_best_mean(flux_ratio_array,snr_list,counter_flux_measured {length},avg_flux_ratio,standard_error_mean );//calculate average of flux ratio. Can't do that on mzero. Should be a linear scale
+        head.mzero:=21{bias} + ln(avg_flux_ratio)*2.5/ln(10);//from flux ratio to mzero
+        standard_error_mean:=ln((avg_flux_ratio+standard_error_mean)/avg_flux_ratio)*2.5/ln(10);//Convert ratio error to error in magnitudes. Note that log(a)−log(b)=log(a/b) and log():=ln()/ln(10)
+
+
         head.passband_database:=passband_active; //passband_active is global variable. Now store in the header. head.passband_database can also be retrieved using keyword MZEROPAS
 
         if copy(stackmenu1.flux_aperture1.text,1,1)='m' then //=Max, calibration for extended objects
-          update_float(mainwindow.memo1.lines,'MZERO   =',' / Magnitude Zero Point. '+head.passband_database+'=-2.5*log(flux)+MZERO',false,head.mzero)
+          update_float(memo,'MZERO   =',' / Magnitude Zero Point. '+head.passband_database+'=-2.5*log(flux_e)+MZERO',false,head.mzero)
         else
-          update_text(mainwindow.memo1.lines,'MZERO   =','                   0 / Unknown. Set aperture to MAX for ext. objects  ');//use update_text to also clear any old comment
+          update_text(memo,'MZERO   =','                   0 / Unknown. Set aperture to MAX for ext. objects  ');//use update_text to also clear any old comment
 
-        update_float(mainwindow.memo1.lines,'MZEROR  =',' / '+head.passband_database+'=-2.5*log(flux)+MZEROR using MZEROAPT',false,head.mzero);//mzero for aperture diameter MZEROAPT
-        update_float(mainwindow.memo1.lines,'MZEROAPT=',' / Aperture radius used for MZEROR in pixels',false,head.mzero_radius);
-        update_text(mainwindow.memo1.lines,'MZEROPAS=',copy(char(39)+passband_active+char(39)+'                    ',1,21)+'/ Passband database used.');
-
-
+        update_float(memo,'MZEROR  =',' / '+head.passband_database+'=-2.5*log(flux_e)+MZEROR using MZEROAPT',false,head.mzero);//mzero for aperture diameter MZEROAPT
+        update_float(memo,'MZEROAPT=',' / Aperture radius used for MZEROR in pixels',false,head.mzero_radius);
+        update_text(memo,'MZEROPAS=',copy(char(39)+passband_active+char(39)+'                    ',1,21)+'/ Passband database used.');
 
 
          // The magnitude measured is
@@ -2175,17 +2278,16 @@ begin
          //flux_ratio:=exp(mzero*ln(10)/2.5);
 
         if head.mzero_radius=99 then
-
           memo2_message('Photometry calibration for EXTENDED OBJECTS successful. '+inttostr(counter_flux_measured)+
                         ' Gaia stars used for flux calibration.  Flux aperture diameter: measured star diameter.'+
-                        ' Coefficient of variation: '+floattostrF(cv*100,ffgeneral,2,1)+
-                        '%. Annulus inner diameter: '+inttostr(1+(annulus_radius)*2){background is measured 2 pixels outside rs}+' pixels. Stars with pixel values of '+inttostr(round(head.datamax_org))+' or higher are ignored.')
+                        ' Standard error MZERO [magn]: '+floattostrF(standard_error_mean,ffFixed,0,3)+
+                        '%. Annulus inner diameter: '+inttostr(1+(annulus_radius)*2){background is measured 2 pixels outside rs}+' pixels. Stars with pixel values close to '+inttostr(round(head.datamax_org))+' are ignored.')
 
         else
           memo2_message('Photometry calibration for POINT SOURCES successful. '+inttostr(counter_flux_measured)+
-                        ' Gaia stars used for flux calibration.  Flux aperture diameter: '+floattostrf(head.mzero_radius*2, ffgeneral, 2,2)+' pixels.'+
-                        ' Coefficient of variation: '+floattostrF(cv*100,ffgeneral,2,1)+
-                        '%. Annulus inner diameter: '+inttostr(1+(annulus_radius)*2){background is measured 2 pixels outside rs}+' pixels. Stars with pixel values of '+inttostr(round(head.datamax_org))+' or higher are ignored.');
+                        ' Gaia stars used for flux calibration.  Flux aperture diameter: '+floattostrf(head.mzero_radius*2, ffFixed, 0,2)+' pixels.'+
+                        ' Standard error MZERO [magn]: '+floattostrF(standard_error_mean,ffFixed,0,3)+
+                        '%. Annulus inner diameter: '+inttostr(1+(annulus_radius)*2){background is measured 2 pixels outside rs}+' pixels. Stars with pixel values close to '+inttostr(round(head.datamax_org))+' are ignored.');
 
         memo2_message('Photometric calibration is only valid if the filter passband ('+head.filter_name+') is compatible with the passband reference database ('+head.passband_database+'). This is indicated by the coloured square icons in tab photometry.');
 
@@ -2195,19 +2297,26 @@ begin
           for faint stars  snr ≈flux/sqrt( 0 + r*r*pi* sd^2)
                            flux≈snr*sqrt( 0 + r*r*pi* sd^2)
                            flux≈snr*r*sqrt(pi)*sd
-                           flux≈snr*(hfd*0.8)*sqrt(pi)*sd   assuming star diameter is 2*hfd, so radius is hfd
-                           flux≈snr*sqrt(pi)*sd*hfd*0.8  }
-          flux_snr_7:=7*sqrt(pi)*Smedian(hfd_x_sd,counter_flux_measured {length}){*0.8{fiddle factor} ;{Assuming minimum SNR is 7 and the aperture is reduced to about hfd for the faintest stars.}
-          apert:=strtofloat2(stackmenu1.flux_aperture1.text);{aperture diamater expressed in HFD's. If aperture diameter is HFD, half of the star flux is lost}
+                           flux≈snr*(hfd*1.0)*sqrt(pi)*sd   assuming star diameter for the faintest stars is reduced to 2 * hfd average, so radius is 1*hfd
+                             }
+          flux_snr_7:=7*sqrt(pi)*Smedian(hfd_x_sd,counter_flux_measured {length});{Assuming minimum SNR is 7 and the aperture is reduced to about 2 * hfd for the faintest stars. So r=HFD}
+          apert:=strtofloat2(stackmenu1.flux_aperture1.text);{aperture diameter expressed in HFD's. If aperture diameter is HFD, half of the star flux is lost}
           if apert=0 then apert:=10; {aperture is zero if is set at max text. Set very high}
 
           //encircled flux =1-EXP(-0.5*(radial_distance/sigma)^2)
           //encircled flux =1-EXP(-0.5*((apert*HFD/2)/(HFD/2.3548))^2)
           //encircled flux =1-EXP(-0.5*(apert*2.3548/2))^2)
-          flux_snr_7:=flux_snr_7*(1-EXP(-0.5*sqr(apert*2.3548/2 {sigma}))); {Correction for reduced aparture.}
+          correction:=(1-EXP(-0.5*sqr(apert*2.3548/2 {sigma})));
+          flux_snr_7:=flux_snr_7*correction; {Correction for reduced aparture.}
 
-          magn_limit:=head.mzero-ln(flux_snr_7)*2.5/ln(10); //global variable.  same as:  mzero-ln(flux)*2.5/ln(10)
-          magn_limit_str:='Limiting magnitude is '+ floattostrF(magn_limit,ffgeneral,3,1)+'   ( σ='+floattostrF(standard_error_mean,ffgeneral,2,0)+', SNR=7, aperture ⌀'+stackmenu1.flux_aperture1.text+')';
+          head.magn_limit:=head.mzero-ln(flux_snr_7)*2.5/ln(10); //global variable.  same as:  mzero-ln(flux)*2.5/ln(10)
+
+          //mag:=MZERO - 2.5*ln(flux)/ln(10);
+          mag_saturation:=head.mzero-ln( 0.95*data_max*Smedian(flux_peak_ratio,counter_flux_measured {length} ) )*2.5/ln(10);
+
+          magn_limit_str:='Limiting magnitude is '+ floattostrF(head.magn_limit,ffFixed,0,2)+' ( σ='+floattostrF(standard_error_mean,ffgeneral,2,0)+', SNR=7, aperture ⌀'+stackmenu1.flux_aperture1.text+') Saturation at ≈ '+floattostrF(mag_saturation,ffFixed,0,1);
+
+          update_float(memo,'LIM_MAGN=',' / Limiting magnitude (SNR=7, aperture '+floattostr2(head.mzero_radius)+' px)',false ,head.magn_limit);
 
           memo2_message(magn_limit_str);
           mainwindow.caption:='Photometry calibration successful. '+magn_limit_str;
@@ -2219,14 +2328,12 @@ begin
         mainwindow.caption:=magn_limit_str;
         memo2_message(magn_limit_str);
       end;
-
-      mzero_array:=nil;
-      hfd_x_sd:=nil;
     end;
 
     Screen.Cursor:=crDefault;
   end;{fits file}
 end;{plot stars}
+
 
 
 
@@ -2407,13 +2514,13 @@ begin
     end;
 
     {$ifdef mswindows}
-     mainwindow.image1.Canvas.Font.Name :='default';
+     mainwindow.image1.Canvas.Font.Name:='Default';
     {$endif}
     {$ifdef linux}
-    mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+    mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
     {$endif}
     {$ifdef darwin} {MacOS}
-    mainwindow.image1.Canvas.Font.Name :='Helvetica';
+    mainwindow.image1.Canvas.Font.Name:='Helvetica';
     {$endif}
 
     astrometric_error_innner:=smedian(errors_sky_pixel1,sub_counter); //pixels
@@ -2477,7 +2584,7 @@ begin
 end;{measure distortion}
 
 
-procedure plot_artificial_stars(img: image_array;head: theader; magnlimit:double);{plot stars as single pixel with a value as the magnitude. For super nova and minor planet search}
+function plot_artificial_stars(img: image_array;head: theader): boolean;{plot stars as single pixel with a value as the magnitude. For super nova and minor planet search}
 var
   fitsX,fitsY, telescope_ra,telescope_dec,fov_org,ra2,dec2,
   mag2, m_limit,sep : double;
@@ -2501,10 +2608,9 @@ var
 
 
 begin
+  result:=false;//assume failure
   if ((head.naxis<>0) and (head.cd1_1<>0)) then
   begin
-    Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
     counter_flux_measured:=0;
 
     {find middle of the image}
@@ -2515,8 +2621,10 @@ begin
 
     fov_org:= sqrt(sqr(head.width*head.cdelt1)+sqr(head.height*head.cdelt2))*pi/180; {field of view with 0% extra}
 
-    m_limit:=magnlimit+1-0.5;//go one magnitude fainter
-    //since G magnitude is used to retrieve which about 0.5 magnitude fainter then mag limit. {BP~GP+0.5}
+    m_limit:=head.magn_limit+1;//go one magnitude fainter
+
+
+    //not longer used. Use now BP xxxxxxxxxxxxxxx since G magnitude is used to retrieve which about 0.5 magnitude fainter then mag limit. {BP~GP+0.5}
 
 
     linepos:=2;{Set pointer to the beginning. First two lines are comments}
@@ -2584,15 +2692,17 @@ begin
       //    else
     begin //Database_type=0, Vizier online, Gaia
 
-       ang_sep(telescope_ra,telescope_dec,gaia_ra,gaia_dec,sep);
+       if gaia_magn_limit+0.1<m_limit then sep:=999 //update required based on magnitude
+       else
+       ang_sep(telescope_ra,telescope_dec,gaia_ra,gaia_dec,sep);//update required based on position
+
        if ((sep>0.15*fov_org) or (online_database=nil)) then  //other sky area, update Gaia database online
        begin
-       if read_stars_online(telescope_ra,telescope_dec,fov_org,m_limit {max_magnitude}) then
-       begin
-         get_database_passband(head.filter_name,passband);//report local or online database and the database passband
-         convert_magnitudes(passband) //convert gaia magnitude to a new magnitude. If the type is already correct, no action will follow
-        end;
-
+         if read_stars_online(telescope_ra,telescope_dec,fov_org,m_limit {max_magnitude}) then
+         begin
+           get_database_passband(head.filter_name,passband);//report local or online database and the database passband
+           convert_magnitudes(passband) //convert gaia magnitude to a new magnitude. If the type is already correct, no action will follow
+         end;
        end;
        count:=0;
 
@@ -2609,9 +2719,11 @@ begin
          inc(count);
        end;
      end;
-    Screen.Cursor:=crDefault;
-
-  end;{fits file}
+     if count>0 then
+       result:=true
+     else
+       memo2_message('Online database empthy!');
+  end;{solved fits file}
 end;{plot stars}
 
 

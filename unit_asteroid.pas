@@ -517,7 +517,7 @@ var
         if ((x>0) and (x<head.width) and (y>0) and (y<head.height)) then {within image1}
         begin
           {annotate}
-           if showfullnames then thetext1:=trim(name) else thetext1:=desn{+'('+floattostrF(mag,ffgeneral,3,1)+')'};
+           if showfullnames then thetext1:=trim(name) else thetext1:=desn;
            if showmagnitude then thetext2:='{'+inttostr(round(mag*10))+'}' {add magnitude in next field} else thetext2:='';
            if outdated then thetext2:=thetext2+'⚠ ' +'obsolete';
 
@@ -679,13 +679,13 @@ begin
   form_existing:=assigned(form_asteroids1);{form existing}
 
   {$ifdef mswindows}
-  mainwindow.image1.Canvas.Font.Name :='default';
+  mainwindow.image1.Canvas.Font.Name:='Default';
   {$endif}
   {$ifdef linux}
-  mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+  mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
   {$endif}
   {$ifdef darwin} {MacOS}
-  mainwindow.image1.Canvas.Font.Name :='Helvetica';
+  mainwindow.image1.Canvas.Font.Name:='Helvetica';
   {$endif}
 
   mainwindow.image1.canvas.pen.color:=annotation_color;{color circel}

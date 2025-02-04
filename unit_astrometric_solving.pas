@@ -1,5 +1,5 @@
 unit unit_astrometric_solving;
-{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017, 2025 by Han Kleijn, www.hnsky.org
 email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -103,13 +103,14 @@ uses   Classes,SysUtils,controls,forms,math,stdctrls,
        unit_star_align, unit_star_database, astap_main, unit_stack, unit_annotation,unit_stars_wide_field, unit_calc_trans_cubic;
 
 function solve_image(img :image_array;var hd: Theader;memo:tstrings; get_hist{update hist},check_patternfilter :boolean) : boolean;{find match between image and star database}
-procedure bin_and_find_stars(img :image_array;binning:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
+//procedure bin_and_find_stars(img :image_array;binfactor:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
+procedure bin_and_find_stars(img :image_array;var head:theader; binfactor:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
+
 function report_binning(height :double) : integer;{select the binning}
 function position_angle(ra1,dec1,ra0,dec0 : double): double;//Position angle of a body at ra1,dec1 as seen at ra0,dec0. Rigorous method
 procedure equatorial_standard(ra0,dec0,ra,dec, cdelt : double; out xx,yy: double);
 function read_stars(telescope_ra,telescope_dec,search_field : double; database_type,nrstars_required: integer;out starlist : star_list; out nrstars:integer): boolean;{read star from star database}
-procedure binX2_crop(crop {0..1}:double; img : image_array; out img2: image_array);{combine values of 4 pixels and crop is required, Result is mono}
-procedure binX1_crop(crop {0..1}:double; img : image_array; var img2: image_array);{crop image, make mono, no binning}
+procedure bin_mono_and_crop(binning: integer; crop {0..1}:double;img : image_array; out img2: image_array); // Make mono, bin and crop
 
 
 var
@@ -208,11 +209,9 @@ begin
   delta:=cos_dec0-y*sin_dec0;
   ra:=ra0+arctan2(-x,delta); //atan2 is required for images containing celestial pole
   dec:=arctan((sin_dec0+y*cos_dec0)/sqrt(sqr(x)+sqr(delta)));
-
   if ra>pi*2 then ra:=ra-pi*2; //prevent values above 2*pi which confuses the direction detection later
   if ra<0 then ra:=ra+pi*2;
 end;
-
 
 
 //procedure give_spiral_position(position : integer; out x,y : integer); {give x,y position of square spiral as function of input value}
@@ -339,144 +338,118 @@ begin
 end;
 
 
-procedure binX1_crop(crop {0..1}:double; img : image_array; var img2: image_array);{crop image, make mono, no binning}
+procedure bin_mono_and_crop(binning: integer; crop {0..1}:double;img : image_array; out img2: image_array);// Make mono, bin and crop
 var
-  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
+  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5,i,j,x,y: integer;
   val       : single;
 begin
   nrcolors:=Length(img);
-  width5:=Length(img[0,0]); {width}
-  height5:=Length(img[0]);  {height}
+  width5:=Length(img[0,0]);{width}
+  height5:=Length(img[0]); {height}
 
-  w:=trunc(crop*length(img[0,0]{width}));  {cropped}
-  h:=trunc(crop*length(img[0]{height}));
+  w:=trunc(crop*width5/binning);  {dimensions after binning and crop}
+  h:=trunc(crop*height5/binning);
 
   setlength(img2,1,h,w); {set length of image array}
 
-  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05 * width}
-  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05 * height}
+  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*head.width}
+  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*head.height}
 
-  for fitsY:=0 to h-1 do
-    for fitsX:=0 to w-1  do
-    begin
-      val:=0;
-      for k:=0 to nrcolors-1 do {all colors and make mono}
-         val:=val + img[k ,shiftY+fitsY,shiftX+fitsx];
-      img2[0,fitsY,fitsX]:=val/nrcolors;
-    end;
-end;
-
-
-procedure binX2_crop(crop {0..1}:double; img : image_array; out img2: image_array);{combine values of 4 pixels and crop is required, Result is mono}
-var
-  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
-  val       : single;
-begin
-   nrcolors:=Length(img);
-   width5:=Length(img[0,0]); {width}
-   height5:=Length(img[0]);  {height}
-
-   w:=trunc(crop*width5/2);  {half size & cropped. Use trunc for image 1391 pixels wide like M27 test image. Otherwise exception error}
-   h:=trunc(crop*height5/2);
-
-   setlength(img2,1,h,w); {set length of image array}
-
-   shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05 * width}
-   shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05 * height}
-
-   for fitsY:=0 to h-1 do
+  if binning=1 then
+  begin
+    for fitsY:=0 to h-1 do
       for fitsX:=0 to w-1  do
-     begin
-       val:=0;
-       for k:=0 to nrcolors-1 do {all colors}
-         val:=val+(img[k,shiftY+fitsY*2   ,shiftX+fitsX*2]+
-                   img[k,shiftY+fitsY*2 +1,shiftX+fitsX*2]+
-                   img[k,shiftY+fitsY*2   ,shiftX+fitsX*2+1]+
-                   img[k,shiftY+fitsY*2 +1,shiftX+fitsX*2+1])/4;
-       img2[0,fitsY,fitsX]:=val/nrcolors;
-     end;
- end;
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do {all colors and make mono}
+           val:=val + img[k ,shiftY+fitsY,shiftX+fitsx];
+        img2[0,fitsY,fitsX]:=val/nrcolors;
+      end;
+  end
+  else
+  if binning=2 then
+  begin
+    for fitsY:=0 to h-1 do
+       for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do {all colors}
+          val:=val+(img[k,shiftY+fitsY*2   ,shiftX+fitsX*2]+
+                    img[k,shiftY+fitsY*2 +1,shiftX+fitsX*2]+
+                    img[k,shiftY+fitsY*2   ,shiftX+fitsX*2+1]+
+                    img[k,shiftY+fitsY*2 +1,shiftX+fitsX*2+1])/4;
+        img2[0,fitsY,fitsX]:=val/nrcolors;
+      end;
+  end
+  else
+  if binning=3 then
+  begin
+    for fitsY:=0 to h-1 do {bin & mono image}
+      for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do {all colors}
+          val:=val+(img[k,shiftY+fitsY*3   ,shiftX+fitsX*3  ]+
+                    img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+1]+
+                    img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+2]+
+                    img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3  ]+
+                    img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+1]+
+                    img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+2]+
+                    img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3  ]+
+                    img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+1]+
+                    img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+2])/9;
+        img2[0,fitsY,fitsX]:=val/nrcolors;
+      end;
+  end
+  else
+  if binning=4 then
+  begin
+    for fitsY:=0 to h-1 do //bin & mono image
+      for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do //all colors to mono. Test shows this loop doesn't introduce much delay for mono images
+          val:=val+(img[k,shiftY+fitsY*4   ,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+3]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+3]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+3]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+3])/16;
+        img2[0,fitsY,fitsX]:=val/nrcolors; //mono result
+      end;
 
-procedure binX3_crop(crop {0..1}:double; img : image_array; out img2: image_array);{combine values of 9 pixels and crop is required. Result is mono}
-var
-  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
-  val       : single;
-begin
-  nrcolors:=Length(img);
-  width5:=Length(img[0,0]);    {width}
-  height5:=Length(img[0]); {height}
-
-  w:=trunc(crop*width5/3);  {1/3 size and cropped}
-  h:=trunc(crop*height5/3);
-
-  setlength(img2,1,h,w); {set length of image array}
-
-  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*head.width}
-  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*head.height}
-
-  for fitsY:=0 to h-1 do {bin & mono image}
-    for fitsX:=0 to w-1  do
-    begin
-      val:=0;
-      for k:=0 to nrcolors-1 do {all colors}
-        val:=val+(img[k,shiftY+fitsY*3   ,shiftX+fitsX*3  ]+
-                  img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+1]+
-                  img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+2]+
-                  img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3  ]+
-                  img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+1]+
-                  img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+2]+
-                  img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3  ]+
-                  img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+1]+
-                  img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+2])/9;
-      img2[0,fitsY,fitsX]:=val/nrcolors;
-    end;
+  end
+  else
+  begin //any bin factor. This routine is at bin 4x4 about twice slower then the above routine
+    for fitsY:=0 to h-1 do
+      for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        x:=shiftX+fitsX*binning;
+        y:=shiftY+fitsY*binning;
+        for k:=0 to nrcolors-1 do {all colors to mono. Test shows this loop doesn't introduce much delay for mono images}
+        begin
+          for i:=0 to binning-1 do
+          for j:=0 to binning-1 do
+             val:=val + img[k,y+i   ,x+j];
+        end;
+        img2[0,fitsY,fitsX]:=val/(nrcolors*sqr(binning)); //mono result
+      end;
+  end;
 end;
 
 
-procedure binX4_crop(crop {0..1}:double;img : image_array; out img2: image_array);{combine values of 16 pixels and crop is required. Result is mono}
-var
-  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5: integer;
-  val       : single;
-begin
-  nrcolors:=Length(img);
-  width5:=Length(img[0,0]);    {width}
-  height5:=Length(img[0]); {height}
-
-  w:=trunc(crop*width5/4);  {1/4 size and cropped}
-  h:=trunc(crop*height5/4);
-
-  setlength(img2,1,h,w); {set length of image array}
-
-  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*head.width}
-  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*head.height}
-
-  for fitsY:=0 to h-1 do {bin & mono image}
-    for fitsX:=0 to w-1  do
-    begin
-      val:=0;
-      for k:=0 to nrcolors-1 do {all colors}
-        val:=val+(img[k,shiftY+fitsY*4   ,shiftX+fitsX*4  ]+
-                  img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+1]+
-                  img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+2]+
-                  img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+3]+
-                  img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4  ]+
-                  img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+1]+
-                  img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+2]+
-                  img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+3]+
-                  img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4  ]+
-                  img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+1]+
-                  img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+2]+
-                  img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+3]+
-                  img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4  ]+
-                  img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+1]+
-                  img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+2]+
-                  img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+3])/16;
-      img2[0,fitsY,fitsX]:=val/nrcolors;
-    end;
-end;
-
-
-procedure bin_and_find_stars(img :image_array;binning:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
+procedure bin_and_find_stars(img :image_array;var head:theader; binfactor:integer;cropping,hfd_min:double;max_stars:integer;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
 var
   width5,height5,nrstars,i : integer;
   img_binned : image_array;
@@ -487,18 +460,21 @@ begin
   width5:=length(img[0,0]);{width}
   height5:=length(img[0]);{height}
 
-  if ((binning>1) or (cropping<1)) then
+  if ((binfactor>1) or (cropping<1)) then
   begin
-    if binning>1 then memo2_message('Creating grayscale x '+inttostr(binning)+' binning image for solving or star alignment.');
+    if binfactor>1 then memo2_message('Creating grayscale x '+inttostr(binfactor)+' binning image for solving or star alignment.');
     if cropping<>1 then memo2_message('Cropping image x '+floattostrF(cropping,ffFixed,0,2));
 
-    if binning=2 then binX2_crop(cropping,img,img_binned) {combine values of 4 pixels, default option if 3 and 4 are not specified}
-    else
-    if binning=3 then binX3_crop(cropping,img,img_binned) {combine values of 9 pixels}
-    else
-    if binning=4 then binX4_crop(cropping,img,img_binned) {combine values of 16 pixels}
-    else
-    if binning=1 then binX1_crop(cropping,img,img_binned); {crop image, no binning}
+//    if binfactor=2 then binX2_crop(cropping,img,img_binned) {combine values of 4 pixels, default option if 3 and 4 are not specified}
+//    else
+//    if binfactor=3 then binX3_crop(cropping,img,img_binned) {combine values of 9 pixels}
+//    else
+//    if binfactor=4 then binX4_crop(cropping,img,img_binned) {combine values of 16 pixels}
+//    else
+//    if binfactor=1 then binX1_crop(cropping,img,img_binned); {crop image, no binfactor}
+
+
+    bin_mono_and_crop(binfactor, cropping,img,img_binned); //{Make mono, bin and crop}
 
     {test routine, to show bin result}
     //    img_loaded:=img_binned;
@@ -508,8 +484,8 @@ begin
     //    plot_fits(mainwindow.image1,true,true);//plot real
     //    exit;  }
 
-    get_background(0,img_binned,true {load hist},true {calculate also standard deviation background},{out}bck {cblack,star_level} );{get back ground}
-    find_stars(img_binned,hfd_min,max_stars,starlist3); {find stars of the image and put them in a list}
+    get_background(0,img_binned,head ,true {load hist},true {calculate also standard deviation background});{get back ground}
+    find_stars(img_binned,head,hfd_min,max_stars,starlist3); {find stars of the image and put them in a list}
 
     if length(img_binned[0])<960 then
     begin
@@ -519,15 +495,15 @@ begin
     img_binned:=nil;
 
     nrstars:=Length(starlist3[0]);
-    for i:=0 to nrstars-1 do {correct star positions for cropping. Simplest method}
+    for i:=0 to nrstars-1 do {correct star positions for binning and cropping. Simplest method}
     begin
-      starlist3[0,i]:=(binning-1)*0.5+starlist3[0,i]*binning +(width5*(1-cropping)/2);//correct star positions for binning/ cropping. Position [3.5,3,5] becomes after 2x2 binning [1,1] after x2 [3,3]. So correct for 0.5 pixel
-      starlist3[1,i]:=(binning-1)*0.5+starlist3[1,i]*binning +(height5*(1-cropping)/2);
+      starlist3[0,i]:=(binfactor-1)*0.5+starlist3[0,i]*binfactor +(width5*(1-cropping)/2);//correct star positions for binfactor/ cropping. Position [3.5,3,5] becomes after 2x2 binfactor [1,1] after x2 [3,3]. So correct for 0.5 pixel
+      starlist3[1,i]:=(binfactor-1)*0.5+starlist3[1,i]*binfactor +(height5*(1-cropping)/2);
       // For zero based indexing:
-      // A star of 2x2 pixels at position [2.5,2.5] is after 2x2 binning at position [1,1]. If doubled to [2,2] then the position has 0.5 pixel shifted.
-      // A star of 3x3 pixels at position [4,4] is after 3x3 binning at position [1,1]. If tripled to [3,3] then the position has 1.0 pixel shifted.
-      // A star of 4x4 pixels at position [5.5,5.5] is after 4x4 binning at position [1,1]. If quadruped to [4,4] then the position has 1.5 pixel shifted.
-      // So positions measured in a binned image should be corrected as x:=(binning-1)*0.5+binning*x and y:=(binning-1)*0.5+binning*y
+      // A star of 2x2 pixels at position [2.5,2.5] is after 2x2 binfactor at position [1,1]. If doubled to [2,2] then the position has 0.5 pixel shifted.
+      // A star of 3x3 pixels at position [4,4] is after 3x3 binfactor at position [1,1]. If tripled to [3,3] then the position has 1.0 pixel shifted.
+      // A star of 4x4 pixels at position [5.5,5.5] is after 4x4 binfactor at position [1,1]. If quadruped to [4,4] then the position has 1.5 pixel shifted.
+      // So positions measured in a binned image should be corrected as x:=(binfactor-1)*0.5+binfactor*x and y:=(binfactor-1)*0.5+binfactor*y
     end;
   end
   else
@@ -544,8 +520,8 @@ begin
       memo2_message('█ █ █ █ █ █ Warning, small image dimensions!');
     end;
 
-    get_background(0,img,get_hist {load hist},true {calculate also standard deviation background}, {out}bck{ cblack,star_level});{get back ground}
-    find_stars(img,hfd_min,max_stars,starlist3); {find stars of the image and put them in a list}
+    get_background(0,img,head,get_hist {load hist},true {calculate also standard deviation background});{get back ground}
+    find_stars(img,head,hfd_min,max_stars,starlist3); {find stars of the image and put them in a list}
   end;
 
  //  for i:=0 to length(starlist3[0])-1 do
@@ -556,7 +532,7 @@ end;
 
 function report_binning(height:double) : integer;{select the binning}
 begin
-  result:=stackmenu1.downsample_for_solving1.itemindex;
+  result:=min(16,strtoint2(stackmenu1.downsample_for_solving1.text,0));//16 max. Too much anyhow
   if result<=0 then  {zero gives -1, Auto is 0}
   begin
     if height>2500 then result:=2
@@ -842,7 +818,7 @@ begin
       warning_str:=warning_str+'Very large FOV, use W08 database! '
     else
     if ((fov_org>6) and (database_type=1476)) then
-      warning_str:=warning_str+'Large FOV, use G05 database! ';
+      warning_str:=warning_str+'Large FOV, use G05 (or V05) database! ';
 
     if warning_str<>'' then memo2_message(warning_str);
      popup_warningG05:=#10+warning_str;
@@ -909,7 +885,7 @@ begin
     binning:=report_binning(hd.height*cropping); {select binning on dimensions of cropped image}
     hfd_min:=max(0.8,min_star_size_arcsec/(binning*fov_org*3600/hd.height) );{to ignore hot pixels which are too small}
 
-    bin_and_find_stars(img,binning,cropping,hfd_min,max_stars,get_hist{update hist}, starlist2, warning_downsample);{bin, measure background, find stars. Do this every repeat since hfd_min is adapted}
+    bin_and_find_stars(img,hd,binning,cropping,hfd_min,max_stars,get_hist{update hist}, starlist2, warning_downsample);{bin, measure background, find stars. Do this every repeat since hfd_min is adapted}
     nrstars:=Length(starlist2[0]);
 
     if ((hd.xpixsz<>0) and (hd.ypixsz<>0) and (abs(hd.xpixsz-hd.ypixsz)>0.1)) then //non-square pixels, correct. Remove in future?
@@ -952,14 +928,14 @@ begin
       yes_use_triples:=((nrstars<30) and  (use_triples));
       if yes_use_triples then
       begin
-        find_triples_using_quads(starlist2,quad_star_distances2); {find star triples for new image. Quads and quad_smallest are binning independent}
+        find_triples_using_quads(starlist2,quad_star_distances2); {find star triples for new image. Quads are binning independent}
         quad_tolerance:=0.002;
         quads_str:=' triples';
          if solve_show_log then memo2_message('For triples the hash code tolerance is forced to '+floattostr(quad_tolerance)+'.');
       end
       else
       begin
-        find_quads(starlist2,quad_star_distances2);{find star quads for new image. Quads and quad_smallest are binning independent}
+        find_quads(starlist2,quad_star_distances2);{find star quads for new image. Quads are binning independent}
         quads_str:=' quads';
       end;
 
@@ -1107,17 +1083,25 @@ begin
 
               if yes_use_triples then
                 find_triples_using_quads(starlist1,quad_star_distances1){find quads for reference image/database. Filter out too small quads for Earth based telescopes}
-                {Note quad_smallest is binning independent value. Don't use cdelt2 for pixelsize calculation since fov_specified could be true making cdelt2 unreliable or fov=auto}
               else
-                find_quads(starlist1, quad_star_distances1);{find quads for reference image/database. Filter out too small quads for Earth based telescopes}
-                {Note quad_smallest is binning independent value. Don't use cdelt2 for pixelsize calculation since fov_specified could be true making cdelt2 unreliable or fov=auto}
+                find_quads(starlist1, quad_star_distances1);{find quads for reference image/database.}
+
+   //               memo2_message('Start');
+     //             for i:=1 to 12000 do
+       //             find_quadsnew(starlist1, quad_star_distances1);{find quads}
+         //         memo2_message('End new routine');
+           //       for i:=1 to 12000 do
+             //       find_quads(starlist1, quad_star_distances1);{find quads}
+//                  memo2_message('End old routine');
+       //      exit;
+
 
 
               if solve_show_log then {global variable set in find stars}
                 memo2_message('Search '+ inttostr(count)+', ['+inttostr(spiral_x)+','+inttostr(spiral_y)+'],'+#9+'position: '+#9+ prepare_ra(ra_database,': ')+#9+prepare_dec(dec_database,'° ')+#9+' Down to magn '+ floattostrF(mag2/10,ffFixed,0,1) +#9+' '+inttostr(database_stars)+' database stars' +#9+' '+inttostr(length(quad_star_distances1[0]))+' database quads to compare.'+mess);
 
               // for testing purposes
-              // for testing create supplement hnksy planetarium program
+              // for testing create supplement hnsky planetarium program
               //stackmenu1.memo2.lines.add(floattostr(ra_database*12/pi)+',,,'+floattostr(dec_database*180/pi)+',,,,'+inttostr(count)+',,-8,'+floattostr( step_size*600*180/pi)+',' +floattostr(step_size*600*180/pi));
              // stackmenu1.memo2.lines.add(floattostr(ra_database*12/pi)+',,,'+floattostr(dec_database*180/pi)+',,,,'+inttostr(count)+',,-99');
 

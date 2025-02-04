@@ -1,7 +1,7 @@
 object stackmenu1: Tstackmenu1
-  Left = 115
+  Left = 238
   Height = 707
-  Top = 229
+  Top = 205
   Width = 1862
   HorzScrollBar.Page = 300
   HorzScrollBar.Range = 1920
@@ -11,7 +11,6 @@ object stackmenu1: Tstackmenu1
   ClientHeight = 690
   ClientWidth = 1862
   Color = clForm
-  DoubleBuffered = True
   Icon.Data = {
     7E03000000000100010010100000010018006803000016000000280000001000
     0000200000000100180000000000000300006400000064000000000000000000
@@ -51,8 +50,7 @@ object stackmenu1: Tstackmenu1
   OnKeyPress = FormKeyPress
   OnResize = FormResize
   OnShow = FormShow
-  ParentDoubleBuffered = False
-  LCLVersion = '3.2.0.0'
+  LCLVersion = '3.6.0.0'
   object PairSplitter1: TPairSplitter
     Cursor = crVSplit
     Left = 0
@@ -334,6 +332,7 @@ object stackmenu1: Tstackmenu1
             OnCustomDraw = listview1CustomDraw
             OnCustomDrawItem = listview1CustomDrawItem
             OnDblClick = listview1DblClick
+            OnDrawItem = listview1DrawItem
             OnItemChecked = listview1ItemChecked
             OnKeyDown = listview1KeyDown
           end
@@ -442,6 +441,7 @@ object stackmenu1: Tstackmenu1
             Width = 67
             Caption = 'Planetary'
             TabOrder = 8
+            OnExit = planetary_image1Exit
           end
           object browse1: TBitBtn
             Left = 0
@@ -2283,7 +2283,7 @@ object stackmenu1: Tstackmenu1
             ShowHint = True
             OnClick = help_astrometric_solving1Click
           end
-          object use_astrometry_alignment1: TRadioButton
+          object use_astrometric_alignment1: TRadioButton
             Left = 8
             Height = 19
             Hint = 'Use this for mosaic building.'
@@ -2292,7 +2292,7 @@ object stackmenu1: Tstackmenu1
             Caption = 'Astrometric alignment'
             ParentFont = False
             TabOrder = 3
-            OnChange = use_astrometry_alignment1Change
+            OnChange = use_astrometric_alignment1Change
           end
           object GroupBox_astrometric_solver_settings1: TGroupBox
             Left = 208
@@ -2538,9 +2538,9 @@ object stackmenu1: Tstackmenu1
                       '0.006'
                       '0.007'
                       '0.008'
-                      '0.009'
                     )
                     ParentFont = False
+                    Style = csDropDownList
                     TabOrder = 2
                     Text = '0.007'
                   end
@@ -2575,7 +2575,6 @@ object stackmenu1: Tstackmenu1
                       '4'
                     )
                     ParentFont = False
-                    Style = csDropDownList
                     TabOrder = 0
                     Text = '0'
                     OnChange = resize_factor1Change
@@ -2700,7 +2699,6 @@ object stackmenu1: Tstackmenu1
                 Width = 75
                 Caption = 'Save'
                 TabOrder = 7
-                Visible = False
                 OnClick = save_settings_extra_button1Click
               end
               object use_triples1: TCheckBox
@@ -2728,6 +2726,53 @@ object stackmenu1: Tstackmenu1
                 ParentColor = False
                 ParentFont = False
                 TabOrder = 9
+              end
+              object solar_drift_compensation1: TCheckBox
+                Left = 381
+                Height = 19
+                Hint = 'Use this to stack alligned on moving solar objects. Solar movement can be calculated by JPL Horizons with option "Rates; RA & DEC"'
+                Top = 128
+                Width = 148
+                Caption = 'Solar drift compensation'
+                Enabled = False
+                TabOrder = 10
+                OnChange = solar_drift_compensation1Change
+              end
+              object solar_drift_ra1: TEdit
+                Left = 624
+                Height = 23
+                Hint = 'Drift RA*cos(DEC)  in arcsec/hours. Get this "dRA*cosD" value from JPL Horizons'
+                Top = 128
+                Width = 80
+                TabOrder = 11
+                Text = '0'
+                Visible = False
+              end
+              object label_delta_ra1: TLabel
+                Left = 576
+                Height = 15
+                Top = 128
+                Width = 44
+                Caption = 'Δα["/hr]'
+                Visible = False
+              end
+              object solar_drift_dec1: TEdit
+                Left = 784
+                Height = 23
+                Hint = 'Drift DEC in arcsec/hours. Get this "d(DEC)/dt" value from JPL Horizons'
+                Top = 128
+                Width = 80
+                TabOrder = 12
+                Text = '0'
+                Visible = False
+              end
+              object label_delta_dec1: TLabel
+                Left = 736
+                Height = 15
+                Top = 128
+                Width = 44
+                Caption = 'Δδ["/hr]'
+                Visible = False
               end
             end
           end
@@ -2792,6 +2837,14 @@ object stackmenu1: Tstackmenu1
               Style = csDropDownList
               TabOrder = 0
               Text = 'Star centering'
+            end
+            object Label74: TLabel
+              Left = 256
+              Height = 15
+              Top = 8
+              Width = 437
+              Caption = 'See lights tab popup menu for "Auto selection reference object in selected images"'
+              ParentColor = False
             end
           end
           object use_ephemeris_alignment1: TRadioButton
@@ -3046,7 +3099,7 @@ object stackmenu1: Tstackmenu1
             OnClick = blink_stop1Click
           end
           object blink_button_contF1: TButton
-            Left = 392
+            Left = 384
             Height = 26
             Hint = 'Continous blink check-marked images'
             Top = 34
@@ -3204,7 +3257,8 @@ object stackmenu1: Tstackmenu1
             Height = 25
             Hint = 'Reannotate and solve all checked images. To refresh the solution set the override option in tab Alignment.'
             Top = 4
-            Width = 144
+            Width = 142
+            AutoSize = True
             Caption = '(Re)annotate (&&solve)'
             TabOrder = 15
             OnClick = blink_annotate_and_solve1Click
@@ -3261,28 +3315,17 @@ object stackmenu1: Tstackmenu1
             TabOrder = 2
             OnClick = photometry_button1Click
           end
-          object photometry_repeat1: TButton
-            Left = 408
-            Height = 26
-            Hint = 'Continous scrolling through the check-marked images  and measure the marked stars.'
-            Top = 34
-            Width = 24
-            Caption = '▶'
-            ParentFont = False
-            TabOrder = 3
-            OnClick = photometry_button1Click
-          end
           object clear_photometry_list1: TButton
-            Left = 613
+            Left = 1304
             Height = 25
             Hint = 'Clear image list'
-            Top = 34
+            Top = 35
             Width = 61
             Caption = 'Clear'
             ParentFont = False
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 4
+            TabOrder = 3
             OnClick = clear_photometry_list1Click
           end
           object listview7: TListView
@@ -3368,30 +3411,6 @@ object stackmenu1: Tstackmenu1
               end            
               item
                 Alignment = taRightJustify
-                Caption = 'Magn. Var'
-                MinWidth = 100
-                Width = 100
-              end            
-              item
-                Alignment = taRightJustify
-                Caption = 'SNR Var'
-                MinWidth = 80
-                Width = 80
-              end            
-              item
-                Alignment = taRightJustify
-                Caption = 'Magn. Check'
-                MinWidth = 100
-                Width = 100
-              end            
-              item
-                Alignment = taRightJustify
-                Caption = 'Magn. 3'
-                MinWidth = 80
-                Width = 80
-              end            
-              item
-                Alignment = taRightJustify
                 Caption = 'HFD'
                 MinWidth = 50
               end            
@@ -3425,7 +3444,6 @@ object stackmenu1: Tstackmenu1
               item
                 Caption = 'Lim-magn'
                 MinWidth = 70
-                Tag = 99999999999
                 Width = 71
               end>
             GridLines = True
@@ -3439,7 +3457,7 @@ object stackmenu1: Tstackmenu1
             SmallImages = ImageList_colors
             SortColumn = 9
             SortType = stText
-            TabOrder = 5
+            TabOrder = 4
             ViewStyle = vsReport
             OnColumnClick = listview1ColumnClick
             OnCompare = listview1Compare
@@ -3449,10 +3467,10 @@ object stackmenu1: Tstackmenu1
           end
           object help_photometry1: TLabel
             Cursor = crHandPoint
-            Left = 1147
+            Left = 1400
             Height = 30
             Hint = 'Online help'
-            Top = 29
+            Top = -1
             Width = 9
             Caption = '?'
             Font.Color = clBlue
@@ -3463,48 +3481,26 @@ object stackmenu1: Tstackmenu1
             ShowHint = True
             OnClick = help_photometry1Click
           end
-          object mark_outliers_upto1: TComboBox
-            Left = 1032
-            Height = 23
-            Hint = 'Mark in the image outliers down to this magnitude'
-            Top = 5
-            Width = 48
-            ItemHeight = 15
-            ItemIndex = 3
-            Items.Strings = (
-              '11'
-              '12'
-              '13'
-              '14'
-              '15'
-              '16'
-              '17'
-            )
-            ParentFont = False
-            TabOrder = 6
-            Text = '14'
-            OnChange = flux_aperture1change
-          end
           object aavso_button1: TButton
-            Left = 1032
+            Left = 1179
             Height = 25
             Hint = 'Generate AAVSO report'
-            Top = 34
+            Top = 35
             Width = 99
             AutoSize = True
             Caption = 'AAVSO report'
-            TabOrder = 7
+            TabOrder = 5
             OnClick = aavso_button1Click
           end
           object flux_aperture1: TComboBox
-            Left = 512
+            Left = 560
             Height = 23
             Hint = 'Flux measuring aperture [x HFD ].  Typical range 1 to max. With max all star flux is measured. Can be adjusted to find the lowest standard deviation in the results (check star). Typical values 1.5 or 2.0'
-            Top = 5
+            Top = 6
             Width = 72
             DropDownCount = 10
             ItemHeight = 15
-            ItemIndex = 5
+            ItemIndex = 13
             Items.Strings = (
               'max'
               '1.4'
@@ -3516,18 +3512,22 @@ object stackmenu1: Tstackmenu1
               '2.0'
               '2.1'
               '2.2'
+              '2.4'
+              '2.6'
+              '2.8'
+              '3.0'
             )
             ParentFont = False
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 8
-            Text = '1.8'
+            TabOrder = 6
+            Text = '3.0'
             OnChange = flux_aperture1change
           end
           object Label26: TLabel
-            Left = 453
+            Left = 496
             Height = 15
-            Top = 11
+            Top = 12
             Width = 49
             Alignment = taRightJustify
             Caption = 'Aperture:'
@@ -3542,14 +3542,14 @@ object stackmenu1: Tstackmenu1
             BorderSpacing.Top = 2
             Caption = '+'
             ParentFont = False
-            TabOrder = 9
+            TabOrder = 7
             OnClick = analysephotometry1Click
           end
           object annulus_radius1: TComboBox
-            Left = 512
+            Left = 560
             Height = 23
             Hint = 'Annulus inner diameter [ x HFD]. The annulus diameter has to be larger then  the aperture diameter.'
-            Top = 34
+            Top = 35
             Width = 72
             DropDownCount = 17
             ItemHeight = 15
@@ -3564,61 +3564,26 @@ object stackmenu1: Tstackmenu1
               '10'
             )
             ParentFont = False
-            TabOrder = 10
+            TabOrder = 8
             Text = '6'
             OnChange = flux_aperture1change
           end
           object Label27: TLabel
-            Left = 455
+            Left = 498
             Height = 15
-            Top = 36
+            Top = 37
             Width = 47
             Alignment = taRightJustify
             Caption = 'Annulus:'
             ParentColor = False
           end
           object speedButton_location1: TSpeedButton
-            Left = 1096
+            Left = 1179
             Height = 25
             Hint = 'Default observer location for the case it is not available in the file header. Use this for DSLR images.'
-            Top = 4
+            Top = 7
             Width = 25
-            Glyph.Data = {
-              36040000424D3604000000000000360000002800000010000000100000000100
-              2000000000000004000064000000640000000000000000000000000000000000
-              0000000000000000000000000000535353FF535353FF535353FF535353FF5353
-              53FF535353FF0000000000000000000000000000000000000000000000000000
-              00000000000000000000535353FF000000000000000000000000000000005353
-              53FF00000000535353FF00000000000000000000000000000000000000000000
-              0000535353FF535353FF00000000000000000000000000000000535353FF0000
-              0000535353FF00000000535353FF535353FF0000000000000000000000000000
-              0000535353FF00000000000000000000000000000000535353FF000000000000
-              000000000000535353FF00000000535353FF0000000000000000000000005353
-              53FF0000000000000000000000000000000000000000535353FF000000000000
-              000000000000535353FF0000000000000000535353FF00000000535353FF0000
-              00000000000000000000000000000000000000000000535353FF000000000000
-              000000000000535353FF000000000000000000000000535353FF535353FF0000
-              000000000000000000000000000000000000535353FF00000000000000000000
-              00000000000000000000535353FF0000000000000000535353FF535353FF0000
-              00000000000000000000535353FF535353FF0000000000000000000000000000
-              00000000000000000000535353FF0000000000000000535353FF535353FF0000
-              00000000000000000000535353FF000000000000000000000000000000000000
-              00000000000000000000535353FF0000000000000000535353FF535353FF0000
-              00000000000000000000535353FF000000000000000000000000000000000000
-              0000535353FF535353FF000000000000000000000000535353FF535353FF0000
-              0000000000000000000000000000535353FF535353FF00000000535353FF5353
-              53FF0000000000000000535353FF535353FF535353FF535353FF000000005353
-              53FF0000000000000000000000000000000000000000535353FF000000000000
-              0000535353FF535353FF0000000000000000535353FF00000000000000000000
-              0000535353FF000000000000000000000000535353FF00000000535353FF5353
-              53FF000000000000000000000000535353FF0000000000000000000000000000
-              0000535353FF535353FF000000000000000000000000535353FF000000000000
-              00000000000000000000535353FF535353FF0000000000000000000000000000
-              00000000000000000000535353FF0000000000000000535353FF000000000000
-              000000000000535353FF00000000000000000000000000000000000000000000
-              0000000000000000000000000000535353FF535353FF535353FF535353FF5353
-              53FF535353FF0000000000000000000000000000000000000000
-            }
+            Images = ImageList2
             ImageIndex = 20
             OnClick = speedButton_location1Click
           end
@@ -3632,43 +3597,47 @@ object stackmenu1: Tstackmenu1
             Images = ImageList2
             ImageIndex = 23
             OnClick = browse_photometry1Click
-            TabOrder = 11
+            TabOrder = 9
           end
           object annotate_mode1: TComboBox
-            Left = 688
+            Left = 816
             Height = 23
             Hint = 'Annotate variable and comparison stars'
-            Top = 34
-            Width = 320
+            Top = 35
+            Width = 221
             DropDownCount = 17
             ItemHeight = 15
             ItemIndex = 1
             Items.Strings = (
-              'No annotation'
-              'Annotation local DB mag 11'
-              'Annotation local DB mag 13'
-              'Annotation local DB mag 15'
-              'Annotation online DB mag 13'
-              'Annotation online DB mag 15'
-              'Annotation online DB mag 99'
+              'None'
+              'Local DB mag 11'
+              'Local DB mag 13'
+              'Local DB mag 15'
+              'Online DB mag 11 (period<3)'
+              'Online DB mag 13 (period<3)'
+              'Online DB mag 15 (period<3)'
+              'Online DB mag 99 (period<3)'
+              'Online DB mag 11'
+              'Online DB mag 13'
+              'Online DB mag 15'
+              'Online DB mag 99'
             )
             ParentFont = False
-            TabOrder = 12
-            Text = 'Annotation local DB mag 11'
+            TabOrder = 10
+            Text = 'Local DB mag 11'
             OnChange = annotate_mode1Change
           end
           object reference_database1: TComboBox
-            Left = 688
+            Left = 816
             Height = 23
-            Hint = 'Reference star database to be used. Set to '#13#10'1) Online , Gaia ->auto '#13#10'or'#13#10'2) Local star database and select in tab alignment V50 for Johnson-V.'
-            Top = 5
-            Width = 200
+            Hint = 'Comparison star database to be used. Set to '#13#10'1) Online , Gaia ->auto '#13#10'or'#13#10'2) Local star database and select in tab alignment V50 or V05 for Johnson-V.'
+            Top = 8
+            Width = 221
             DropDownCount = 17
             ItemHeight = 15
-            ItemIndex = 0
             Items.Strings = (
-              'Local star database'
-              'Online Gaia -> auto'
+              'Local star database (V only)'
+              'Online Gaia ->auto'
               'Online Gaia BP'
               'Online Gaia->V'
               'Online Gaia->B'
@@ -3678,29 +3647,29 @@ object stackmenu1: Tstackmenu1
               'Online Gaia->SI (i'')'
             )
             ParentFont = False
-            TabOrder = 13
+            TabOrder = 11
             Text = 'Local star database'
             OnChange = reference_database1Change
           end
           object transformation1: TButton
-            Left = 901
+            Left = 1064
             Height = 25
             Hint = 'This will calculate the transformation equation  ∆ V = a + T*(B-V) using the image in the viewer'
-            Top = 3
+            Top = 6
             Width = 107
             AutoSize = True
             Caption = 'Transformation'
             ParentFont = False
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 14
+            TabOrder = 12
             OnClick = transformation1Click
           end
           object Label19: TLabel
-            Left = 1176
+            Left = 1416
             Height = 47
             Hint = 'See popup menu for calibration && extraction'
-            Top = 5
+            Top = 4
             Width = 120
             AutoSize = False
             Caption = 'See popup menu for calibration && extraction'
@@ -3708,30 +3677,19 @@ object stackmenu1: Tstackmenu1
             ParentColor = False
             ParentFont = False
             WordWrap = True
-            OnClick = Label19Click
           end
           object most_right9: TStaticText
-            Left = 1296
+            Left = 1462
             Height = 16
-            Top = 36
+            Top = 40
             Width = 3
             AutoSize = True
             Caption = '|'
-            TabOrder = 15
+            TabOrder = 13
             Visible = False
           end
-          object measure_all1: TCheckBox
-            Left = 248
-            Height = 19
-            Hint = 'All stars annotated with AAVSO labels will be photometric measured and can be selected in the AAVSO report window.'
-            Top = 4
-            Width = 135
-            Caption = 'Measure all annotated'
-            TabOrder = 16
-            OnChange = measure_all1Change
-          end
           object SpeedButton2: TSpeedButton
-            Left = 584
+            Left = 634
             Height = 25
             Hint = 'Find best aperture by trial and error.'
             Top = 5
@@ -3773,6 +3731,103 @@ object stackmenu1: Tstackmenu1
               000000000000000000000000000000000000565656FF00000000
             }
             OnClick = SpeedButton2Click
+          end
+          object font_size_photometry1: TEdit
+            Left = 1120
+            Height = 23
+            Hint = 'Font size of image annotations. Using the online database for size 4 only abbreviation are plotted.'
+            Top = 35
+            Width = 32
+            TabOrder = 14
+            Text = '8'
+          end
+          object font_size_photometry_UpDown1: TUpDown
+            Left = 1152
+            Height = 23
+            Hint = 'Font size of image annotations. Using the online database for size 4 only abbreviation are plotted.'
+            Top = 35
+            Width = 17
+            Associate = font_size_photometry1
+            Max = 20
+            Min = 3
+            ParentShowHint = False
+            Position = 8
+            ShowHint = True
+            TabOrder = 15
+          end
+          object Label72: TLabel
+            Left = 1056
+            Height = 15
+            Top = 38
+            Width = 49
+            Alignment = taRightJustify
+            Caption = 'Font size:'
+            ParentColor = False
+          end
+          object Label73: TLabel
+            Left = 680
+            Height = 15
+            Top = 12
+            Width = 90
+            Alignment = taRightJustify
+            Caption = 'Gaia comp. stars:'
+            ParentColor = False
+          end
+          object Label75: TLabel
+            Left = 680
+            Height = 15
+            Top = 37
+            Width = 101
+            Alignment = taRightJustify
+            Caption = 'AAVSO annotation:'
+            ParentColor = False
+          end
+          object measuring_method1: TComboBox
+            Left = 200
+            Height = 23
+            Hint = 'Select measuring mode'
+            Top = 7
+            Width = 200
+            DropDownCount = 17
+            ItemHeight = 15
+            ItemIndex = 0
+            Items.Strings = (
+              'Manual star selection'
+              'Measure all annotated'
+              'Measure all stars. Total nr:'
+            )
+            ParentFont = False
+            TabOrder = 16
+            Text = 'Manual star selection'
+            OnChange = measuring_method1Change
+          end
+          object nr_stars_to_detect1: TComboBox
+            Left = 408
+            Height = 23
+            Hint = 'Number of stars to detect'
+            Top = 8
+            Width = 64
+            DropDownCount = 17
+            Enabled = False
+            ItemHeight = 15
+            ItemIndex = 0
+            Items.Strings = (
+              '100'
+              '200'
+              '300'
+            )
+            ParentFont = False
+            TabOrder = 17
+            Text = '100'
+          end
+          object ignore_saturation1: TCheckBox
+            Left = 1216
+            Height = 19
+            Hint = 'Increase image saturation level to 64000 instead the highest value in the image'
+            Top = 8
+            Width = 125
+            Caption = 'high saturation level'
+            TabOrder = 18
           end
         end
         object tab_inspector1: TTabSheet
@@ -5244,11 +5299,11 @@ object stackmenu1: Tstackmenu1
               Left = 24
               Height = 29
               Hint = 'To remove fuzzies use the viewer  popup menu "Remove deepsky object"'
-              Top = 73
+              Top = 72
               Width = 278
               Alignment = taCenter
               AutoSize = False
-              Caption = 'Remove fuzzies with right mouse button tool'
+              Caption = 'Remove fuzzies with right mouse button'
               Color = clBtnFace
               Enabled = False
               ParentColor = False
@@ -5345,14 +5400,6 @@ object stackmenu1: Tstackmenu1
               ParentFont = False
               TabOrder = 5
               OnClick = save_result1Click
-            end
-            object saved1: TLabel
-              Left = 216
-              Height = 1
-              Top = 22
-              Width = 1
-              ParentColor = False
-              ParentFont = False
             end
             object dark_spot_filter1: TButton
               Left = 86
@@ -5594,7 +5641,7 @@ object stackmenu1: Tstackmenu1
               TabOrder = 2
             end
             object Label36: TLabel
-              Left = 64
+              Left = 48
               Height = 15
               Top = 2
               Width = 80
@@ -7177,7 +7224,7 @@ object stackmenu1: Tstackmenu1
             object Button_free_resize_fits1: TButton
               Left = 296
               Height = 30
-              Hint = 'Resize current image in the viewer. Sizing factor is free selectable but there is no significant noise reducement. Interpolation is done using Catmull-Rom splines.'
+              Hint = 'Resize current image in the viewer. Sizing factor is free selectable but there is no significant noise reducement.'
               Top = 5
               Width = 80
               Caption = 'Resize'
@@ -8432,8 +8479,9 @@ object stackmenu1: Tstackmenu1
     Top = 592
   end
   object ImageList2: TImageList
-    Left = 1336
-    Top = 592
+    Scaled = True
+    Left = 1408
+    Top = 600
     Bitmap = {
       4C7A1F00000010000000100000001E0700000000000078DAED5CDB4E153D14E6
       51FE47F18A17402E848040624039A880220909202A180E9210F5061220846838
@@ -8495,190 +8543,85 @@ object stackmenu1: Tstackmenu1
       7F572CFAE04D5C5CFC25EB4A8AE7C81FBA6B529C
     }
   end
-  object PopupMenu1: TPopupMenu
-    Images = ImageList2
-    OnPopup = PopupMenu1Popup
-    Left = 464
-    Top = 592
-    object Viewimage1: TMenuItem
-      Caption = 'View image'
-      OnClick = Viewimage1Click
-    end
-    object view_previous1: TMenuItem
-      Caption = 'View previous image'
-      ShortCut = 16422
-      OnClick = view_next1Click
-    end
-    object view_next1: TMenuItem
-      Caption = 'View next image'
-      ShortCut = 16424
-      OnClick = view_next1Click
-    end
-    object MenuItem3: TMenuItem
-      Caption = '-'
-    end
-    object menukeywordchange1: TMenuItem
-      Caption = 'Change optional column keyword'
-      Hint = 'This will change the keyword displayed in the last column '
-      object keywordchangelast1: TMenuItem
-        AutoCheck = True
-        Caption = 'Change keyword last column'
-        Hint = 'Enter a new keyword to be listed in this column'
-        RadioItem = True
-        OnClick = keywordchangelast1Click
-      end
-      object column_fov1: TMenuItem
-        AutoCheck = True
-        Caption = 'FOV'
-        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS'
-        RadioItem = True
-        OnClick = column_fov1Click
-      end
-      object column_sqm1: TMenuItem
-        AutoCheck = True
-        Caption = 'SQM'
-        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS'
-        RadioItem = True
-        OnClick = column_fov1Click
-      end
-      object column_lim_magn1: TMenuItem
-        Caption = 'LIM_MAGN'
-        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS, TILT'
-        RadioItem = True
-        OnClick = column_fov1Click
-      end
-      object airmass1: TMenuItem
-        Caption = 'AIRMASS'
-        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS, TILT'
-        OnClick = column_fov1Click
-      end
-      object MenuItem14: TMenuItem
-        Caption = 'TILT'
-        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS, TILT'
-        OnClick = column_fov1Click
-      end
-    end
-    object MenuItem4: TMenuItem
-      Caption = '-'
-    end
-    object unselect1: TMenuItem
-      Caption = 'Uncheck selected'
-      ImageIndex = 9
-      OnClick = unselect1Click
-    end
-    object select1: TMenuItem
-      Caption = 'Check mark selected'
-      ImageIndex = 8
-      OnClick = select1Click
-    end
-    object selectall1: TMenuItem
-      Caption = 'Select all'
-      Hint = 'Select all items'
-      ShortCut = 16449
-      OnClick = selectall1Click
-    end
-    object MenuItem1: TMenuItem
-      Caption = '-'
-    end
-    object removeselected1: TMenuItem
-      Caption = 'Remove selected'
-      OnClick = removeselected1Click
-    end
-    object list_to_clipboard1: TMenuItem
-      Caption = 'Copy selected list to clipboard'
-      Hint = 'Data will be in clipboard and can be pasted in a spreadsheet'
-      ImageIndex = 13
-      ShortCut = 16451
-      OnClick = list_to_clipboard1Click
-    end
-    object keyword1: TMenuItem
-      Caption = 'Change header keyword in selected files'
-      Hint = 'Modify or add a keyword to the header of the selected files'
-      object changekeyword1: TMenuItem
-        Caption = 'Type keyword and new value'
-        Hint = 'All select files will be updated with new keyword value. Type for value DELETE to remove keyword.'
-        OnClick = changekeyword1Click
-      end
-      object MenuItem19: TMenuItem
-        Caption = '-'
-      end
-    end
-    object MenuItem33: TMenuItem
-      Caption = '-'
-    end
-    object auto_select1: TMenuItem
-      Caption = 'Auto alignment star for selected images'
-      Hint = 'For manual alignment, This will auto select automatic the alignment star in all selected images based on the star selected in the first image '
-      OnClick = auto_select1Click
-    end
-    object MenuItem2: TMenuItem
-      Caption = '-'
-    end
-    object refresh_solutions_selected1: TMenuItem
-      Caption = 'Refresh astrometrical solutions of selected files'
-      Hint = 'Refresh astrometrical solutions of selected files'
-      OnClick = refresh_solutions_selected1Click
-    end
-    object Separator5: TMenuItem
-      Caption = '-'
-    end
-    object renametobak1: TMenuItem
-      Caption = 'Rename selected files to *.bak'
-      Hint = 'In preperation for deleting later. '
-      ImageIndex = 10
-      ShortCut = 16430
-      OnClick = renametobak1Click
-    end
-  end
   object ImageList_colors: TImageList
-    Left = 1416
-    Top = 592
+    Scaled = True
+    Left = 1488
+    Top = 600
     Bitmap = {
-      4C7A1A0000001000000010000000790500000000000078DAED9A7F6C136518C7
-      DF0C90C13644891B9A98484C8C99736159B60C340ACE95FD2AA3DD3A298CB1CD
-      4D46366743058404D62C0B01379718D1A8E8C4FDA1310634BA0494E89A74636C
-      6E8AC80091902831F80FD34C8CC1B17D7D8B57739E77D77BEFBDAD5BFBBECDB7
-      4DEFDECFFB3CF7BCCF7BF75CAF8480102121A19894CF478484846254E20C2824
-      14BBA2EF508A9E17540595CE8217BCE0672FEFF7FB89909050CC0A7A22619A5E
-      1F565E69DBE7F385F549C9B3FAABC56BC543CD271E5F04CFCFCBE7662A728185
-      57F3653AD64EB8D8985DDFD3D46EDD8E049BC9BEFFB9ADD119476F7FB8318CFA
-      A83686D16353F5C5044FAC624D8CA17AFC1CB1331A7F43F3CFC9138EF12D5D2F
-      56D94194BE9A9B9BA1142B1B6E9B5196650C5E9ED77F1EBB3389B582B72A0767
-      B2FF53D99EDAF26CA2ABAE21BFB476EB2ED7732FBCE66CD876706DD5336E65BF
-      FACD7971B515B66497B330DD51566ADBD0E0A9DBB2FF95E34D5D9FDCF0062EC1
-      73F12FD4FD00ACFF1E28EA3E8322F7A63A39DFEA7D6CE04847063A5B3250EDCE
-      43EBF0CF68F911D87E19A8BF04545C044ACE03B6A343B0ED7909F915351E39BF
-      CFBBF2ADDF8E2FC1AFDD896869CAC6F6B36368A4DC66CA392F506E0458F11D90
-      F62D70DFF00456EEDC3F2AE76B2B729BAE1E49C0B5A37168DF968E9A0BE328A7
-      5CC139E0D1B3C072CADDFF0D7077FF9F78A8ED3DD8DC9557D7946F4C0BF11B5C
-      B6C7FD2FDF855FDE2738B82B1D76EAEB2ACA659E011E380DDC330C247D05DC36
-      3089F8DE712CFD60044525EB3A437CB933FF8E57773C3879E530C19B7BD3B0E2
-      E428522977EFD7C0E221207E80B2FD94ED9BC4B237FCC8DAD18EFC32F7C94247
-      E9C2D018D5EB9FF8695F63FA656FED236D454FD7B52FFBE81C160C52EED424E6
-      536E4160020BFD1348FC720249276E2263CF21EA832327C4AFB5172F95C7E4C9
-      8DD51F279D18457C60128B3EFF1DD9CF1FE8CBF61EE8CBF1B48EACAE6A1C2870
-      BAF616AE2B8DD3CA9D024759F6C3AD8791D043ED7D7113D9DE173F64C9BDE2B5
-      257356D5348D2FA2BEDEFE59D0DFB7AFE7B9ABE7B08C4163F4C7E263E3B8B37B
-      9CF2EF0463966294B5DBED296B5C1558F26970BE4691BB69EB68A1A36C1E035F
-      49E38BDCCA06D0385D2B2A713A587CA77C025526D5F262BB7D7E046AFAE0B1BE
-      2B699E093E4B56936599E083733D24496FDEEBA9BAA894739B4C755D52B2625F
-      8AC404D91B928F1E459F3699FF6D8A7D1E697B90DD4D7585AA45C5768857FAD0
-      2231BBA5EF5552BFD7A9E62A6CCB7D982BF581C4845AAAAC9F5F615BEE835FF6
-      3D55C607D7F118C363A7318991B71E06BE47631E8F1954BD0A9F24CDAB1125A9
-      F01D0CFE77A8F0ABA97AA9FAC3A857EA4BA2A1FE57ABD3593515F5D54CA9F5CD
-      DA301227569EE59EC26AFB9188FF74D5F791C8FDD06B707010BC529E5358B645
-      03AF120F55198DDFBF7FCD08B32D5A78ABE317EBF9C7B876ADF91B91AC050201
-      43DBB478A37634B643C73EC2F030E0FFFF9E3B84C60E7E1A919C918D0786F841
-      C5FF59CB5B143FD3F36761FE5891BF66D68F6989EB7F64CFBFB11E3FDEBC64A9
-      3574ECCF767E4AD6B5C85FB1FEC5FD53F4DF3F89FC15EB7FA6C74F2FA78DD8D2
-      5A53D1C0F3C64FE4AFA85F6773FD2ACE9F919588BFB87E45F2FA25F2CFFADFFF
-      C5F54B5CBFC4FD536C5EFFC5EF2FE2F9B558FFA2FE17F5ABA85FC5FA8FF6FABF
-      2B82229C2CE16409274B3859C2C9124E9670B28493259C2CE16409274B3859C2
-      C9124E966A00E6453859C2C9124E9670B28493259C2CE16409274B3859C2C912
-      4E9670B28493259CAC053ADD99695ABE53848B35CB875833BC9C65E5952C0BAF
-      C61AE5B55823BC1E1B8E0FC7EAF146582DDE28ABC6B3B04A9E9595F366D8106F
-      96B542393BCF0B0909C5A888058DF7B79B7F3ED5EB935BFB345E82B78EE79E3F
-      1D1B5ACE09DE3ADEACFE06B8000EFC
+      4C7A1C00000010000000100000001C0900000000000078DAED990B5454C719C7
+      E7A831BE50A246C46A82488D022214415E6A1045E4A1826283A2118580059147
+      D460AA52423D51AC3D79569B96AAA412A3A251221221AE225170319A88F83AF4
+      34B6A527A7422AE96952E3FE3BB3EE35379BBB8FBBB38AC2DC3DFF73E7F1FD66
+      BEF96666EFDC5DB7E137E1262424D42515FD81AB909050171508111212EAA252
+      2ACECF278A12BCE005DFB9788D4623242424A42862E13267A39637EE3B3F3FDF
+      A24FC6BC5A7F4DF1A6E2A1E4138F2F82E7E7E573733FD6821A5EC99707B1772C
+      C5C6D6FDFD802EE607D865A32DE432D38EB97A4B6D58EBA3521BD68E4DD1171B
+      78622FD6863614C7CF113B6BE36FD5FC73F284A37DBBEE177BF5834EFAD9B061
+      038CA596B554662DABA60D5E9ED77F9E7E1F26D61EBCBDD6E0C3ECFFFDBC7E9E
+      BAA25F7C4A7AC4DCE4E579F12B5F7A3B2E3DE7CD594B5E4830B64B7B7E7AB7E4
+      C4F021F171915EB1F3E6862F48CF4A497DF58DA399BB0E7D9B5B731D5957FF87
+      946BC0735780A8F2CF1095B02845CE17E64EAEDBBFD507C5053E484A988EC286
+      BFA3E0AFC0AA6620ED3A90781598DD0484976911BEEE3788485C9A25E737E606
+      FDE1ABA383D056DE0F0599FE5875F1163228F73CE5E22E53AE1108FC1CF0BC00
+      B834DC41D09A575BE57C72625866CBFEBEB859D60D5B72BCB0F4F26DCCA7DCCC
+      4B40C845C09B72A33E059C4FFF171E45BB119EB0B865C6FC859E12BF203E7C8A
+      E6B527F1CF528237F3BC10437D7D9672BE9F01A3CF03C31A0087B340CF3A1D7A
+      9DBA8DA17B1A11357B4EB1C4CF8F8B78E2ADD56374377610FC7EBD27023F6985
+      3BE5469C031CB540AF3ACA9EA66CAD0E23B76BE0B77A0B22E6257C12193BB78F
+      D446D27353BFD898E1D59C9B1C5C14B52C65CBC80397D0BB9E726774789C72BD
+      6BEEA08FE60EFA7D7C070EC7BE83CFBA77A80FB101123F2B267AA83C26D31626
+      1D7438D68A5E353AF4FFA81DFE2F6EAAF5CFDD541B9055D818BA24A36E665CFC
+      FAC83973BB995A3B3363E7F98F2BDC81BEC7697FD5DFC13F77F35E356B2F7AD6
+      ECEECF2ECDBCDD9FFA3AA092F9FBC7AFA727247557D3068DD17F1C2B6E6360F9
+      6DCAFF89C5CCC95A362626C669467C22061D66F3D58AB045CB5B2363E73DA682
+      5F4CE38BB0C5E9A071BA19353B2E568DEF94EF4BE54BE51D1D13F378079CE9D9
+      58771AF4980DBC9FEC4CE66703CFE65A6B90B9794FA3DA45653CB743A8BE3668
+      88519D938161ECB7061FB38C6C8A64FE1719D56519CA19BB96EA06558142DF12
+      6FEC438181596BC82F31D86DA3EA61D4B7DC871E061B1818E97297D9698CFA96
+      FBA091E5DD653CDBC7B794DE1B4CE89681915FC755F0C74DCC6385954A53E01D
+      0CF36A8D1C14F8AD2AFCDFAAC087529DA23A6D41A70CB6A4339CFF95CEE96A75
+      3FCE570FCB59DFD63EAC89935A5ECD3B85BDFBEF88F83FA8F37D47AC7DE9535F
+      5F0F5E197FA7A829EB0CBC423C14656DFC0CF616CB3A0B6FEFF875F5F5A772EF
+      DA433FB86A6A6AAC2A33C55BDB8F897298E91F167858E1FF8FFE7790DA66776B
+      246764ED4145FCA0E0FF23CBDB297E36CF9F1DD78F3DD6AF2DFBC76689E77FC7
+      7EFF76F5F8F1AE4B35670D33FD3FEAFC7DD9D762FD8AFD2FDE9F3AFFFB9358BF
+      62FF3FECF133B7A6ADE9CBD49EEA0C3C6FFCC4FA15E7D747F9FC2ABE3F3B5622
+      FEE2F9D591CF2FB1FEECFFFBBF787E89E797787FEA9ACF7FF1FB8BF8FF5AEC7F
+      71FE17E757717E15FBBFB39FFF7775A008274B3859C2C9124E9670B28493259C
+      2CE16409274B3859C2C9124E9670B28493A5AA83ED229C2CE16409274B3859C2
+      C9124E9670B28493259C2CE16409274B3859C2C9124ED60E3A5FEC6BB3F2CF10
+      2ED6565E626DE1E5AC5ADE9855C32BB1D6F2A6586B7873AC25DE126B8EB78635
+      C55BCB2AF16A58635E2D2BE76D6125DE56D61E0A58D3242424D44545EC70F1FE
+      7673F7AE7C3ED1D799F808DE7E3CF7FC99E9C3947382B71F6FAFDF4E0FAF2079
+      15D9445BB58AB46BF2888E89A55919AB93EC68F91AAA7BFCA10C12426DCE6AD6
+      12DDB9DFBAA0A97822BEAA5DA5174BB33256C76C8EBD48B2192BF18CADCC21CD
+      275F26B8B627FE1EC7D2C679D6CEF197EEDAB13BE38FB07E695B5776C7E2E689
+      9538B755DF97BEFD13867B032DBB5A4AEB4FAED4DBB5D27BF51A82C31924AF6A
+      35D15D2E89C297D5A9D06E7101F5A5AD7C0529F9209D0431D17197B0321A075C
+      2E89C49755A97AB17CF94AA2ADCE7743CB9145A8DBEC023ABEB643E924511E53
+      162B3A6634164FD3DBB5542CA65A848F72093ECC24ED17B687E0C6C1381CCD21
+      A0B128319E13DA372AB309F47749867C7926D135BF37034C348D83BF20416ABE
+      BBA9BDEECA8E205CDD190C3A56D57CD972D27E7A932B1AB77B617F2AC181E53F
+      F65FBA581DB361DA47559646DA695AFB618E03CEBFEE8AEAF52ED89742DA689B
+      890A6CE2BE1748DBA942675C786D14DE5FA66F474B6DF34A9712DD890D03A12D
+      1A8ADD4904EF2793365A5742992026966665B43FBD8DB6C8098CA179FD7ADE9B
+      42CE962C26F8786D1F9CF9757F1C5DEB827769BE44A6C3394EA8A3754C2CCF18
+      996F21EF2D23CD3B13095D533D50BBA1276AF37BA28AA6AB8CF2D40FECA1B68C
+      318A6308AD3BBB6321D1D17A360FA8F9E55D1DCE7E429FD7D7511BEA7788C9F9
+      A063A2ED68FFBC84B4537F744C2CCDCAA4F1CAAFE8AC1926F5F498977D9D4766
+      4D3067634EFED33FDF3EC6AFFC1D5BD8C1CEB31C42A25B6E79046ADA1D8744F6
+      57CB7B06EC4DA53C280FD771BF4B53CB0747FDA341E2A93E356537DC2DCBD7D5
+      E39599A3BD5F5FE0EEB72BC32BE8D03ABFB0866D8CFD9E3F01DFD0BA6DACCEDD
+      AF2463B4F71B0B1833C22DDB77C433BF0AF59E7CF65F7ED39A101479031227E7
+      FDA65DBE976736CC96314F8DD918CA7C183262899B47E0F126663B7E521D2684
+      5D42E0CC2FF4F63E53CEE9D3AC8CD519C6D3E4F4548A9B7C1C0306853A8E9D58
+      5969A8C7B8E05AF84EBDC8FA9118BDDC03AA2A1D9F0C77548A45EF7ECF74F79E
+      5C571110D10C1A3F78859C4640C45FE46C451F078FEEE6E3FEB713CCEF9F855E
+      D0332C3D21AC516AE3A43976A053786F6AFFCDC4F0EBF7FA643CF365FCE47A96
+      FF66C0A0A9BD4DF123DDF3A7B2F87A06D530DB5BA3C617678E0F3E9241DBF8B7
+      543ECC3537CC14EF3DE958018B178DE381C1C312864BE5CE2ECB7E121071ADCC
+      3FFC9AEEA73EEFBE628A9F1076B1F4E9B19BE798AA1F3BA178368D4BA9A9FAFE
+      8326F5B2B4AE1D074FF981CDFF01D65163B0
     }
   end
   object PopupMenu2: TPopupMenu
@@ -8895,10 +8838,10 @@ object stackmenu1: Tstackmenu1
       Caption = 'Remove selected'
       OnClick = removeselected1Click
     end
-    object rename_result1: TMenuItem
+    object rename_selectedfiles1: TMenuItem
       Caption = 'Rename selected files as'
       Hint = 'Rename the file'
-      OnClick = rename_result1Click
+      OnClick = rename_selectedfiles1Click
     end
     object MenuItem25: TMenuItem
       Caption = '-'
@@ -8912,94 +8855,6 @@ object stackmenu1: Tstackmenu1
       Caption = '-'
     end
     object renametobak5: TMenuItem
-      Caption = 'Rename selected files to *.bak'
-      Hint = 'In preperation for deleting later. '
-      ImageIndex = 10
-      ShortCut = 16430
-      OnClick = renametobak1Click
-    end
-  end
-  object PopupMenu6: TPopupMenu
-    Images = ImageList2
-    Left = 936
-    Top = 592
-    object Viewimage6: TMenuItem
-      Caption = 'View image'
-      OnClick = Viewimage1Click
-    end
-    object view_previous6: TMenuItem
-      Caption = 'View previous image'
-      ShortCut = 16422
-      OnClick = view_previous6Click
-    end
-    object view_next6: TMenuItem
-      Caption = 'View next image'
-      ShortCut = 16424
-      OnClick = view_previous6Click
-    end
-    object MenuItem16: TMenuItem
-      Caption = '-'
-    end
-    object unselect6: TMenuItem
-      Caption = 'Uncheck selected'
-      ImageIndex = 9
-      OnClick = unselect1Click
-    end
-    object select6: TMenuItem
-      Caption = 'Check mark selected'
-      ImageIndex = 8
-      OnClick = select1Click
-    end
-    object selectall6: TMenuItem
-      Caption = 'Select all'
-      Hint = 'Select all items'
-      ShortCut = 16449
-      OnClick = selectall1Click
-    end
-    object MenuItem17: TMenuItem
-      Caption = '-'
-    end
-    object removeselected6: TMenuItem
-      Caption = 'Remove selected'
-      OnClick = removeselected1Click
-    end
-    object list_to_clipboard6: TMenuItem
-      Caption = 'Copy selected list to clipboard'
-      Hint = 'Data will be in clipboard and can be pasted in a spreadsheet'
-      ImageIndex = 13
-      ShortCut = 16451
-      OnClick = list_to_clipboard1Click
-    end
-    object keyword6: TMenuItem
-      Caption = 'Change header keyword in selected files'
-      Hint = 'Modify or add a keyword to the header of the selected files'
-      object changekeyword6: TMenuItem
-        Caption = 'Type keyword and new value'
-        Hint = 'All select files will be updated with new keyword value. Type for value DELETE to remove keyword.'
-        OnClick = changekeyword1Click
-      end
-    end
-    object MenuItem18: TMenuItem
-      Caption = '-'
-    end
-    object blink_stack_selected1: TMenuItem
-      Caption = 'Track and Stack all selected files for all annotations'
-      Hint = 'Stack selected files aligned for each annotated object'
-      ImageIndex = 6
-      OnClick = blink_stack_selected1Click
-    end
-    object Separator6: TMenuItem
-      Caption = '-'
-    end
-    object bin_selectedB1: TMenuItem
-      Caption = 'Bin 2x2 the selected files'
-      Hint = 'Bin 2x2 the selected files.'
-      OnClick = bin_selectedB1Click
-    end
-    object Separator7: TMenuItem
-      Caption = '-'
-    end
-    object renametobak6: TMenuItem
       Caption = 'Rename selected files to *.bak'
       Hint = 'In preperation for deleting later. '
       ImageIndex = 10
@@ -9031,141 +8886,8 @@ object stackmenu1: Tstackmenu1
       'ColorS=F0FBFF'
       'ColorT=A4A0A0'
     )
-    Left = 1256
+    Left = 1360
     Top = 592
-  end
-  object PopupMenu7: TPopupMenu
-    Images = ImageList2
-    Left = 1016
-    Top = 592
-    object Viewimage7: TMenuItem
-      Caption = 'View image'
-      OnClick = Viewimage1Click
-    end
-    object view_previous7: TMenuItem
-      Caption = 'View previous image'
-      ShortCut = 16422
-      OnClick = view_previous7Click
-    end
-    object view_next7: TMenuItem
-      Caption = 'View next image'
-      ShortCut = 16424
-      OnClick = view_previous7Click
-    end
-    object MenuItem20: TMenuItem
-      Caption = '-'
-    end
-    object unselect7: TMenuItem
-      Caption = 'Uncheck selected'
-      ImageIndex = 9
-      OnClick = unselect1Click
-    end
-    object select7: TMenuItem
-      Caption = 'Check mark selected'
-      ImageIndex = 8
-      OnClick = select1Click
-    end
-    object selectall7: TMenuItem
-      Caption = 'Select all'
-      Hint = 'Select all items'
-      ShortCut = 16449
-      OnClick = selectall1Click
-    end
-    object MenuItem21: TMenuItem
-      Caption = '-'
-    end
-    object removeselected7: TMenuItem
-      Caption = 'Remove selected'
-      OnClick = removeselected1Click
-    end
-    object list_to_clipboard7: TMenuItem
-      Caption = 'Copy selected list to clipboard'
-      Hint = 'Data will be in clipboard and can be pasted in a spreadsheet'
-      ImageIndex = 13
-      ShortCut = 16451
-      OnClick = list_to_clipboard1Click
-    end
-    object keyword7: TMenuItem
-      Caption = 'Change header keyword in selected files'
-      Hint = 'Modify or add a keyword to the header of the selected files'
-      object changekeyword7: TMenuItem
-        Caption = 'Type keyword and new value'
-        Hint = 'All select files will be updated with new keyword value. Type for value DELETE to remove keyword.'
-        OnClick = changekeyword1Click
-      end
-    end
-    object MenuItem22: TMenuItem
-      Caption = '-'
-    end
-    object photom_calibrate1: TMenuItem
-      Caption = 'Calibrate selected files'
-      Hint = 'Calibrate selected files with darks, flats and flatdarks. '
-      ImageIndex = 26
-      OnClick = photom_calibrate1Click
-    end
-    object photom_green1: TMenuItem
-      Caption = 'Extract Green channel of selected raw files'
-      Hint = 'For raw OSC images only. Not for images converted to colour. The routine will combine for each bayer submosaic the two green sensitive pixels. Check in advance the de-mosaic pattern in stack menu, tab stack method.'
-      ImageIndex = 25
-      OnClick = photom_green1Click
-    end
-    object photom_blue1: TMenuItem
-      Caption = '   or extract Blue channel of selected raw files'
-      Hint = 'For raw OSC images only. Not for images converted to colour. The routine will  extract the blue sensitive pixels. Check in advance the de-mosaic pattern in stack menu, tab stack method.'
-      ImageIndex = 29
-      OnClick = photom_green1Click
-    end
-    object photom_red1: TMenuItem
-      Caption = '   or extract Red channel of selected raw files'
-      Hint = 'For raw OSC images only. Not for images converted to colour. The routine will  extract the red sensitive pixels. Check in advance the de-mosaic pattern in stack menu, tab stack method.'
-      ImageIndex = 28
-      OnClick = photom_green1Click
-    end
-    object Separator3: TMenuItem
-      Caption = '-'
-    end
-    object photom_stack1: TMenuItem
-      Caption = 'Stack selected files in mode average'
-      Hint = 'Stack the selected files in mode AVERAGE and replace them by the stack.'
-      ImageIndex = 6
-      OnClick = photom_stack1Click
-    end
-    object stack_groups1: TMenuItem
-      Caption = 'Stack selected files in groups, mode average'
-      ImageIndex = 6
-      OnClick = stack_groups1Click
-    end
-    object Separator1: TMenuItem
-      Caption = '-'
-    end
-    object bin2x2_selectedP1: TMenuItem
-      Caption = 'Bin 2x2 the selected files'
-      Hint = 'This will bin 2x2 all selected files and add them to the list.'
-      OnClick = bin2x2_selectedP1Click
-    end
-    object refresh_astrometric_solutions1: TMenuItem
-      Caption = 'Refresh astrometrical solutions of selected files'
-      Hint = 'This will renew the astrometric solutions and photometric calibration . Use this only for the rare case  the solutions are wrong and alignment is poor.'
-      OnClick = refresh_astrometric_solutions1Click
-    end
-    object Separator2: TMenuItem
-      Caption = '-'
-    end
-    object photometric_calibration1: TMenuItem
-      Caption = 'Photometric calibration selected files'
-      Hint = 'Photometric calibration and save it to the file header. This is just an extra tool and not essential. It adds keyword MZERO to the header'
-      OnClick = photometric_calibration1Click
-    end
-    object Separator4: TMenuItem
-      Caption = '-'
-    end
-    object renametobak7: TMenuItem
-      Caption = 'Rename selected files to *.bak'
-      Hint = 'In preperation for deleting later. '
-      ImageIndex = 10
-      ShortCut = 16430
-      OnClick = renametobak1Click
-    end
   end
   object PopupMenu8: TPopupMenu
     Images = ImageList2
@@ -9282,6 +9004,470 @@ object stackmenu1: Tstackmenu1
       Caption = '-'
     end
     object renametobak9: TMenuItem
+      Caption = 'Rename selected files to *.bak'
+      Hint = 'In preperation for deleting later. '
+      ImageIndex = 10
+      ShortCut = 16430
+      OnClick = renametobak1Click
+    end
+  end
+  object PopupMenu6: TPopupMenu
+    Images = ImageList2
+    Left = 936
+    Top = 592
+    object Viewimage6: TMenuItem
+      Caption = 'View image'
+      OnClick = Viewimage1Click
+    end
+    object view_previous6: TMenuItem
+      Caption = 'View previous image'
+      ShortCut = 16422
+      OnClick = view_previous6Click
+    end
+    object view_next6: TMenuItem
+      Caption = 'View next image'
+      ShortCut = 16424
+      OnClick = view_previous6Click
+    end
+    object MenuItem16: TMenuItem
+      Caption = '-'
+    end
+    object unselect6: TMenuItem
+      Caption = 'Uncheck selected'
+      ImageIndex = 9
+      OnClick = unselect1Click
+    end
+    object select6: TMenuItem
+      Caption = 'Check mark selected'
+      ImageIndex = 8
+      OnClick = select1Click
+    end
+    object selectall6: TMenuItem
+      Caption = 'Select all'
+      Hint = 'Select all items'
+      ShortCut = 16449
+      OnClick = selectall1Click
+    end
+    object MenuItem17: TMenuItem
+      Caption = '-'
+    end
+    object removeselected6: TMenuItem
+      Caption = 'Remove selected'
+      OnClick = removeselected1Click
+    end
+    object list_to_clipboard6: TMenuItem
+      Caption = 'Copy selected list to clipboard'
+      Hint = 'Data will be in clipboard and can be pasted in a spreadsheet'
+      ImageIndex = 13
+      ShortCut = 16451
+      OnClick = list_to_clipboard1Click
+    end
+    object keyword6: TMenuItem
+      Caption = 'Change header keyword in selected files'
+      Hint = 'Modify or add a keyword to the header of the selected files'
+      object changekeyword6: TMenuItem
+        Caption = 'Type keyword and new value'
+        Hint = 'All select files will be updated with new keyword value. Type for value DELETE to remove keyword.'
+        OnClick = changekeyword1Click
+      end
+    end
+    object MenuItem18: TMenuItem
+      Caption = '-'
+    end
+    object blink_stack_selected1: TMenuItem
+      Caption = 'Track and Stack all selected files for all annotations'
+      Hint = 'Stack selected files aligned for each annotated object'
+      ImageIndex = 6
+      OnClick = blink_stack_selected1Click
+    end
+    object Separator6: TMenuItem
+      Caption = '-'
+    end
+    object bin_selectedB1: TMenuItem
+      Caption = 'Bin 2x2 the selected files'
+      Hint = 'Bin 2x2 the selected files.'
+    end
+    object Separator7: TMenuItem
+      Caption = '-'
+    end
+    object renametobak6: TMenuItem
+      Caption = 'Rename selected files to *.bak'
+      Hint = 'In preperation for deleting later. '
+      ImageIndex = 10
+      ShortCut = 16430
+      OnClick = renametobak1Click
+    end
+  end
+  object PopupMenu7: TPopupMenu
+    Images = ImageList2
+    Left = 1016
+    Top = 592
+    object Viewimage7: TMenuItem
+      Caption = 'View image'
+      OnClick = Viewimage1Click
+    end
+    object view_previous7: TMenuItem
+      Caption = 'View previous image'
+      ShortCut = 16422
+      OnClick = view_previous7Click
+    end
+    object view_next7: TMenuItem
+      Caption = 'View next image'
+      ShortCut = 16424
+      OnClick = view_previous7Click
+    end
+    object MenuItem20: TMenuItem
+      Caption = '-'
+    end
+    object unselect7: TMenuItem
+      Caption = 'Uncheck selected'
+      ImageIndex = 9
+      OnClick = unselect1Click
+    end
+    object select7: TMenuItem
+      Caption = 'Check mark selected'
+      ImageIndex = 8
+      OnClick = select1Click
+    end
+    object selectall7: TMenuItem
+      Caption = 'Select all'
+      Hint = 'Select all items'
+      ShortCut = 16449
+      OnClick = selectall1Click
+    end
+    object MenuItem21: TMenuItem
+      Caption = '-'
+    end
+    object removeselected7: TMenuItem
+      Caption = 'Remove selected'
+      OnClick = removeselected1Click
+    end
+    object list_to_clipboard7: TMenuItem
+      Caption = 'Copy selected list to clipboard'
+      Hint = 'Selected data will be copied to the clipboard and can be pasted into a spreadsheet'
+      ImageIndex = 13
+      ShortCut = 16451
+      OnClick = list_to_clipboard1Click
+    end
+    object copyRowsandColumnsswapped1: TMenuItem
+      Caption = 'Copy selected rows and columns swapped'
+      Hint = 'Selected data will be copied to the clipboard but the rows and columns will be swapped'
+      ShortCut = 24643
+      OnClick = copyRowsandColumnsswapped1Click
+    end
+    object keyword7: TMenuItem
+      Caption = 'Change header keyword in selected files'
+      Hint = 'Modify or add a keyword to the header of the selected files'
+      object changekeyword7: TMenuItem
+        Caption = 'Type keyword and new value'
+        Hint = 'All select files will be updated with new keyword value. Type for value DELETE to remove keyword.'
+        OnClick = changekeyword1Click
+      end
+    end
+    object MenuItem22: TMenuItem
+      Caption = '-'
+    end
+    object photom_calibrate1: TMenuItem
+      Caption = 'Calibrate selected files'
+      Hint = 'Calibrate selected files with darks, flats and flatdarks. '
+      ImageIndex = 26
+      OnClick = photom_calibrate1Click
+    end
+    object photom_green1: TMenuItem
+      Caption = 'Extract Green channel of selected raw files'
+      Hint = 'For raw OSC images only. Not for images converted to colour. The routine will combine for each bayer submosaic the two green sensitive pixels. Check in advance the de-mosaic pattern in stack menu, tab stack method.'
+      ImageIndex = 25
+      OnClick = photom_green1Click
+    end
+    object photom_blue1: TMenuItem
+      Caption = '   or extract Blue channel of selected raw files'
+      Hint = 'For raw OSC images only. Not for images converted to colour. The routine will  extract the blue sensitive pixels. Check in advance the de-mosaic pattern in stack menu, tab stack method.'
+      ImageIndex = 29
+      OnClick = photom_green1Click
+    end
+    object photom_red1: TMenuItem
+      Caption = '   or extract Red channel of selected raw files'
+      Hint = 'For raw OSC images only. Not for images converted to colour. The routine will  extract the red sensitive pixels. Check in advance the de-mosaic pattern in stack menu, tab stack method.'
+      ImageIndex = 28
+      OnClick = photom_green1Click
+    end
+    object Separator3: TMenuItem
+      Caption = '-'
+    end
+    object photom_stack1: TMenuItem
+      Caption = 'Stack selected files in mode average'
+      Hint = 'Stack the selected files in mode AVERAGE and replace them by the stack.'
+      ImageIndex = 6
+      OnClick = photom_stack1Click
+    end
+    object stack_groups1: TMenuItem
+      Caption = 'Stack selected files in groups, mode average'
+      ImageIndex = 6
+      OnClick = stack_groups1Click
+    end
+    object Separator1: TMenuItem
+      Caption = '-'
+    end
+    object bin2x2_selectedP1: TMenuItem
+      Caption = 'Bin 2x2 the selected files'
+      Hint = 'This will bin 2x2 all selected files and add them to the list.'
+      OnClick = bin2x2_selectedP1Click
+    end
+    object refresh_astrometric_solutions1: TMenuItem
+      Caption = 'Refresh astrometrical solutions of selected files'
+      Hint = 'This will renew the astrometric solutions and photometric calibration . Use this only for the rare case  the solutions are wrong and alignment is poor.'
+      OnClick = refresh_astrometric_solutions1Click
+    end
+    object Separator2: TMenuItem
+      Caption = '-'
+    end
+    object photometric_calibration1: TMenuItem
+      Caption = 'Photometric calibration selected files'
+      Hint = 'Photometric calibration and save it to the file header. This is just an extra tool and not essential. It adds keyword MZERO to the header'
+      OnClick = photometric_calibration1Click
+    end
+    object Separator4: TMenuItem
+      Caption = '-'
+    end
+    object renametobak7: TMenuItem
+      Caption = 'Rename selected files to *.bak'
+      Hint = 'In preperation for deleting later. '
+      ImageIndex = 10
+      ShortCut = 16430
+      OnClick = renametobak1Click
+    end
+  end
+  object PopupMenu1: TPopupMenu
+    Images = ImageList2
+    OnPopup = PopupMenu1Popup
+    Left = 504
+    Top = 592
+    object Viewimage1: TMenuItem
+      Caption = 'View image'
+      OnClick = Viewimage1Click
+    end
+    object view_previous1: TMenuItem
+      Caption = 'View previous image'
+      ShortCut = 16422
+      OnClick = view_next1Click
+    end
+    object view_next1: TMenuItem
+      Caption = 'View next image'
+      ShortCut = 16424
+      OnClick = view_next1Click
+    end
+    object MenuItem3: TMenuItem
+      Caption = '-'
+    end
+    object menukeywordchange1: TMenuItem
+      Caption = 'Change last column keyword'
+      Hint = 'This will change the keyword displayed in the last column '
+      object keywordchangelast1: TMenuItem
+        AutoCheck = True
+        Caption = 'Enter the keyword'
+        Hint = 'Enter a new keyword to be listed in this column'
+        RadioItem = True
+        OnClick = keywordchangelast1Click
+      end
+      object Separator12: TMenuItem
+        Caption = '-'
+      end
+      object column_fov1: TMenuItem
+        AutoCheck = True
+        Caption = 'FOV'
+        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS'
+        RadioItem = True
+        OnClick = column_fov1Click
+      end
+      object column_sqm1: TMenuItem
+        AutoCheck = True
+        Caption = 'SQM'
+        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS'
+        RadioItem = True
+        OnClick = column_fov1Click
+      end
+      object column_lim_magn1: TMenuItem
+        Caption = 'LIM_MAGN'
+        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS, TILT'
+        RadioItem = True
+        OnClick = column_fov1Click
+      end
+      object airmass1: TMenuItem
+        Caption = 'AIRMASS'
+        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS, TILT'
+        OnClick = column_fov1Click
+      end
+      object MenuItem14: TMenuItem
+        Caption = 'TILT'
+        Hint = 'If missing,  this keyword is made available if the images are batch solved (in viewer menu tools) with option add LIM-MAGN, SQM, CENTALT, AIRMASS, TILT'
+        OnClick = column_fov1Click
+      end
+    end
+    object MenuItem4: TMenuItem
+      Caption = '-'
+    end
+    object unselect1: TMenuItem
+      Caption = 'Uncheck selected'
+      ImageIndex = 9
+      OnClick = unselect1Click
+    end
+    object select1: TMenuItem
+      Caption = 'Check mark selected'
+      ImageIndex = 8
+      OnClick = select1Click
+    end
+    object selectall1: TMenuItem
+      Caption = 'Select all'
+      Hint = 'Select all items'
+      ShortCut = 16449
+      OnClick = selectall1Click
+    end
+    object MenuItem1: TMenuItem
+      Caption = '-'
+    end
+    object removeselected1: TMenuItem
+      Caption = 'Remove selected'
+      OnClick = removeselected1Click
+    end
+    object list_to_clipboard1: TMenuItem
+      Caption = 'Copy selected list to clipboard'
+      Hint = 'Data will be in clipboard and can be pasted in a spreadsheet'
+      ImageIndex = 13
+      ShortCut = 16451
+      OnClick = list_to_clipboard1Click
+    end
+    object keyword1: TMenuItem
+      Caption = 'Change header keyword in selected files'
+      Hint = 'Modify or add a keyword to the header of the selected files'
+      object changekeyword1: TMenuItem
+        Caption = 'Type keyword and new value'
+        Hint = 'All select files will be updated with new keyword value. Type for value DELETE to remove keyword.'
+        OnClick = changekeyword1Click
+      end
+      object MenuItem19: TMenuItem
+        Caption = '-'
+      end
+    end
+    object MenuItem33: TMenuItem
+      Caption = '-'
+    end
+    object auto_select1: TMenuItem
+      Caption = 'Auto selection reference object in selected images'
+      Hint = 'For manual alignment, This will automatically select the same object in all images based on the selection in the first image '
+      OnClick = auto_select1Click
+    end
+    object MenuItem2: TMenuItem
+      Caption = '-'
+    end
+    object MenuItem35: TMenuItem
+      Caption = 'Batch processing selected files'
+      object Refresh_astrometrical_solutions1: TMenuItem
+        Caption = 'Refresh astrometrical solutions of selected files'
+        Hint = 'Refresh astrometrical solutions of selected files'
+        OnClick = Refresh_astrometrical_solutions1Click
+      end
+      object report_sqm1: TMenuItem
+        Caption = 'Add SQM value to the file header of selected files. '
+        Hint = 'Will report SQM at optional column (last)'
+        OnClick = report_sqm1Click
+      end
+      object Separator9: TMenuItem
+        Caption = '-'
+      end
+      object listview1_photometric_calibration1: TMenuItem
+        Caption = 'Photometric calibration selected files'
+        Hint = 'Photometric calibration selected files'
+        OnClick = listview1_photometric_calibration1Click
+      end
+      object Separator10: TMenuItem
+        Caption = '-'
+      end
+      object MenuItem41: TMenuItem
+        Caption = 'Bin 2x2 selected files'
+        OnClick = MenuItem41Click
+      end
+      object Separator11: TMenuItem
+        Caption = '-'
+      end
+      object annotate_unknown1: TMenuItem
+        Caption = 'Annotate unknown stars in selected files'
+        Hint = 'This will typically annotate novae and minor planets'
+        OnClick = annotate_unknown1Click
+      end
+    end
+    object Separator5: TMenuItem
+      Caption = '-'
+    end
+    object renametobak1: TMenuItem
+      Caption = 'Rename selected files to *.bak'
+      Hint = 'In preperation for deleting later. '
+      ImageIndex = 10
+      ShortCut = 16430
+      OnClick = renametobak1Click
+    end
+  end
+  object PopupMenu10: TPopupMenu
+    Images = ImageList2
+    OnPopup = PopupMenu1Popup
+    Left = 1264
+    Top = 600
+    object Viewimage10: TMenuItem
+      Caption = 'View image'
+      OnClick = Viewimage1Click
+    end
+    object MenuItem34: TMenuItem
+      Caption = '-'
+    end
+    object MenuItem36: TMenuItem
+      Caption = '-'
+    end
+    object unselect10: TMenuItem
+      Caption = 'Uncheck selected'
+      ImageIndex = 9
+      OnClick = unselect1Click
+    end
+    object select10: TMenuItem
+      Caption = 'Check mark selected'
+      ImageIndex = 8
+      OnClick = select1Click
+    end
+    object selectall10: TMenuItem
+      Caption = 'Select all'
+      Hint = 'Select all items'
+      ShortCut = 16449
+      OnClick = selectall1Click
+    end
+    object MenuItem37: TMenuItem
+      Caption = '-'
+    end
+    object removeselected10: TMenuItem
+      Caption = 'Remove selected'
+      OnClick = removeselected1Click
+    end
+    object list_to_clipboard10: TMenuItem
+      Caption = 'Copy selected list to clipboard'
+      Hint = 'Data will be in clipboard and can be pasted in a spreadsheet'
+      ImageIndex = 13
+      ShortCut = 16451
+      OnClick = list_to_clipboard1Click
+    end
+    object MenuItem39: TMenuItem
+      Caption = '-'
+    end
+    object sn_rename_selected_files1: TMenuItem
+      Caption = 'Rename selected files'
+    end
+    object MenuItem40: TMenuItem
+      Caption = '-'
+    end
+    object refresh_solutions_selectedSN_reference1: TMenuItem
+      Caption = 'Refresh astrometrical solutions and photometric cal of selected files'
+      Hint = 'Refresh astrometrical solutions and photometric cal of selected files'
+    end
+    object Separator8: TMenuItem
+      Caption = '-'
+    end
+    object renametobak10: TMenuItem
       Caption = 'Rename selected files to *.bak'
       Hint = 'In preperation for deleting later. '
       ImageIndex = 10

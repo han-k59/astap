@@ -126,7 +126,7 @@ procedure reset_solution_vectors(factor: double); {reset the solution vectors}
 function SMedian(list: array of double; leng: integer): double;{get median of an array of double. Taken from CCDciel code but slightly modified}
 
 function solve_image(img :image_array ) : boolean;{find match between image and star database}
-procedure bin_and_find_stars(img :image_array;binning:integer;cropping,hfd_min:double;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
+procedure bin_and_find_stars(img :image_array;binfactor:integer;cropping,hfd_min:double;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
 function report_binning(height:double) : integer;{select the binning}
 var
   star1   : array[0..2] of array of single;
@@ -148,9 +148,11 @@ begin
   sincos(dec1,sin_dec1,cos_dec1);{use sincos function for speed}
   sincos(dec2,sin_dec2,cos_dec2);
 
-  cos_sep:=min(1,sin_dec1*sin_dec2+ cos_dec1*cos_dec2*cos(ra1-ra2));{min function to prevent run time errors for 1.000000000002}
+  cos_sep:=max(-1.0,min(1.0,sin_dec1*sin_dec2+ cos_dec1*cos_dec2*cos(ra1-ra2)));{min function to prevent run time errors for 1.000000000002.  For correct compiling use 1.0 instead of 1. See https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html}
   sep:=arccos(cos_sep);
 end;
+
+
 
 
 procedure QuickSort(var A: array of double; iLo, iHi: Integer) ;{ Fast quick sort. Sorts elements in the array list with indices between lo and hi}
@@ -212,7 +214,7 @@ end;
 {   see also Montenbruck & Pfleger, Astronomy on the personal computer}
 function lsq_fit( A_matrix: star_list; {[, 0..3,0..nr_equations-1]} b_matrix  : array of double;{equations result, b=A*s}  out x_matrix: solution_vector ): boolean;
   const tiny = 1E-10;  {accuracy}
-  var i,j,k, nr_equations,nr_columns,hhh  : integer;
+  var i,j,k, nr_equations,nr_columns  : integer;
       p,q,h                           : double;
       temp_matrix                     : star_list;
 
@@ -316,7 +318,7 @@ end;
 
 procedure find_quads(starlist :star_list; out quad_star_distances :star_list);  {build quads using closest stars, revised 2022-4-10}
 var
-   i,j,k,nrstars,j_used1,j_used2,j_used3,nrquads,Sstart,Send,tolerance  : integer;
+   i,j,k,nrstars,j_index1,j_index2,j_index3,nrquads,Sstart,Send,bandw  : integer;
    distance,distance1,distance2,distance3,x1,x2,x3,x4,xt,y1,y2,y3,y4,yt,
    dist1,dist2,dist3,dist4,dist5,dist6,dummy,disty                          : double;
    identical_quad : boolean;
@@ -335,17 +337,17 @@ begin
   if nrstars>=150 then
   begin
     quickSort_starlist(starlist,0,nrstars-1); {sort in X only}
-    tolerance:=round(0.5*sqrt(nrstars));{tolerance band is about twice the every star distance}
+    bandw:=round(2*sqrt(nrstars));{resulting tolerance band will be about twice the average star distance assuming the stars are equally distributed}
   end
   else
-  tolerance:=1;{switch pre-filtering in X off}
+  bandw:=nrstars;{switch off pre-filtering in X}
 
   nrquads:=0;
   SetLength(quad_star_distances,8,nrstars);{will contain the six distances and the central position}
 
-  j_used1:=0;{give it a default value}
-  j_used2:=0;
-  j_used3:=0;
+  j_index1:=0;{give it a default value}
+  j_index2:=0;
+  j_index3:=0;
 
   for i:=0 to nrstars-1 do
   begin
@@ -353,45 +355,47 @@ begin
     distance2:=1E99;{distance second closest star}
     distance3:=1E99;{distance third closest star}
 
+    Sstart:=max(0,i-bandw);
+    Send:=min(nrstars-1,i+bandw); {search in a limited X band only. The stars list is sorted in X. Search speed increases with about 30%}
 
-    Sstart:=max(0,i-(nrstars div tolerance));
-    Send:=min(nrstars-1,i+(nrstars div tolerance)); {search in a limited X band only. The stars list is sorted in X. Search speed increases with about 30%}
+    x1:=starlist[0,i]; //first star position quad array
+    y1:=starlist[1,i];
 
     for j:=Sstart to Send do {find closest stars}
     begin
       if j<>i{not the first star} then
       begin
-        disty:=sqr(starlist[1,j]-starlist[1,i]);
+        disty:=sqr(starlist[1,j]-y1);
         if disty<distance3 then {pre-check to increase processing speed with a small amount}
         begin
-          distance:=sqr(starlist[0,j]-starlist[0,i])+distY ;{square distances are used}
+          distance:=sqr(starlist[0,j]-x1)+distY ;{square distances are used}
           if distance>1 then {not an identical star. Mod 2021-6-25}
           begin
             if distance<distance1 then
             begin
               distance3:=distance2;{distance third closest star}
-              j_used3:=j_used2;{remember the star position in the list}
+              j_index3:=j_index2;{remember the star position in the list}
 
               distance2:=distance1;{distance second closest star}
-              j_used2:=j_used1;{remember the star position in the list}
+              j_index2:=j_index1;{remember the star position in the list}
 
               distance1:=distance;{distance closest star}
-              j_used1:=j;{mark later as used}
+              j_index1:=j;{mark later as used}
             end
             else
             if distance<distance2 then
             begin
               distance3:=distance2;{distance third closest star}
-              j_used3:=j_used2;{remember the star position in the list}
+              j_index3:=j_index2;{remember the star position in the list}
 
               distance2:=distance;{distance second closest star}
-              j_used2:=j;
+              j_index2:=j;
             end
             else
             if distance<distance3 then
             begin
               distance3:=distance;{third closest star}
-              j_used3:=j;{remember the star position in the list}
+              j_index3:=j;{remember the star position in the list}
             end;
           end;{not an identical star. Mod 2021-6-25}
 
@@ -399,71 +403,71 @@ begin
       end;
     end;{j}
 
-    x1:=starlist[0,i]; {copy first star position to the quad array}
-    y1:=starlist[1,i];
-
-    x2:=starlist[0,j_used1]; {copy the second star position to the quad array}
-    y2:=starlist[1,j_used1];
-
-    x3:=starlist[0,j_used2];
-    y3:=starlist[1,j_used2];
-
-    x4:=starlist[0,j_used3];
-    y4:=starlist[1,j_used3];
-
-    xt:=(x1+x2+x3+x4)/4; {mean x position quad}
-    yt:=(y1+y2+y3+y4)/4; {mean y position quad}
-
-    identical_quad:=false;
-    if nrquads>=1 then {already a quad stored}
+    if  distance3<1E99 then //found 4 stars in the restricted area
     begin
-     k:=0;
-     repeat {check for identical quads}
-       if ( (abs(xt-quad_star_distances[6,k])<1) and
-            (abs(yt-quad_star_distances[7,k])<1) ) then {same center position, found identical quad already in the list}
-           begin
-             identical_quad:=true;
-             k:=999999999;{stop}
-           end;
 
-       inc(k);
-     until k>=nrquads;
-    end;
+      x2:=starlist[0,j_index1];  //second star position quad array
+      y2:=starlist[1,j_index1];
 
-    if identical_quad=false then  {new quad found}
-    begin
-      try {sort the six distances on length. Largest first and scale the others relative to largest distance}
-        begin
-          dist1:=sqrt(distance1);{distance star1-star2, use previous value already calculated}
-          dist2:=sqrt(distance2);{distance star1-star3}
-          dist3:=sqrt(distance3);{distance star1-star4}
-          dist4:=sqrt(sqr(x2-x3)+ sqr(y2-y3));{distance star2-star3}
-          dist5:=sqrt(sqr(x2-x4)+ sqr(y2-y4));{distance star2-star4}
-          dist6:=sqrt(sqr(x3-x4)+ sqr(y3-y4));{distance star3-star4}
-          {sort six distances on size in five steps}
-          for j:=1 to 5 do {sort on distance}
-          begin
-            if dist6>dist5 then begin dummy:=dist5; dist5:=dist6; dist6:=dummy; end;
-            if dist5>dist4 then begin dummy:=dist4; dist4:=dist5; dist5:=dummy; end;
-            if dist4>dist3 then begin dummy:=dist3; dist3:=dist4; dist4:=dummy; end;
-            if dist3>dist2 then begin dummy:=dist2; dist2:=dist3; dist3:=dummy; end;
-            if dist2>dist1 then begin dummy:=dist1; dist1:=dist2; dist2:=dummy; end;
-          end;
-          quad_star_distances[0,nrquads]:=dist1;{largest distance}
-          quad_star_distances[1,nrquads]:=dist2/dist1;{scale relative to largest distance}
-          quad_star_distances[2,nrquads]:=dist3/dist1;
-          quad_star_distances[3,nrquads]:=dist4/dist1;
-          quad_star_distances[4,nrquads]:=dist5/dist1;
-          quad_star_distances[5,nrquads]:=dist6/dist1;
+      x3:=starlist[0,j_index2];
+      y3:=starlist[1,j_index2];
 
-        end;
-      except
+      x4:=starlist[0,j_index3];
+      y4:=starlist[1,j_index3];
+
+      xt:=(x1+x2+x3+x4)/4; {mean x position quad}
+      yt:=(y1+y2+y3+y4)/4; {mean y position quad}
+
+      identical_quad:=false;
+      if nrquads>=1 then {already a quad stored}
+      begin
+       k:=0;
+       repeat {check for identical quads}
+         if ( (abs(xt-quad_star_distances[6,k])<1) and
+              (abs(yt-quad_star_distances[7,k])<1) ) then {same center position, found identical quad already in the list}
+             begin
+               identical_quad:=true;
+               k:=999999999;{stop}
+             end;
+
+         inc(k);
+       until k>=nrquads;
       end;
-      quad_star_distances[6,nrquads]:=xt;{store mean x position}
-      quad_star_distances[7,nrquads]:=yt;{store mean y position}
-      inc(nrquads); {new unique quad found}
 
-    end;
+      if identical_quad=false then  {new quad found}
+      begin
+        try {sort the six distances on length. Largest first and scale the others relative to largest distance}
+          begin
+            dist1:=sqrt(distance1);{distance star1-star2, use previous value already calculated}
+            dist2:=sqrt(distance2);{distance star1-star3}
+            dist3:=sqrt(distance3);{distance star1-star4}
+            dist4:=sqrt(sqr(x2-x3)+ sqr(y2-y3));{distance star2-star3}
+            dist5:=sqrt(sqr(x2-x4)+ sqr(y2-y4));{distance star2-star4}
+            dist6:=sqrt(sqr(x3-x4)+ sqr(y3-y4));{distance star3-star4}
+            {sort six distances on size in five steps}
+            for j:=1 to 5 do {sort on distance}
+            begin
+              if dist6>dist5 then begin dummy:=dist5; dist5:=dist6; dist6:=dummy; end;
+              if dist5>dist4 then begin dummy:=dist4; dist4:=dist5; dist5:=dummy; end;
+              if dist4>dist3 then begin dummy:=dist3; dist3:=dist4; dist4:=dummy; end;
+              if dist3>dist2 then begin dummy:=dist2; dist2:=dist3; dist3:=dummy; end;
+              if dist2>dist1 then begin dummy:=dist1; dist1:=dist2; dist2:=dummy; end;
+            end;
+            quad_star_distances[0,nrquads]:=dist1;{largest distance}
+            quad_star_distances[1,nrquads]:=dist2/dist1;{scale relative to largest distance}
+            quad_star_distances[2,nrquads]:=dist3/dist1;
+            quad_star_distances[3,nrquads]:=dist4/dist1;
+            quad_star_distances[4,nrquads]:=dist5/dist1;
+            quad_star_distances[5,nrquads]:=dist6/dist1;
+
+          end;
+        except
+        end;
+        quad_star_distances[6,nrquads]:=xt;{store mean x position}
+        quad_star_distances[7,nrquads]:=yt;{store mean y position}
+        inc(nrquads); {new unique quad found}
+      end;
+    end;//found 4 stars
   end;{i}
 
   SetLength(quad_star_distances,8,nrquads);{adapt to the number found}
@@ -658,7 +662,7 @@ begin
         if (( img_sa[0,fitsY,fitsX]<=0){star free area} and (img[0,fitsY,fitsX]-cblack>detection_level){star}) then {new star, at least 3.5 * sigma above noise level}
         begin
           HFD(img,fitsX,fitsY,14{annulus radius}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
-          if ((hfd1<=10) and (snr>10) and (hfd1>hfd_min) {0.8 is two pixels minimum} ) then
+          if ((hfd1<=10) and (snr>10) and (hfd1>hfd_min) {0.8 is two pixels minimum} and (img_sa[0,round(yc),round(xc)]<=0){prevent rare double detection due to star spikes}) then
           begin
             radius:=round(3.0*hfd1);{for marking star area. A value between 2.5*hfd and 3.5*hfd gives same performance. Note in practice a star PSF has larger wings then predicted by a Gaussian function}
             sqr_radius:=sqr(radius);
@@ -1024,168 +1028,133 @@ begin
 end;
 
 
-procedure binX1_crop(crop {0..1}:double; img : image_array; var img2: image_array);{crop image, make mono, no binning}
-  var fitsX,fitsY,k, w,h, shiftX,shiftY, nrcolors,width5,height5: integer;
-      val       : single;
+procedure bin_mono_and_crop(binning: integer; crop {0..1}:double;img : image_array; out img2: image_array);// Make mono, bin and crop
+var
+  fitsX,fitsY,k, w,h, shiftX,shiftY,nrcolors,width5,height5,i,j,x,y: integer;
+  val       : single;
 begin
   nrcolors:=Length(img);
-  width5:=Length(img[0,0]);  {width}
-  height5:=Length(img[0]);   {height}
+  width5:=Length(img[0,0]);{width}
+  height5:=Length(img[0]); {height}
 
-  w:=trunc(crop*width5);  {cropped}
-  h:=trunc(crop*height5);
+  w:=trunc(crop*width5/binning);  {dimensions after binning and crop}
+  h:=trunc(crop*height5/binning);
 
   setlength(img2,1,h,w); {set length of image array}
 
-  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*width2}
-  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*height2}
+  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*head.width}
+  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*head.height}
 
-  for fitsY:=0 to h-1 do
-    for fitsX:=0 to w-1  do
-    begin
-      val:=0;
-      for k:=0 to nrcolors-1 do {all colors and make mono}
-         val:=val + img[k,shiftY+fitsY   ,shiftX+fitsX];
-      img2[0,fitsY,fitsX]:=val/nrcolors;
-    end;
-end;
-
-
-procedure binX2_crop(crop {0..1}:double; img : image_array; var img2: image_array);{combine values of 4 pixels and crop is required, Result is mono}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY,nrcolors,width5,height5: integer;
-      val       : single;
-begin
-   nrcolors:=Length(img);
-   width5:=Length(img[0,0]);  {width}
-   height5:=Length(img[0]);   {height}
-
-   w:=trunc(crop*width5/2);  {half size & cropped. Use trunc for image 1391 pixels wide like M27 test image. Otherwise exception error}
-   h:=trunc(crop*height5/2);
-
-   setlength(img2,1,h,w);{set length of image array}
-
-   shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*width2}
-   shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*height2}
-
-   for fitsY:=0 to h-1 do
+  if binning=1 then
+  begin
+    for fitsY:=0 to h-1 do
       for fitsX:=0 to w-1  do
-     begin
-       val:=0;
-       for k:=0 to nrcolors-1 do {all colors}
-         val:=val+(img[k,shiftY+fitsY*2   ,shiftX+fitsX*2]+
-                   img[k,shiftY+fitsy*2 +1,shiftX+fitsX*2]+
-                   img[k,shiftY+fitsy*2   ,shiftX+fitsX*2+1]+
-                   img[k,shiftY+fitsy*2 +1,shiftX+fitsX*2+1])/4;
-       img2[0,fitsY,fitsX]:=val/nrcolors;
-     end;
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do {all colors and make mono}
+           val:=val + img[k ,shiftY+fitsY,shiftX+fitsx];
+        img2[0,fitsY,fitsX]:=val/nrcolors;
+      end;
+  end
+  else
+  if binning=2 then
+  begin
+    for fitsY:=0 to h-1 do
+       for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do {all colors}
+          val:=val+(img[k,shiftY+fitsY*2   ,shiftX+fitsX*2]+
+                    img[k,shiftY+fitsY*2 +1,shiftX+fitsX*2]+
+                    img[k,shiftY+fitsY*2   ,shiftX+fitsX*2+1]+
+                    img[k,shiftY+fitsY*2 +1,shiftX+fitsX*2+1])/4;
+        img2[0,fitsY,fitsX]:=val/nrcolors;
+      end;
+  end
+  else
+  if binning=3 then
+  begin
+    for fitsY:=0 to h-1 do {bin & mono image}
+      for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do {all colors}
+          val:=val+(img[k,shiftY+fitsY*3   ,shiftX+fitsX*3  ]+
+                    img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+1]+
+                    img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+2]+
+                    img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3  ]+
+                    img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+1]+
+                    img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+2]+
+                    img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3  ]+
+                    img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+1]+
+                    img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+2])/9;
+        img2[0,fitsY,fitsX]:=val/nrcolors;
+      end;
+  end
+  else
+  if binning=4 then
+  begin
+    for fitsY:=0 to h-1 do //bin & mono image
+      for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        for k:=0 to nrcolors-1 do //all colors to mono. Test shows this loop doesn't introduce much delay for mono images
+          val:=val+(img[k,shiftY+fitsY*4   ,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+3]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+3]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+3]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4  ]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+1]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+2]+
+                    img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+3])/16;
+        img2[0,fitsY,fitsX]:=val/nrcolors; //mono result
+      end;
+
+  end
+  else
+  begin //any bin factor. This routine is at bin 4x4 about twice slower then the above routine
+    for fitsY:=0 to h-1 do
+      for fitsX:=0 to w-1  do
+      begin
+        val:=0;
+        x:=shiftX+fitsX*binning;
+        y:=shiftY+fitsY*binning;
+        for k:=0 to nrcolors-1 do {all colors to mono. Test shows this loop doesn't introduce much delay for mono images}
+        begin
+          for i:=0 to binning-1 do
+          for j:=0 to binning-1 do
+             val:=val + img[k,y+i   ,x+j];
+        end;
+        img2[0,fitsY,fitsX]:=val/(nrcolors*sqr(binning)); //mono result
+      end;
+  end;
 end;
 
-procedure binX3_crop(crop {0..1}:double; img : image_array; var img2: image_array);{combine values of 9 pixels and crop is required. Result is mono}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY,nrcolors,width5,height5: integer;
-      val       : single;
-begin
-  nrcolors:=Length(img);
-  width5:=Length(img[0,0]);    {width}
-  height5:=Length(img[0]); {height}
 
-  w:=trunc(crop*width5/3);  {1/3 size and cropped}
-  h:=trunc(crop*height5/3);
-
-  setlength(img2,1,h,w); {set length of image array}
-
-  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*width2}
-  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*height2}
-
-  for fitsY:=0 to h-1 do {bin & mono image}
-    for fitsX:=0 to w-1  do
-    begin
-      val:=0;
-      for k:=0 to nrcolors-1 do {all colors}
-                     val:=val+(img[k,shiftY+fitsY*3   ,shiftX+fitsX*3  ]+
-                               img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+1]+
-                               img[k,shiftY+fitsY*3   ,shiftX+fitsX*3+2]+
-                               img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3  ]+
-                               img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+1]+
-                               img[k,shiftY+fitsY*3 +1,shiftX+fitsX*3+2]+
-                               img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3  ]+
-                               img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+1]+
-                               img[k,shiftY+fitsY*3 +2,shiftX+fitsX*3+2])/9;
-       img2[0,fitsY,fitsX]:=val/nrcolors;
-    end;
-end;
-
-
-procedure binX4_crop(crop {0..1}:double;img : image_array; var img2: image_array);{combine values of 16 pixels and crop is required. Result is mono}
-  var fitsX,fitsY,k, w,h,  shiftX,shiftY,nrcolors,width5,height5: integer;
-      val       : single;
-begin
-  nrcolors:=Length(img);
-  width5:=Length(img[0,0]);    {width}
-  height5:=Length(img[0]); {height}
-
-  w:=trunc(crop*width5/4);  {1/4 size and cropped}
-  h:=trunc(crop*height5/4);
-
-  setlength(img2,1,h,w); {set length of image array}
-
-  shiftX:=round(width5*(1-crop)/2); {crop is 0.9, shift is 0.05*width2}
-  shiftY:=round(height5*(1-crop)/2); {crop is 0.9, start at 0.05*height2}
-
-  for fitsY:=0 to h-1 do {bin & mono image}
-    for fitsX:=0 to w-1  do
-    begin
-      val:=0;
-      for k:=0 to nrcolors-1 do {all colors}
-                     val:=val+(img[k,shiftY+fitsY*4   ,shiftX+fitsX*4  ]+
-                               img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+1]+
-                               img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+2]+
-                               img[k,shiftY+fitsY*4   ,shiftX+fitsX*4+3]+
-                               img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4  ]+
-                               img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+1]+
-                               img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+2]+
-                               img[k,shiftY+fitsY*4 +1,shiftX+fitsX*4+3]+
-                               img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4  ]+
-                               img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+1]+
-                               img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+2]+
-                               img[k,shiftY+fitsY*4 +2,shiftX+fitsX*4+3]+
-                               img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4  ]+
-                               img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+1]+
-                               img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+2]+
-                               img[k,shiftY+fitsY*4 +3,shiftX+fitsX*4+3])/16;
-         img2[0,fitsY,fitsX]:=val/nrcolors;
-    end;
-end;
-
-
-procedure bin_and_find_stars(img :image_array;binning:integer;cropping,hfd_min:double;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
+procedure bin_and_find_stars(img :image_array;binfactor:integer;cropping,hfd_min:double;get_hist{update hist}:boolean; out starlist3:star_list; out short_warning : string);{bin, measure background, find stars}
 var
   width2,height2,nrstars,i : integer;
   img_binned : image_array;
-
 begin
   short_warning:='';{clear string}
 
   width2:=length(img[0,0]);{width}
   height2:=length(img[0]);{height}
 
-  if ((binning>1) or (cropping<1)) then
+  if ((binfactor>1) or (cropping<1)) then
   begin
-    if binning>1 then memo2_message('Creating grayscale x '+inttostr(binning)+' binning image for solving/star alignment.');
+    if binfactor>1 then memo2_message('Creating grayscale x '+inttostr(binfactor)+' binning image for solving/star alignment.');
     if cropping<>1 then memo2_message('Cropping image x '+floattostrF2(cropping,0,2));
 
-    if binning=2 then binX2_crop(cropping,img,img_binned) {combine values of 4 pixels, default option if 3 and 4 are not specified}
-    else
-    if binning=3 then binX3_crop(cropping,img,img_binned) {combine values of 9 pixels}
-    else
-    if binning=4 then binX4_crop(cropping,img,img_binned) {combine values of 16 pixels}
-    else
-    if binning=1 then binX1_crop(cropping,img,img_binned); {crop image, no binning}
-
-    {test routine, to show bin result}
-    //    img_loaded:=img_binned;
-    //    naxis3:=1;
-    //    plot_fits(mainwindow.image1,true);{plot real}
-    //    exit;
+    bin_mono_and_crop(binfactor, cropping,img,img_binned); // Make mono, bin and crop
 
     get_background(0,img_binned,true {load hist},true {calculate also standard deviation background},{var}cblack,star_level,star_level2 );{get back ground}
     find_stars(img_binned,hfd_min,starlist3); {find stars of the image and put them in a list}
@@ -1198,15 +1167,15 @@ begin
       memo2_message('Warning, remaining image dimensions too low! Try to REDUCE OR REMOVE DOWNSAMPLING.');
     end;
 
-    for i:=0 to nrstars-1 do {correct star positions for cropping. Simplest method}
+    for i:=0 to nrstars-1 do {correct star positions for binning and cropping. Simplest method}
     begin
-      starlist3[0,i]:=(binning-1)*0.5+starlist3[0,i]*binning +(width2*(1-cropping)/2);//correct star positions for binning/ cropping. Position [3.5,3,5] becomes after 2x2 binning [1,1] after x2 [3,3]. So correct for 0.5 pixel
-      starlist3[1,i]:=(binning-1)*0.5+starlist3[1,i]*binning +(height2*(1-cropping)/2);
+      starlist3[0,i]:=(binfactor-1)*0.5+starlist3[0,i]*binfactor +(width2*(1-cropping)/2);//correct star positions for binfactor/ cropping. Position [3.5,3,5] becomes after 2x2 binfactor [1,1] after x2 [3,3]. So correct for 0.5 pixel
+      starlist3[1,i]:=(binfactor-1)*0.5+starlist3[1,i]*binfactor +(height2*(1-cropping)/2);
       // For zero based indexing:
-      // A star of 2x2 pixels at position [2.5,2.5] is after 2x2 binning at position [1,1]. If doubled to [2,2] then the position has 0.5 pixel shifted.
-      // A star of 3x3 pixels at position [4,4] is after 3x3 binning at position [1,1]. If tripled to [3,3] then the position has 1.0 pixel shifted.
-      // A star of 4x4 pixels at position [5.5,5.5] is after 4x4 binning at position [1,1]. If quadruped to [4,4] then the position has 1.5 pixel shifted.
-      // So positions measured in a binned image should be corrected as x:=(binning-1)*0.5+binning*x and y:=(binning-1)*0.5+binning*y
+      // A star of 2x2 pixels at position [2.5,2.5] is after 2x2 binfactor at position [1,1]. If doubled to [2,2] then the position has 0.5 pixel shifted.
+      // A star of 3x3 pixels at position [4,4] is after 3x3 binfactor at position [1,1]. If tripled to [3,3] then the position has 1.0 pixel shifted.
+      // A star of 4x4 pixels at position [5.5,5.5] is after 4x4 binfactor at position [1,1]. If quadruped to [4,4] then the position has 1.5 pixel shifted.
+      // So positions measured in a binned image should be corrected as x:=(binfactor-1)*0.5+binfactor*x and y:=(binfactor-1)*0.5+binfactor*y
     end;
   end
   else
@@ -1238,200 +1207,6 @@ begin
     else
      result:=1;
   end;
-end;
-
-
-procedure add_sipold(ra_database,dec_database:double);
-var
-  stars_measured,stars_reference,grid_list1,grid_list2  : TStarArray;
-  trans_sky_to_pixel,trans_pixel_to_sky  : Ttrans;
-  len,i,position,j,nr                       : integer;
-  succ: boolean;
-  err_mess: string;
-  ra_t,dec_t,  SIN_dec_t,COS_dec_t, SIN_dec_ref,COS_dec_ref,det, delta_ra,SIN_delta_ra,COS_delta_ra, H, dRa,dDec,MatrixDeterminant,u0,v0,sep,sepsmallest : double;
-  cd : array[0..1,0..1] of double;
-  solution_vectorXinv,solution_vectorYinv : solution_vector;
-const
-   nrpoints=6;
-begin
-  {1) Solve the image with the 1th order solver.
-   2) Get the x,y coordinates of the detected stars= "stars_measured"
-   3) Get the x,y coordinates of the reference stars= "stars_reference"
-   4) Shift the x,y coordinates of "stars_measured" to the center of the image. so position [0,0] is at CRPIX1, CRPIX2.
-   5) Convert reference stars coordinates to the same coordinate system as the measured stars.
-      In my case I had to convert the quad x,y coordinates to ra, dec and then convert these to image position using the original first order solution
-   6) Now both the "stars_measured" and "stars_reference" positions match with stars in the image except for distortion. Position [0,0] is at CRPIX1, CRPIX2.
-   7) For pixel_to_sky  call:  Calc_Trans_Cubic(stars_measured,  stars_reference,...).   The trans array will work for pixel to sky.
-   8) For sky_to_pixel  call:  Calc_Trans_Cubic(stars_reference,  stars_measured,...)    The trans array will work for sky to pixel.
-   }
-
-  len:=length(b_Xrefpositions);
-  if len<20 then
-  begin
-    memo2_message('Not enough quads for calculating SIP.');
-    exit;
-  end;
-  setlength(stars_measured,len);
-  setlength(stars_reference,len);
-
-
-  sincos(dec0,SIN_dec_ref,COS_dec_ref);;{ For 5. Conversion (RA,DEC) -> x,y image in fits range 1..max}
-
-  for i:=0 to len-1 do
-  begin
-    stars_measured[i].x:=1+A_XYpositions[0,i]-crpix1;//position as seen from center at crpix1, crpix2, in fits range 1..width
-    stars_measured[i].y:=1+A_XYpositions[1,i]-crpix2;
-
-    standard_equatorial( ra_database,dec_database,
-                         b_Xrefpositions[i], {x reference star}
-                         b_Yrefpositions[i], {y reference star}
-                         1, {CCD scale}
-                         ra_t,dec_t) ; //calculate back to the reference star positions
-
-
-    {5. Conversion (RA,DEC) -> x,y image in fits range 1..max}
-    sincos(dec_t,SIN_dec_t,COS_dec_t);
-//  sincos(dec0,SIN_dec_ref,COS_dec_ref);{Required but for speed executed outside the for loop}
-
-    delta_ra:=ra_t-ra0;
-    sincos(delta_ra,SIN_delta_ra,COS_delta_ra);
-
-    H := SIN_dec_t*sin_dec_ref + COS_dec_t*COS_dec_ref*COS_delta_ra;
-    dRA := (COS_dec_t*SIN_delta_ra / H)*180/pi;
-    dDEC:= ((SIN_dec_t*COS_dec_ref - COS_dec_t*SIN_dec_ref*COS_delta_ra ) / H)*180/pi;
-
-    det:=cd2_2*cd1_1 - cd1_2*cd2_1;
-    stars_reference[i].x:= - (cd1_2*dDEC - cd2_2*dRA) / det;
-    stars_reference[i].y:= + (cd1_1*dDEC - cd2_1*dRA) / det;
-
-  end;
-
-  succ:=Calc_Trans_Cubic(stars_reference,     // First array of s_star structure we match the output trans_sky_to_pixel takes their coords into those of array B
-                         stars_measured,      // Second array of s_star structure we match
-                         trans_sky_to_pixel,  // Transfer coefficients for stars_measured positions to stars_reference positions. Fits range 1..max
-                         err_mess             // any error message
-                            );
-  if succ=false then
-  begin
-    memo2_message(err_mess);
-    exit;
-  end;
-
-
-  {sky to pixel coefficients}
-  AP_order:=3; //third order
-  AP_0_0:=trans_sky_to_pixel.x00;
-  AP_0_1:=trans_sky_to_pixel.x01;
-  AP_0_2:=trans_sky_to_pixel.x02;
-  AP_0_3:=trans_sky_to_pixel.x03;
-  AP_1_0:=-1+trans_sky_to_pixel.x10;
-  AP_1_1:=trans_sky_to_pixel.x11;
-  AP_1_2:=trans_sky_to_pixel.x12;
-  AP_2_0:=trans_sky_to_pixel.x20;
-  AP_2_1:=trans_sky_to_pixel.x21;
-  AP_3_0:=trans_sky_to_pixel.x30;
-
-  BP_0_0:=trans_sky_to_pixel.y00;
-  BP_0_1:=-1+trans_sky_to_pixel.y01;
-  BP_0_2:=trans_sky_to_pixel.y02;
-  BP_0_3:=trans_sky_to_pixel.y03;
-  BP_1_0:=trans_sky_to_pixel.y10;
-  BP_1_1:=trans_sky_to_pixel.y11;
-  BP_1_2:=trans_sky_to_pixel.y12;
-  BP_2_0:=trans_sky_to_pixel.y20;
-  BP_2_1:=trans_sky_to_pixel.y21;
-  BP_3_0:=trans_sky_to_pixel.y30;
-
-
-  //inverse transformation calculation
-  //swap the arrays for inverse factors. This works as long the offset is small like in this situation
-  succ:=Calc_Trans_Cubic(stars_measured,      // reference
-                         stars_reference,      // distorted
-                         trans_pixel_to_sky,  // Transfer coefficients for stars_measured positions to stars_reference positions
-                         err_mess             // any error message
-                         );
-
-  if succ=false then
-  begin
-    memo2_message(err_mess);
-    exit;
-  end;
-
-  // SIP definitions https://irsa.ipac.caltech.edu/data/SPITZER/docs/files/spitzer/shupeADASS.pdf
-
-  //Pixel to sky coefficients
-  A_order:=3;
-  A_0_0:=trans_pixel_to_sky.x00;
-  A_0_1:=trans_pixel_to_sky.x01;
-  A_0_2:=trans_pixel_to_sky.x02;
-  A_0_3:=trans_pixel_to_sky.x03;
-  A_1_0:=-1+ trans_pixel_to_sky.x10;
-  A_1_1:=trans_pixel_to_sky.x11;
-  A_1_2:=trans_pixel_to_sky.x12;
-  A_2_0:=trans_pixel_to_sky.x20;
-  A_2_1:=trans_pixel_to_sky.x21;
-  A_3_0:=trans_pixel_to_sky.x30;
-
-  B_0_0:=trans_pixel_to_sky.y00;
-  B_0_1:=-1+trans_pixel_to_sky.y01;
-  B_0_2:=trans_pixel_to_sky.y02;
-  B_0_3:=trans_pixel_to_sky.y03;
-  B_1_0:=trans_pixel_to_sky.y10;
-  B_1_1:=trans_pixel_to_sky.y11;
-  B_1_2:=trans_pixel_to_sky.y12;
-  B_2_0:=trans_pixel_to_sky.y20;
-  B_2_1:=trans_pixel_to_sky.y21;
-  B_3_0:=trans_pixel_to_sky.y30;
-
-
-  update_float('A_ORDER =',' / Polynomial order, axis 1. Pixel to Sky         ',3);
-  update_float('A_0_0   =',' / SIP coefficient                                ',A_0_0);
-  update_float('A_1_0   =',' / SIP coefficient                                ',A_1_0);
-  update_float('A_0_1   =',' / SIP coefficient                                ',A_0_1);
-  update_float('A_2_0   =',' / SIP coefficient                                ',A_2_0);
-  update_float('A_1_1   =',' / SIP coefficient                                ',A_1_1);
-  update_float('A_0_2   =',' / SIP coefficient                                ',A_0_2);
-  update_float('A_3_0   =',' / SIP coefficient                                ',A_3_0);
-  update_float('A_2_1   =',' / SIP coefficient                                ',A_2_1);
-  update_float('A_1_2   =',' / SIP coefficient                                ',A_1_2);
-  update_float('A_0_3   =',' / SIP coefficient                                ',A_0_3);
-
-
-  update_float('B_ORDER =',' / Polynomial order, axis 2. Pixel to sky.        ',3);
-  update_float('B_0_0   =',' / SIP coefficient                                ' ,B_0_0);
-  update_float('B_0_1   =',' / SIP coefficient                                ' ,B_0_1);
-  update_float('B_1_0   =',' / SIP coefficient                                ' ,B_1_0);
-  update_float('B_2_0   =',' / SIP coefficient                                ' ,B_2_0);
-  update_float('B_1_1   =',' / SIP coefficient                                ' ,B_1_1);
-  update_float('B_0_2   =',' / SIP coefficient                                ' ,B_0_2);
-  update_float('B_3_0   =',' / SIP coefficient                                ' ,B_3_0);
-  update_float('B_2_1   =',' / SIP coefficient                                ' ,B_2_1);
-  update_float('B_1_2   =',' / SIP coefficient                                ' ,B_1_2);
-  update_float('B_0_3   =',' / SIP coefficient                                ' ,B_0_3);
-
-  update_float('AP_ORDER=',' / Inv polynomial order, axis 1. Sky to pixel.      ',3);
-  update_float('AP_0_0  =',' / SIP coefficient                                ',AP_0_0);
-  update_float('AP_1_0  =',' / SIP coefficient                                ',AP_1_0);
-  update_float('AP_0_1  =',' / SIP coefficient                                ',AP_0_1);
-  update_float('AP_2_0  =',' / SIP coefficient                                ',AP_2_0);
-  update_float('AP_1_1  =',' / SIP coefficient                                ',AP_1_1);
-  update_float('AP_0_2  =',' / SIP coefficient                                ',AP_0_2);
-  update_float('AP_3_0  =',' / SIP coefficient                                ',AP_3_0);
-  update_float('AP_2_1  =',' / SIP coefficient                                ',AP_2_1);
-  update_float('AP_1_2  =',' / SIP coefficient                                ',AP_1_2);
-  update_float('AP_0_3  =',' / SIP coefficient                                ',AP_0_3);
-
-  update_float('BP_ORDER=',' / Inv polynomial order, axis 2. Sky to pixel.    ',3);
-  update_float('BP_0_0  =',' / SIP coefficient                                ',BP_0_0);
-  update_float('BP_1_0  =',' / SIP coefficient                                ',BP_1_0);
-  update_float('BP_0_1  =',' / SIP coefficient                                ',BP_0_1);
-  update_float('BP_2_0  =',' / SIP coefficient                                ',BP_2_0);
-  update_float('BP_1_1  =',' / SIP coefficient                                ',BP_1_1);
-  update_float('BP_0_2  =',' / SIP coefficient                                ',BP_0_2);
-  update_float('BP_3_0  =',' / SIP coefficient                                ',BP_3_0);
-  update_float('BP_2_1  =',' / SIP coefficient                                ',BP_2_1);
-  update_float('BP_1_2  =',' / SIP coefficient                                ',BP_1_2);
-  update_float('BP_0_3  =',' / SIP coefficient                                ',BP_0_3);
 end;
 
 
@@ -1631,8 +1406,8 @@ var
   nrstars,nrstars_required,nrstars_required2,count,max_distance,nr_quads, minimum_quads,database_stars,binning,match_nr,
   spiral_x, spiral_y, spiral_dx, spiral_dy,spiral_t,database_density,limit,err, width2, height2                      : integer;
   search_field,step_size,ra_database,dec_database,telescope_ra_offset,radius,fov2,fov_org, max_fov,fov_min,
-  oversize,oversize2,sep_search,seperation,ra7,dec7,centerX,centerY,cropping, min_star_size_arcsec,hfd_min,delta_ra,current_dist,
-  quad_tolerance,flip,extra,distance,flipped_image                                                 : double;
+  oversize,oversize2,sep_search,seperation,ra7,dec7,centerX,centerY,cropping, min_star_size_arcsec,hfd_min,
+  quad_tolerance,flip,extra,distance,flipped_image                                                                   : double;
   solution, go_ahead ,autoFOV                                                                                        : boolean;
   startTick  : qword;{for timing/speed purposes}
   distancestr,mess,suggest_str, warning_downsample, solved_in, offset_found,ra_offset,dec_offset,mount_info,mount_offset : string;

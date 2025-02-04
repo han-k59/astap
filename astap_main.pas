@@ -1,5 +1,5 @@
-﻿unit astap_main;
-{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
+unit astap_main;
+{Copyright (C) 2017, 2025 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -21,20 +21,16 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 {open compiler issues:
 
 https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html
+https://gitlab.com/freepascal.org/fpc/source/-/issues/40302
 
-MacOS
-Listview smallimages are not displayed.
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/39193
+https://gitlab.com/freepascal.org/fpc/source/-/issues/41022   allow larger TIFF files
+
 
 MacOS
 ScrollCode=scEndScroll does not appears at the end of scroll
 https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/37454
-
-Mac
-Listview event OnCustomDrawItem is never triggered/fired in Mac, widget Cocoa
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/39500
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/40065
 }
+
 
 interface
 uses
@@ -62,23 +58,36 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2024.06.25';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.2.04b';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+type
+  tshapes = record //a shape and it positions
+              shape : Tshape;
+              ra,dec,
+              fitsX,fitsY : double;
+            end;
 
 type
   { Tmainwindow }
   Tmainwindow = class(TForm)
     add_marker_position1: TMenuItem;
     bin3x3: TMenuItem;
-    BitBtn1: TBitBtn;
     boxshape1: TShape;
+    error_label1: TLabel;
+    Image1: TImage;
+    Panel1: TPanel;
+    shape_manual_alignment1: TShape;
+    shape_marker1: TShape;
+    shape_marker2: TShape;
+    shape_marker3: TShape;
+    shape_marker4: TShape;
+    shape_paste1: TShape;
+    sigma_button1: TBitBtn;
     data_range_groupBox1: TGroupBox;
     dec1: TEdit;
     dec_label: TLabel;
-    error_label1: TLabel;
     flip_indication1: TLabel;
     FontDialog1: TFontDialog;
     histogram1: TImage;
-    Image1: TImage;
     image_north_arrow1: TImage;
     inversemousewheel1: TCheckBox;
     Label1: TLabel;
@@ -86,9 +95,6 @@ type
     Label13: TLabel;
     Label2: TLabel;
     Label5: TLabel;
-    LabelCheck1: TLabel;
-    LabelThree1: TLabel;
-    LabelVar1: TLabel;
     max2: TEdit;
     maximum1: TScrollBar;
     Memo1: TMemo;
@@ -143,7 +149,6 @@ type
     PairSplitter1: TPairSplitter;
     PairSplitterSide1: TPairSplitterSide;
     PairSplitterSide2: TPairSplitterSide;
-    Panel1: TPanel;
     Panel_top_menu1: TPanel;
     Polynomial1: TComboBox;
     ra1: TEdit;
@@ -153,18 +158,7 @@ type
     saturation_factor_plot1: TTrackBar;
     save1: TButton;
     Separator3: TMenuItem;
-    Shape_var1: TShape;
-    shape_check1: TShape;
-    shape_star3: TShape;
-    shape_var2: TShape;
     shape_histogram1: TShape;
-    shape_manual_alignment1: TShape;
-    shape_marker1: TShape;
-    shape_marker2: TShape;
-    shape_marker3: TShape;
-    shape_marker4: TShape;
-    shape_paste1: TShape;
-    shape_check2: TShape;
     solve_button1: TButton;
     SpeedButton1: TSpeedButton;
     star_profile1: TMenuItem;
@@ -530,16 +524,20 @@ type
     procedure histogram1MouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure maximum1Change(Sender: TObject);
     procedure minimum1Change(Sender: TObject);
+    procedure GenerateShapes(position,top,left,width,height,penwidth : integer; shape: TShapeType; colour : Tcolor; hint: string);
+    procedure clear_fshapes_array;
   private
     { Private declarations }
+
   public
     { Public declarations }
+    FShapes: array of TShapes;//for photometry
     procedure DisplayHint(Sender: TObject);
-
   end;
 
 var
   mainwindow: Tmainwindow;
+
 type
   image_array = array of array of array of Single;// note fasted processing is achieved if both access loop and memory storage are organised in rows. So as array[nrcolours,height,width]
   star_list   = array of array of double;
@@ -553,8 +551,8 @@ type
     crpix2 : double;
     cdelt1 : double; {X pixel size (deg)}
     cdelt2 : double; {Y pixel size (deg)}
-    ra0    : double; {mount position}
-    dec0   : double;
+    ra0    : double; {mount position. Accurate if solved}
+    dec0   : double; {mount position. Accurate if solved}
     crota1 : double; {image rotation at center in degrees}
     crota2 : double; {image rotation at center in degrees}
     cd1_1  : double; {solution matrix}
@@ -570,7 +568,18 @@ type
     ypixsz        : double;//Pixel height in microns (after binning)
     mzero         : double;//flux calibration factor for all flux
     mzero_radius    : double;//mzero diameter (aperture)
+    magn_limit      : double;//limiting magnitude
     pedestal        : double;//pedestal added during calibration or stacking
+    sqmfloat        : double;
+    hfd_median      : double;//median hfd, use in reporting in write_ini
+    hfd_counter     : integer;//star counter (for hfd_median), use in reporting in write_ini
+
+    backgr : double;//background value
+    star_level : double;//star level
+    star_level2: double;//star level
+    noise_level: double;///noise level background
+
+
     set_temperature : integer;
     dark_count      : integer;
     light_count     : integer;
@@ -594,15 +603,6 @@ type
      filen   : string; {filename}
      img     : image_array;
    end;
-
-   Tbackground = record
-                   backgr : double;//background value
-                   star_level : double;//star level
-                   star_level2: double;//star level
-                   noise_level: double;///noise level background
-                end;
-
-
 
   theauid = record
               auid: string;
@@ -629,8 +629,13 @@ type
               maxmag: string;
               minmag: string;
               period: string;
+              epoch: string;
               category: string;
             end;
+
+type
+   Tstring_array = array of string;
+   Tinteger_array = array of integer;
 
 
 var
@@ -643,7 +648,6 @@ var
   head_flat,
   head_dark : Theader;{contains the most important header info}
   memox : tstrings;//work memo
-  bck : Tbackground;
 
   settingstring : tstrings; {settings for save and loading}
   user_path    : string;{c:\users\name\appdata\local\astap   or ~/home/.config/astap}
@@ -666,10 +670,10 @@ var
   his_mean             : array[0..2] of integer;
   stretch_c : array[0..32768] of single;{stretch curve}
   stretch_on, esc_pressed, fov_specified,unsaved_import, last_extension : boolean;
-  {star_level,}star_bg,sd_bg, magn_limit  : double;
+  star_bg,sd_bg  : double;
   object_name,
   imagetype ,sitelat, sitelong,siteelev , centalt,centaz,magn_limit_str: string;
-  focus_temp,{cblack,}cwhite,sqmfloat,altitudefloat, pressure,airmass   :double; {from FITS}
+  focus_temp,{cblack,}cwhite, altitudefloat, pressure,airmass   :double; {from FITS}
   subsamp, focus_pos  : integer;{not always available. For normal DSS =1}
   telescop,instrum,origin,sqm_value   : string;
 
@@ -712,8 +716,6 @@ var {################# initialised variables #########################}
   sqm_key   :  ansistring='SQM     ';
   centaz_key   :  ansistring='CentAz  ';
 
-  hfd_median : double=0;{median hfd, use in reporting in write_ini}
-  hfd_counter: integer=0;{star counter (for hfd_median), use in reporting in write_ini}
   aperture_ratio: double=0; {ratio flux_aperture/hfd_median}
   annulus_radius  : integer=14;{inner of square where background is measured. Square has width and height twice annulus_radius}
   copy_paste :boolean=false;
@@ -723,17 +725,18 @@ var {################# initialised variables #########################}
   shape_var1_fitsY: double=0;
   shape_check1_fitsX: double=0;
   shape_check1_fitsY: double=0;
-  shape_star3_fitsX: double=0;
-  shape_star3_fitsY: double=0;
+  shape_comp1_fitsX: double=0;
+  shape_comp1_fitsY: double=0;
   shape_var1_ra : double=0;
   shape_var1_dec : double=0;
   shape_check1_ra : double=0;
   shape_check1_dec : double=0;
-  shape_star3_ra : double=0;
-  shape_star3_dec : double=0;
+  shape_comp1_ra : double=0;
+  shape_comp1_dec : double=0;
 
 
-  shape_nr: integer=1;
+  shape_nr: integer=0;
+  annulus_plotted: boolean=false;//for photometry.
 
   shape_marker1_fitsX: double=10;
   shape_marker1_fitsY: double=10;
@@ -743,16 +746,6 @@ var {################# initialised variables #########################}
   shape_marker3_fitsY: double=0;
   shape_marker4_fitsX: double=0;
   shape_marker4_fitsY: double=0;
-
-
-  shape_var2_fitsX: double=0;
-  shape_var2_fitsY: double=0;
-  shape_check2_fitsX: double=0;
-  shape_check2_fitsY: double=0;
-  shape_var2_ra : double=0;
-  shape_var2_dec : double=0;
-  shape_check2_ra : double=0;
-  shape_check2_dec : double=0;
 
 
   commandline_execution : boolean=false;{program executed in command line}
@@ -770,7 +763,6 @@ var {################# initialised variables #########################}
                                          'GGGG');// last pattern is used for Fuji X-trans GGGGBRGGGGRBGGGG'
   annotation_color: tcolor=clyellow;
   annotation_diameter : integer=20;
-  pedestal            : integer=0;
   egain_extra_factor  : integer=16;
   egain_default       : double=1;
   passband_active: string=''; //Indicates current Gaia conversion active
@@ -782,7 +774,7 @@ procedure ang_sep(ra1,dec1,ra2,dec2 : double;out sep: double);
 function load_fits(filen:string;light {load as light or dark/flat},load_data,update_memo: boolean;get_ext: integer;const memo : tstrings; out head: Theader; out img_loaded2: image_array): boolean;{load a fits or Astro-TIFF file}
 procedure plot_fits(img: timage;center_image,show_header:boolean);
 procedure use_histogram(img: image_array; update_hist: boolean);{get histogram}
-procedure HFD(img: image_array;x1,y1,rs {boxsize}: integer;aperture_small, adu_e {unbinned}:double; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);{calculate star HFD and FWHM, SNR, xc and yc are center of gravity, rs is the boxsize, aperture for the flux measurment. All x,y coordinates in array[0..] positions}
+procedure HFD(img: image_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
 procedure backup_img;
 procedure restore_img;
 function load_image(filename2: string; out img: image_array; out head: theader; memo: tstrings; re_center,plot: boolean): boolean; {load fits or PNG, BMP, TIF}
@@ -804,8 +796,9 @@ procedure remove_key(memo:tstrings;inpt:string; all:boolean);{remove key word in
 
 function fnmodulo (x,range: double):double;
 function strtoint2(s: string;default:integer):integer; {str to integer, fault tolerant}
-function strtofloat1(s:string): double;{string to float, error tolerant}
+function strtofloat3(s:string; out error1 :integer): double;{works with either dot or komma as decimal separator}
 function strtofloat2(s:string): double;{works with either dot or komma as decimal separator}
+function strtofloat1(s:string): double;{string to float for dot seperator, error tolerant}
 function TextfileSize(const name: string): LongInt;
 function floattostr8(x:double):string;//always with dot decimal seperator  Eight decimals
 function floattostr6(x:double):string;//always with dot decimal seperator
@@ -845,7 +838,7 @@ function unpack_cfitsio(var filename3: string): boolean; {convert .fz to .fits u
 function pack_cfitsio(filename3: string): boolean; {convert .fz to .fits using funpack}
 
 function load_TIFFPNGJPEG(filen:string;light {load as light or dark/flat}: boolean; out head :theader; out img: image_array;memo : tstrings) : boolean;{load 8 or 16 bit TIFF, PNG, JPEG, BMP image}
-procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out back : Tbackground); {get background and star level from peek histogram}
+procedure get_background(colour: integer; img :image_array;var head :theader; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
 
 
 function extract_exposure_from_filename(filename8: string):integer; {try to extract exposure from filename}
@@ -853,7 +846,7 @@ function extract_temperature_from_filename(filename8: string): integer; {try to 
 function extract_objectname_from_filename(filename8: string): string; {try to extract exposure from filename}
 
 function test_star_spectrum(r,g,b: single) : single;{test star spectrum. Result of zero is perfect star spectrum}
-procedure measure_magnitudes(annulus_rad,x1,y1,x2,y2:integer; deep: boolean; var stars :star_list);{find stars and return, x,y, hfd, flux}
+procedure measure_magnitudes(img : image_array; headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :star_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
 
 function binX2X3_file(binfactor:integer) : boolean; {converts filename2 to binx2,binx3, binx4 version}
 procedure ra_text_to_radians(inp :string; out ra : double; out errorRA :boolean); {convert ra in text to double in radians}
@@ -895,14 +888,15 @@ function find_reference_star(img : image_array) : boolean;{for manual alignment}
 function aavso_update_required : boolean; //update of downloaded database required?
 function retrieve_ADU_to_e_unbinned(head_egain :string): double; //Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
 function noise_to_electrons(adu_e, sd : double): string;//reports noise in ADU's (adu_e=0) or electrons
-procedure calibrate_photometry;
+procedure calibrate_photometry(img : image_array; memo : tstrings; var head : Theader; update:boolean);
 procedure measure_hotpixels(x1,y1, x2,y2,col : integer; sd,mean:  double; img : image_array; out hotpixel_perc, hotpixel_adu :double);{calculate the hotpixels ratio and average value}
 function duplicate(img:image_array) :image_array;//fastest way to duplicate an image
 procedure annotation_position(aname:string;var ra,dec : double);// calculate ra,dec position of one annotation
 procedure remove_photometric_calibration;//from header
 procedure remove_solution(keep_wcs:boolean);//remove all solution key words efficient
 procedure local_color_smooth(startX,stopX,startY,stopY: integer);//local color smooth img_loaded
-procedure place_marker_radec(shape: tshape; ra,dec:double);{place ra,dec marker in image}
+procedure variable_star_annotation(extract_visible: boolean {extract to variable_list});
+function annotate_unknown_stars(const memox:tstrings; img : image_array; headx : theader; out countN: integer) : boolean;//annotate stars missing from the online Gaia catalog or having too bright magnitudes
 
 
 const   bufwide=1024*120;{buffer size in bytes}
@@ -973,7 +967,7 @@ uses unit_dss, unit_stack, unit_tiff,unit_star_align, unit_astrometric_solving, 
 {$IFDEF fpc}
   {$R *.lfm}
 {$else}  {delphi}
- {$R *.dfm}
+ {$R *.lfm}
 {$endif}
 
 
@@ -1015,6 +1009,7 @@ const
   ctrlbutton: boolean=false;
 
 
+
 procedure reset_fits_global_variables(light :boolean;out head:theader); {reset the global variable}
 begin
   if light then
@@ -1051,15 +1046,17 @@ begin
 
     x_coeff[0]:=0; {reset DSS_polynomial, use for check if there is data}
     y_coeff[0]:=0;
-    a_order:=0; {SIP_polynomial, use for check if there is data}
-    ap_order:=0; {SIP_polynomial, use for check if there is data}
 
     head.xbinning:=1;{normal}
     head.ybinning:=1;
     head.mzero:=0;{factor to calculate magnitude from full flux, new file so set to zero}
     head.mzero_radius:=99;{circle where flux is measured}
+    head.magn_limit:=0;
     head.pedestal:=0; {value added during calibration or stacking}
-
+    head.sqmfloat:=0;
+    head.hfd_median:=0;{median hfd, use in reporting in write_ini}
+    head.hfd_counter:=0;{star counter (for hfd_median), use in reporting in write_ini}
+    head.backgr:=0;
     telescop:=''; instrum:='';  origin:=''; object_name:='';{clear}
     sitelat:=''; sitelong:='';siteelev:='';
 
@@ -1133,13 +1130,15 @@ var
   x_double    : double absolute x_qword;{for conversion 64 bit "big-endian" data}
   int_64      : int64 absolute x_qword;{for 64 bit signed integer}
 
-  tfields,tform_counter,header_count,pointer,let, validate_double_error : integer;
+  tfields,tform_counter,header_count,pointer,let, validate_double_error,dum : integer;
   ttype,tform,tunit : array of string;
   tbcol,tform_nr    : array of integer;
   simple,image,bintable,asciitable    : boolean;
   abyte                               : byte;
 
   dummy                               : dword;
+  dummystr,dummystr2: string;
+  dummyfloat       : double;
 
 var {################# initialised variables #########################}
   end_record : boolean=false;
@@ -1200,7 +1199,7 @@ begin
 
   if tiff_file_name(filen) then  {load Astro-TIFF instead of FITS}
   begin
-    result:=load_TIFFPNGJPEG(filen,light, head,img_loaded2,mainwindow.memo1.lines);{load TIFF image}
+    result:=load_TIFFPNGJPEG(filen,light, head,img_loaded2,memo {mainwindow.memo1.lines});{load TIFF image}
     exit;
   end;
 
@@ -1436,7 +1435,8 @@ begin
           begin
             if ((header[i+5]='O') and (header[i+6]='B')) then head.date_obs:=get_string //date-obs
             else
-            if ((header[i+5]='A') and (header[i+6]='V')) then head.date_avg:=get_string; //date-avg
+            if ((header[i+5]='A') and (header[i+6]='V')) then
+                              head.date_avg:=get_string; //date-avg
           end
           else
           if ((header[i+2]='R') and (header[i+3]='K') and (header[i+4]='_') and (header[i+5]='C') and (header[i+6]='N')and (header[i+7]='T')) then {DARK_CNT}
@@ -1892,69 +1892,80 @@ begin
        head.naxis3:=3; {will be converted while reading}
     end;
 
-    if ((head.cd1_1<>0) and ((head.cdelt1=0) or (head.crota2>=999))) then
-    begin //formalism 3
-      new_to_old_WCS(head);{ convert old WCS to new}
-    end
-    else
-    if ((head.cd1_1=0) and (head.cdelt2<>0)) then {new style missing but valid old style solution}
+    if light then //not required for darks and lights since some variables are not reset and could be nan cause runtime error
     begin
-      if PC1_1<>0 then //formalism 2
-      begin
-        head.CD1_1:=PC1_1* head.cdelt1;
-        head.CD1_2:=PC1_2* head.cdelt1;
-        head.CD2_1:=PC2_1* head.cdelt2;
-        head.CD2_2:=PC2_2* head.cdelt2;
+      if ((head.cd1_1<>0) and ((head.cdelt1=0) or (head.crota2>=999))) then
+      begin //formalism 3
         new_to_old_WCS(head);{ convert old WCS to new}
       end
       else
-      if head.crota2<999 then {new style missing but valid old style solution}
-      begin //formalism 1
-        if head.crota1=999 then head.crota1:=head.crota2; {for case head.crota1 is not specified}
-        old_to_new_WCS(head);{ convert old WCS to new}
-       end;
-    end;
-
-    if ((head.cd1_1=0) and (head.cdelt2=0)) then  {no scale, try to fix it}
-    begin
-     if ((focallen<>0) and (head.xpixsz<>0)) then
-        head.cdelt2:=180/(pi*1000)*head.xpixsz/focallen; {use maxim DL key word. xpixsz is including binning}
-    end;
-
-    if head.set_temperature=999 then head.set_temperature:=round(ccd_temperature); {temperature}
-
-    if ((light) and ((head.ra0<>0) or (head.dec0<>0) or (equinox<>2000)) ) then
-    begin
-      if equinox<>2000 then //e.g. in SharpCap
+      if ((head.cd1_1=0) and (head.cdelt2<>0)) then {new style missing but valid old style solution}
       begin
-        jd_obs:=(equinox-2000)*365.25+2451545;
-        precession3(jd_obs, 2451545 {J2000},head.ra0,head.dec0); {precession, from unknown equinox to J2000}
-        if dec_mount<999 then precession3(jd_obs, 2451545 {J2000},ra_mount,dec_mount); {precession, from unknown equinox to J2000}
+        if PC1_1<>0 then //formalism 2
+        begin
+          head.CD1_1:=PC1_1* head.cdelt1;
+          head.CD1_2:=PC1_2* head.cdelt1;
+          head.CD2_1:=PC2_1* head.cdelt2;
+          head.CD2_2:=PC2_2* head.cdelt2;
+          new_to_old_WCS(head);{ convert old WCS to new}
+        end
+        else
+        if head.crota2<999 then {new style missing but valid old style solution}
+        begin //formalism 1
+          if head.crota1=999 then head.crota1:=head.crota2; {for case head.crota1 is not specified}
+          old_to_new_WCS(head);{ convert old WCS to new}
+         end;
       end;
 
-      mainwindow.ra1.text:=prepare_ra(head.ra0,' ');{this will create Ra_radians for solving}
-      mainwindow.dec1.text:=prepare_dec(head.dec0,' ');
-    end;
-    { condition           keyword    to
-     if ra_mount>999 then objctra--->ra1.text--------------->ra_radians--->ra_mount
-                               ra--->ra_mount  if head.ra0=0 then   ra_mount--->head.ra0
-                           crval1--->head.ra0
+      if ((head.cd1_1=0) and (head.cdelt2=0)) then  {no scale, try to fix it}
+      begin
+       if ((focallen<>0) and (head.xpixsz<>0)) then
+          head.cdelt2:=180/(pi*1000)*head.xpixsz/focallen; {use maxim DL key word. xpixsz is including binning}
+      end;
 
-     if head.ra0<>0 then           head.ra0--->ra1.text------------------->ra_radians}
+      sip:=(ap_order>0);
+      if sip then
+        mainwindow.Polynomial1.itemindex:=1//switch to sip
+      else
+      if x_coeff[0]<>0 then
+         mainwindow.Polynomial1.itemindex:=2//switch to DSS
+      else
+        mainwindow.Polynomial1.itemindex:=0;//switch to DSS
+
+      if ((head.ra0<>0) or (head.dec0<>0) or (equinox<>2000)) then
+      begin
+        if equinox<>2000 then //e.g. in SharpCap
+        begin
+          jd_obs:=(equinox-2000)*365.25+2451545;
+          precession3(jd_obs, 2451545 {J2000},head.ra0,head.dec0); {precession, from unknown equinox to J2000}
+          if dec_mount<999 then precession3(jd_obs, 2451545 {J2000},ra_mount,dec_mount); {precession, from unknown equinox to J2000}
+        end;
+
+        mainwindow.ra1.text:=prepare_ra(head.ra0,' ');{this will create Ra_radians for solving}
+        mainwindow.dec1.text:=prepare_dec(head.dec0,' ');
+      end;
+      { condition           keyword    to
+       if ra_mount>999 then objctra--->ra1.text--------------->ra_radians--->ra_mount
+                                 ra--->ra_mount  if head.ra0=0 then   ra_mount--->head.ra0
+                             crval1--->head.ra0
+
+       if head.ra0<>0 then           head.ra0--->ra1.text------------------->ra_radians}
+
+    end; //lights
+
+    if head.set_temperature=999 then
+       head.set_temperature:=round(ccd_temperature); {temperature}
+
+
 
     unsaved_import:=false;{file is available for astrometry.net}
 
-    sip:=(ap_order>0);
-    if sip then
-      mainwindow.Polynomial1.itemindex:=1//switch to sip
-    else
-    if x_coeff[0]<>0 then
-       mainwindow.Polynomial1.itemindex:=2//switch to DSS
-    else
-      mainwindow.Polynomial1.itemindex:=0;//switch to DSS
 
-    if load_data=false then begin
-       close_fits_file; result:=true; exit;
+    if load_data=false then
+    begin
+       close_fits_file;
+       result:=true;
+       exit;
     end;{only read header for analyse or WCS file}
 
 
@@ -2037,11 +2048,11 @@ begin
         try reader.read(fitsbuffer,head.width*4);except; head.naxis:=0;{failure} end; {read file info}
         for i:=0 to head.width-1 do
         begin
-          col_float:=dword(swapendian(fitsbuffer4[i])*bscale+bzero)/(65535);{scale to 0..65535}
-                        {Tricky do not use int64 for BZERO,  maxim DL writes BZERO value -2147483647 as +2147483648 !!}
-                        {Dword is required for high values}
+          col_float:=int32(swapendian(fitsbuffer4[i]))*bscale+bzero;{max range  -2,147,483,648 ...2,147,483,647 or -$8000 0000 .. $7FFF FFFF.  Scale later to 0..65535}
+         {Tricky do not use int64 for BZERO,  maxim DL writes BZERO value -2147483647 as +2147483648 !!}
           img_loaded2[k,j,i]:=col_float;{store in memory array}
-          if col_float>measured_max then measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
+          if col_float>measured_max then
+             measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
         end;
       end;
     end {colors head.naxis3 times}
@@ -2067,9 +2078,10 @@ begin
     if ((nrbits<=-32){-32 or -64} or (nrbits=+32)) then
     begin
       scalefactor:=1;
-      if ((measured_max<=1.0*1.5) or (measured_max>65535*1.5)) then
-        scalefactor:=65535/measured_max; {rescale 0..1 range float for GIMP, Astro Pixel Processor, PI files, transfer to 0..65535 float}
-                                         {or if values are far above 65535. Note due to flat correction even in ASTAP pixels value can be a little 65535}
+      if measured_max>0 then
+        if ((measured_max<=1.0*1.5) or (measured_max>65535*1.5)) then
+          scalefactor:=65535/measured_max; {rescale 0..1 range float for GIMP, Astro Pixel Processor, PI files, transfer to 0..65535 float}
+                                           {or if values are far above 65535. Note due to flat correction even in ASTAP pixels value can be a little 65535}
       if scalefactor<>1 then {not a 0..65535 range, rescale}
       begin
         for k:=0 to head.naxis3-1 do {do all colors}
@@ -2092,7 +2104,7 @@ begin
     else {16 bit}
     head.datamax_org:=measured_max;{most common. It set for nrbits=24 in beginning at 255}
 
-    bck.backgr:=head.datamin_org;{for case histogram is not called}
+    head.backgr:=head.datamin_org;{for case histogram is not called}
     cwhite:=head.datamax_org;
 
     result:=head.naxis<>0;{success};
@@ -2208,8 +2220,6 @@ begin
     end;
     mainwindow.Memo3.lines.text:=aline;
     aline:=''; {release memory}
-   // if update_memo then
-   //      mainwindow.memo1.visible:=true;{show header}
     mainwindow.pagecontrol1.showtabs:=true;{show tabs}
     reader_position:=reader_position+head.width*head.height;
   end; {read table}
@@ -2655,7 +2665,7 @@ begin
 
     head.datamin_org:=0;
 
-    bck.backgr:=head.datamin_org;{for case histogram is not called}
+    head.backgr:=head.datamin_org;{for case histogram is not called}
     cwhite:=head.datamax_org;
 
     if color7 then
@@ -2788,6 +2798,16 @@ begin
 end;
 
 
+function FileSize1(const Filename: string): int64;
+var F : file of byte;
+begin
+ assign (F, Filename);
+ reset (F);
+ result := System.FileSize(F);
+ close (F);
+end;
+
+
 function load_TIFFPNGJPEG(filen:string;light {load as light or dark/flat}: boolean; out head : theader;out img: image_array;memo:tstrings) : boolean;{load 8 or 16 bit TIFF, PNG, JPEG, BMP image}
 var
   i,j   : integer;
@@ -2805,7 +2825,11 @@ begin
   saved_header:=false;
   ext:=uppercase(ExtractFileExt(filen));
   try
-    Image := TFPMemoryImage.Create(10, 10);
+    if filesize1(filen)<300*1024*1024 then //less then 300 mbytes. Should fit TFPMemoryImage for colour and grayscale
+      Image := TFPMemoryImage.Create(10, 10) //for colour and grayscale up to 2gbyte/3
+    else
+      Image := TFPCompactImgGray16Bit.Create(10, 10);//compact up to 2gbyte for grayscale images only   //See https://gitlab.com/freepascal.org/fpc/source/-/issues/41022
+
 
     if ((ext='.TIF') or (ext='.TIFF')) then
     begin
@@ -2887,7 +2911,7 @@ begin
   nrbits:=16;
   head.datamin_org:=0;
   head.datamax_org:=$FFFF;
-  bck.backgr:=head.datamin_org;{for case histogram is not called}
+  head.backgr:=head.datamin_org;{for case histogram is not called}
   cwhite:=head.datamax_org;
 
 
@@ -3011,14 +3035,14 @@ begin
 end;
 
 
-procedure get_background(colour: integer; img :image_array;calc_hist, calc_noise_level: boolean; out back : Tbackground); {get background and star level from peek histogram}
+procedure get_background(colour: integer; img :image_array;var head :theader; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
 var
   i, pixels,max_range,above, fitsX, fitsY,counter,stepsize,width5,height5, iterations : integer;
   value,sd, sd_old,factor,factor2 : double;
 begin
   if calc_hist then  get_hist(colour,img);{get histogram of img_loaded and his_total}
 
-  back.backgr:=img[0,0,0];{define something for images containing 0 or 65535 only}
+  head.backgr:=img[0,0,0];{define something for images containing 0 or 65535 only}
 
   {find peak in histogram which should be the average background}
   pixels:=0;
@@ -3027,14 +3051,14 @@ begin
     if histogram[colour,i]>pixels then {find colour peak}
     begin
       pixels:= histogram[colour,i];
-      back.backgr:=i;
+      head.backgr:=i;
     end;
 
   {check alternative mean value}
-  if his_mean[colour]>1.5*back.backgr {1.5* most common} then
+  if his_mean[colour]>1.5*head.backgr {1.5* most common} then
   begin
-    memo2_message(Filename2+', will use mean value '+inttostr(round(his_mean[colour]))+' as background rather then most common value '+inttostr(round(back.backgr)));
-    back.backgr:=his_mean[colour];{strange peak at low value, ignore histogram and use mean}
+    memo2_message(Filename2+', will use mean value '+inttostr(round(his_mean[colour]))+' as background rather then most common value '+inttostr(round(head.backgr)));
+    head.backgr:=his_mean[colour];{strange peak at low value, ignore histogram and use mean}
   end;
 
   if calc_noise_level then  {find star level and background noise level}
@@ -3058,11 +3082,11 @@ begin
         while fitsY<=height5-1-15 do
         begin
           value:=img[colour,fitsY,fitsX];
-          if ((value<back.backgr*2) and (value<>0)) then {not an outlier, noise should be symmetrical so should be less then twice background}
+          if ((value<head.backgr*2) and (value<>0)) then {not an outlier, noise should be symmetrical so should be less then twice background}
           begin
-            if ((iterations=0) or (abs(value-back.backgr)<=3*sd_old)) then {ignore outliers after first run}
+            if ((iterations=0) or (abs(value-head.backgr)<=3*sd_old)) then {ignore outliers after first run}
             begin
-              sd:=sd+sqr(value-back.backgr); {sd}
+              sd:=sd+sqr(value-head.backgr); {sd}
               inc(counter);{keep record of number of pixels processed}
             end;
           end;
@@ -3073,30 +3097,30 @@ begin
       sd:=sqrt(sd/counter); {standard deviation}
       inc(iterations);
     until (((sd_old-sd)<0.05*sd) or (iterations>=7));{repeat until sd is stable or 7 iterations}
-    back.noise_level:= sd;   {this noise level could be too high if no flat is applied. So for images where center is brighter then the corners.}
+    head.noise_level:= sd;   {this noise level could be too high if no flat is applied. So for images where center is brighter then the corners.}
 
 
     {calculate star level}
     if ((nrbits=8) or (nrbits=24)) then max_range:= 255 else max_range:=65001 {histogram runs from 65000};{8 or 16 / -32 bit file}
-    back.star_level:=0;
-    back.star_level2:=0;
+    head.star_level:=0;
+    head.star_level2:=0;
     i:=max_range;
     factor:=  6*strtoint2(stackmenu1.max_stars1.text,500);// Number of pixels to test. This produces about 700 stars at hfd=2.25
     factor2:=24*strtoint2(stackmenu1.max_stars1.text,500);// Number of pixels to test. This produces about 700 stars at hfd=4.5.
     above:=0;
-    while ((back.star_level=0) and (i>back.backgr+1)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
+    while ((head.star_level=0) and (i>head.backgr+1)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
     begin
       dec(i);
       above:=above+histogram[colour,i];//sum of pixels above pixel level i
       if above>=factor then
-        back.star_level:=i;//level found for stars with HFD=2.25.
+        head.star_level:=i;//level found for stars with HFD=2.25.
     end;
-    while ((back.star_level2=0) and (i>back.backgr+1)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
+    while ((head.star_level2=0) and (i>head.backgr+1)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
     begin
       dec(i);
       above:=above+histogram[colour,i];//sum of pixels above pixel level i
       if above>=factor2 then
-        back.star_level2:=i;//level found for stars with HFD=4.5.
+        head.star_level2:=i;//level found for stars with HFD=4.5.
     end;
 
 
@@ -3105,8 +3129,8 @@ begin
     // Clip calculated star level:
     // 1) above 3.5*noise minimum, but also above background value when there is no noise so minimum is 1
     // 2) Below saturated level. So subtract 1 for saturated images. Otherwise no stars are detected}
-    back.star_level:= max(max(3.5*sd,1 {1})  ,back.star_level-back.backgr-1 {2) below saturation}); //star_level is relative to background
-    back.star_level2:=max(max(3.5*sd,1 {1})  ,back.star_level2-back.backgr-1 {2) below saturation}); //star_level is relative to background
+    head.star_level:= max(max(3.5*sd,1 {1})  ,head.star_level-head.backgr-1 {2) below saturation}); //star_level is relative to background
+    head.star_level2:=max(max(3.5*sd,1 {1})  ,head.star_level2-head.backgr-1 {2) below saturation}); //star_level is relative to background
   end;
 end;
 
@@ -3249,6 +3273,7 @@ var
 begin
 
   count1:=memo.Count-1;
+
   while count1>=0 do {update keyword}
   begin
     if pos(inpt,memo[count1])>0 then {found}
@@ -3451,7 +3476,7 @@ var sin_dec1,cos_dec1,sin_dec2,cos_dec2,cos_sep,t:double;
 begin
   sincos(dec1,sin_dec1,cos_dec1);{use sincos function for speed}
   sincos(dec2,sin_dec2,cos_dec2);
-  cos_sep:=min(1.0,sin_dec1*sin_dec2+ cos_dec1*cos_dec2*cos(ra1-ra2));{min function to prevent run time errors for 1.000000000002.  For correct compiling use 1.0 instead of 1. See https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html}
+  cos_sep:=max(-1.0,min(1.0,sin_dec1*sin_dec2+ cos_dec1*cos_dec2*cos(ra1-ra2)));{min function to prevent run time errors for 1.000000000002.  For correct compiling use 1.0 instead of 1. See https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html}
   sep:=arccos(cos_sep);
 end;
 
@@ -3604,6 +3629,48 @@ begin
 end;
 
 
+procedure Tmainwindow.GenerateShapes(position,top,left,width,height,penwidth : integer; shape: TShapeType; colour : Tcolor; hint: string);
+var
+   f,g : integer;
+begin
+   if length(Fshapes)<position+1 then
+   begin
+     SetLength(FShapes, position+1); // Simple but ugly!
+     FShapes[position].shape := Tshape.Create(SELF);
+   end;
+   try
+     FShapes[position].shape.Parent := panel1;
+     FShapes[position].shape.Top := top;
+     FShapes[position].shape.Left := left;
+     FShapes[position].shape.Width := width;
+     FShapes[position].shape.Height := height;
+     FShapes[position].shape.Brush.Color := Clwhite;
+     FShapes[position].shape.Brush.style := bsclear;
+     FShapes[position].shape.Shape:= shape;
+     FShapes[position].shape.Showhint:= true;
+     FShapes[position].shape.hint:= hint;
+     FShapes[position].shape.enabled:= false;
+     FShapes[position].shape.pen.color:= colour;
+     FShapes[position].shape.pen.cosmetic:= true;
+     FShapes[position].shape.pen.mode:= pmNotXor;
+     FShapes[position].shape.pen.style:= psSolid;
+     FShapes[position].shape.pen.width:= penwidth;
+     finally
+        FShapes[position].shape.visible:= true;
+     end;
+end;
+
+
+procedure Tmainwindow.clear_fshapes_array;//nil fshapes array
+var
+  i : integer;
+begin
+  for i:=high(fshapes) downto 0 do
+      freeandnil(fshapes[i]);//essential
+  setlength(fshapes,0);
+end;
+
+
 procedure Tmainwindow.About1Click(Sender: TObject);
 var
     about_message, about_message4, about_message5 : string;
@@ -3653,7 +3720,7 @@ begin
   #13+#10+
   #13+#10+'Send an e-mail if you like this free program. Feel free to distribute!'+
   #13+#10+
-  #13+#10+'© 2018, 2024 by Han Kleijn. License MPL 2.0, Webpage: www.hnsky.org';
+  #13+#10+'© 2018, 2025 by Han Kleijn. License MPL 2.0, Webpage: www.hnsky.org';
 
    application.messagebox(pchar(about_message), pchar(about_title),MB_OK);
 end;
@@ -3727,20 +3794,20 @@ end;
 procedure Tmainwindow.deepsky_overlay1Click(Sender: TObject);
 begin
   load_deep;{load the deepsky database once. If loaded no action}
-  plot_deepsky(false);
+  plot_deepsky(false,8);
 end;
 
 
 procedure bin_X2X3X4(var img :image_array; var head : theader;memo:tstrings; binfactor:integer);{bin img_loaded 2x or 3x}
-  var fitsX,fitsY,k, w,h  : integer;
+  var fitsX,fitsY,k, w,h   : integer;
       img_temp2 : image_array;
       fact      : string;
-
 begin
   binfactor:=min(4,binfactor);{max factor is 4}
   w:=trunc(head.width/binfactor);  {half size & cropped. Use trunc for image 1391 pixels wide like M27 test image. Otherwise exception error}
   h:=trunc(head.height/binfactor);
   setlength(img_temp2,head.naxis3,h,w);
+
   if binfactor=2 then
   begin
     for k:=0 to head.naxis3-1 do
@@ -3772,7 +3839,8 @@ begin
            end;
   end
   else
-  begin {bin4x4}
+  if binfactor=4 then
+  begin //bin4x4
     for k:=0 to head.naxis3-1 do
       for fitsY:=0 to h-1 do
          for fitsX:=0 to w-1  do
@@ -3794,19 +3862,20 @@ begin
                                       img[k,fitsY*4 +3,fitsX*4+2]+
                                       img[k,fitsY*4 +3,fitsX*4+3])/16;
            end;
+
   end;
+
   img:=img_temp2;
   head.width:=w;
   head.height:=h;
-  img_temp2:=nil;
 
   memo.BeginUpdate;
 
   update_integer(memo,'NAXIS1  =',' / length of x axis                               ' ,head.width);
   update_integer(memo,'NAXIS2  =',' / length of y axis                               ' ,head.height);
 
-  if head.crpix1<>0 then begin head.crpix1:=head.crpix1/binfactor; update_float(memo,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);end;
-  if head.crpix2<>0 then begin head.crpix2:=head.crpix2/binfactor; update_float(memo,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);end;
+  if head.crpix1<>0 then begin head.crpix1:=(w+1)/2; update_float(memo,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);end;
+  if head.crpix2<>0 then begin head.crpix2:=(h+1)/2; update_float(memo,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);end;
 
   if head.cdelt1<>0 then begin head.cdelt1:=head.cdelt1*binfactor; update_float(memo,'CDELT1  =',' / X pixel size (deg)                             ',false ,head.cdelt1);end;
   if head.cdelt2<>0 then begin head.cdelt2:=head.cdelt2*binfactor; update_float(memo,'CDELT2  =',' / Y pixel size (deg)                             ',false ,head.cdelt2);end;
@@ -3941,7 +4010,7 @@ begin
         begin
           update_integer(memo,'DATAMIN =',' / Minimum data value                             ' ,round(head.datamin_org));
           update_integer(memo,'DATAMAX =',' / Maximum data value                             ' ,round(head.datamax_org));
-          update_integer(memo,'CBLACK  =',' / Black point used for displaying image.         ' ,round(bck.backgr) ); {2019-4-9}
+          update_integer(memo,'CBLACK  =',' / Black point used for displaying image.         ' ,round(head.backgr) ); {2019-4-9}
           update_integer(memo,'CWHITE  =',' / White point used for displaying the image.     ' ,round(cwhite) );
         end
         else
@@ -4365,7 +4434,7 @@ procedure Tmainwindow.hyperleda_annotation1Click(Sender: TObject);
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   load_hyperleda;   { Load the database once. If loaded no action}
-  plot_deepsky(false);{plot the deep sky object on the image}
+  plot_deepsky(false,8);{plot the deep sky object on the image}
   Screen.Cursor:=crDefault;
 end;
 
@@ -4699,62 +4768,6 @@ begin
 end;
 
 
-procedure place_marker_radec(shape: tshape; ra,dec:double);{place marker in image based on measured ra, dec. Is used when loading an new image}
-var
-  fitsx,fitsy : double;
-  data1,sipwcs  : string;
-begin
-  if ((head.naxis=0) or (head.cd1_1=0) or (shape.visible=false)) then exit;{no solution to place marker}
-
-//  shape.visible:=true;
-
-  celestial_to_pixel(head, ra,dec, fitsX,fitsY); {ra,dec to fitsX,fitsY}
-
-  //shape specific. In variables for zooming
-  if tshape(shape)=tshape(mainwindow.shape_var1) then
-  begin
-    shape_var1_fitsX:=fitsX;//store for zooming
-    shape_var1_fitsY:=fitsY;
-    show_marker_shape(shape,5 {circle},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
-  end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_check1) then
-  begin
-    shape_check1_fitsX:=fitsX;//store for zooming
-    shape_check1_fitsY:=fitsY;
-    show_marker_shape(shape,5 {circle},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
-  end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_star3) then
-  begin
-    shape_star3_fitsX:=fitsX;//store for zooming
-    shape_star3_fitsY:=fitsY;
-    show_marker_shape(shape,5 {circle},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
-  end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_marker3) then
-  begin
-    shape_marker3_fitsX:=fitsX;//store for zooming
-    shape_marker3_fitsY:=fitsY;
-    show_marker_shape(mainwindow.shape_marker3,0 {rectangle},50,50,10,shape_marker3_fitsX, shape_marker3_fitsY);
-  end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_var2) then
-  begin
-    shape_var2_fitsX:=fitsX;//store for zooming
-    shape_var2_fitsY:=fitsY;
-    show_marker_shape( shape,9 {no change},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
-  end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_check2) then
-  begin
-    shape_check2_fitsX:=fitsX;
-    shape_check2_fitsY:=fitsY;
-    show_marker_shape(shape,9 {no change},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
-  end;
-  shape.pen.style:=psSolid;//for photometry, resturn from psClear;
-end;
-
 function place_marker3(data0: string): boolean;{place ra,dec marker in image}
 var
   ra_new,dec_new, fitsx,fitsy : double;
@@ -4766,7 +4779,15 @@ begin
   begin
     result:=true;
     mainwindow.shape_marker3.visible:=true;
-    place_marker_radec(mainwindow.shape_marker3,ra_new,dec_new);{place ra,dec marker in image}
+
+
+//    place_marker_radec(mainwindow.shape_marker3,ra_new,dec_new);{place ra,dec marker in image}
+//  shape.pen.style:=psSolid;//for photometry, resturn from psClear;
+//    mainwindow.shape_marker3.pen.style:=psClear; //not visible else psSolid
+
+    celestial_to_pixel(head, ra_new,dec_new, shape_marker3_fitsX,shape_marker3_fitsY); {ra,dec to fitsX,fitsY}
+    show_marker_shape(mainwindow.shape_marker3,0 {rectangle},50,50,10,shape_marker3_fitsX, shape_marker3_fitsY);
+
     if sip then sipwcs:='SIP' else sipwcs:='WCS';
     mainwindow.shape_marker3.hint:=data1+#10+sipwcs+'  x='+floattostrF(shape_marker3_fitsX,ffFixed,0,1)+'  y='+ floattostrF(shape_marker3_fitsY,ffFixed,0,1); ;
   end
@@ -5010,7 +5031,7 @@ const resolution=6;
       qrs=rs div resolution;
 var
   i, j,distance,hh,diam1,diam2  : integer;
-  val,valmax,valmin  : double;
+  val,valmax,valmin,diff,    h  : double;
   profile: array[0..1,-rs..rs] of double;
 begin
   with mainwindow.image_north_arrow1 do
@@ -5036,7 +5057,7 @@ begin
       for j:=-qrs to qrs do
       begin
         distance:=round(resolution*sqrt(i*i + j*j)); {distance in resolution 1/6 pixel}
-        if distance<=rs then {build histogram for circel with radius qrs}
+        if distance<=rs then {build histogram for circle with radius qrs}
         begin
           if ((i<0) or ((i=0) and (j<0)) ) then distance:=-distance;//split star in two equal areas.
           val:=img_loaded[0,cY+j,cX+i];
@@ -5047,6 +5068,7 @@ begin
         end;
       end;
     end;
+
 
     if valmax>valmin then //prevent runtime errors
     for i:=-rs to rs do
@@ -5061,10 +5083,26 @@ begin
       end;
     end;
 
+// test draw a Gaussian
+//    if valmax>valmin then //prevent runtime errors
+//    for i:=-rs to rs do
+//    begin
+//      begin
+//      h:=height-height*EXP(-0.5*sqr(9*(i/rs)/ (3{sigma}))) ;
+//        hh:=round(h);
+//        if i=-rs then
+//          moveToex(Canvas.handle,(width div 2)+i,hh,nil)
+//        else
+//          lineTo(Canvas.handle,(width div 2)+i,hh);
+//      end;
+//    end;
+//   mainwindow.caption:=floattostr(diff);
+
+
     diam1:=round((width/2 + (resolution/4) * object_hfd*strtofloat2(stackmenu1.flux_aperture1.text)));//in 1/6 pixel resolution
     diam2:=round((width/2 - (resolution/4) * object_hfd*strtofloat2(stackmenu1.flux_aperture1.text)));
 
-    if diam2>=0 then  //show aperture
+    if diam2>=0 then  //show aperture if aperture setting is less then maximum as set in tap photometry.
     begin
       Canvas.Pen.style := psdot;
       Canvas.Pen.Color := clGreen;
@@ -5077,6 +5115,8 @@ begin
 
     canvas.pen.mode:=pmcopy; //back to default
   end;
+
+ ;
 end;
 
 procedure plot_text;
@@ -5090,7 +5130,7 @@ begin
   if ((head.naxis=0) or ((posanddate=false) and (freet=false))) then exit;
 
   mainwindow.image1.Canvas.brush.Style:=bsClear;
-  mainwindow.image1.Canvas.font.name:='default';
+  mainwindow.image1.Canvas.font.name:='Default';
   fontsize:=max(annotation_diameter,font_size);
   mainwindow.image1.Canvas.font.size:=round(fontsize);
   letter_height:=mainwindow.image1.Canvas.textheight('M');
@@ -5120,13 +5160,13 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
   {$ifdef mswindows}
-   mainwindow.image1.Canvas.Font.Name :='default';
+   mainwindow.image1.Canvas.Font.Name:='Default';
   {$endif}
   {$ifdef linux}
-  mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+  mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
   {$endif}
   {$ifdef darwin} {MacOS}
-  mainwindow.image1.Canvas.Font.Name :='Helvetica';
+  mainwindow.image1.Canvas.Font.Name:='Helvetica';
   {$endif}
 
   flip_vertical:=mainwindow.flip_vertical1.Checked;
@@ -5227,13 +5267,13 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
   {$ifdef mswindows}
-   mainwindow.image1.Canvas.Font.Name :='default';
+   mainwindow.image1.Canvas.Font.Name:='Default';
   {$endif}
   {$ifdef linux}
-  mainwindow.image1.Canvas.Font.Name :='DejaVu Sans';
+  mainwindow.image1.Canvas.Font.Name:='DejaVu Sans';
   {$endif}
   {$ifdef darwin} {MacOS}
-  mainwindow.image1.Canvas.Font.Name :='Helvetica';
+  mainwindow.image1.Canvas.Font.Name:='Helvetica';
   {$endif}
 
 
@@ -5480,9 +5520,7 @@ var
    xf,yf,x,y : double;
    ll,tt,hh,ww     : integer;
 begin
-
-  if head.naxis=0 then exit;
-  if shape.visible=false then exit;
+  if ((head.naxis=0) or (shape=nil) or (shape.visible=false)) then exit;
 
   xF:=(fitsX-0.5)*(mainwindow.image1.width/head.width)-0.5; //inverse of  fitsx:=0.5+(0.5+xf)/(image1.width/head.width);{starts at 1}
   yF:=-(fitsY-head.height-0.5)*(mainwindow.image1.height/head.height)-0.5; //inverse of fitsy:=0.5+head.height-(0.5+yf)/(image1.height/head.height); {from bottom to top, starts at 1}
@@ -5504,37 +5542,38 @@ begin
      if shape_type=0 then {rectangle}
      begin
        shape:=stRectangle;{0}
-       visible:=true;
+      // visible:=true;
      end
      else
      if shape_type=5 then {circle}
      begin {good lock on object}
        shape:=stcircle; {5}
-       visible:=true;
+      // visible:=true;
      end
      else
      if shape_type=2 then {star}
      begin {good lock on object}
-       visible:=true;
+      // visible:=true;
      end;
      {else keep as it is}
   end;
-  if tshape(shape)=tshape(mainwindow.shape_var1) then
-    begin mainwindow.labelVar1.left:=ll+ww; mainwindow.labelVar1.top:=tt+hh; mainwindow.labelVar1.font.size:=max(hh div 4,14);  mainwindow.labelVar1.visible:=true;end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_check1) then
-    begin mainwindow.labelCheck1.left:=ll+ww; mainwindow.labelCheck1.top:=tt+hh; mainwindow.labelCheck1.font.size:=max(hh div 4,14); mainwindow.labelCheck1.visible:=true;end
-  else
-  if tshape(shape)=tshape(mainwindow.shape_star3) then
-    begin mainwindow.labelThree1.left:=ll+ww; mainwindow.labelThree1.top:=tt+hh; mainwindow.labelThree1.font.size:=max(hh div 4,14); mainwindow.labelThree1.visible:=true;end;
+//  if tshape(shape)=tshape(mainwindow.shape_var1) then
+//    begin mainwindow.labelVar1.left:=ll+ww; mainwindow.labelVar1.top:=tt+hh; mainwindow.labelVar1.font.size:=max(hh div 4,14);  mainwindow.labelVar1.visible:=true;end
+//  else
+//  if tshape(shape)=tshape(mainwindow.shape_check1) then
+//    begin mainwindow.labelCheck1.left:=ll+ww; mainwindow.labelCheck1.top:=tt+hh; mainwindow.labelCheck1.font.size:=max(hh div 4,14); mainwindow.labelCheck1.visible:=true;end
+//  else
+//  if tshape(shape)=tshape(mainwindow.shape_comp1) then
+//    begin mainwindow.labelThree1.left:=ll+ww; mainwindow.labelThree1.top:=tt+hh; mainwindow.labelThree1.font.size:=max(hh div 4,14); mainwindow.labelThree1.visible:=true;end;
 
-  shape.pen.style:=psSolid;//for photometry, resturn from psClear;
+//  shape.pen.style:=psSolid;//for photometry, resturn from psClear;
 end;
 
 
 procedure zoom(mousewheelfactor:double;MousePos: TPoint);
 var
   maxw  : double;
+  i     : integer;
 begin
   {$ifdef mswindows}
    maxw:=65535; {will be 1.2*65535}
@@ -5587,18 +5626,17 @@ begin
     show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
     show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
 
-    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
-      show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
-    if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
-      show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
-    if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
-      show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+//    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+//      show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+//    if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+//      show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+//    if mainwindow.shape_comp1.visible then {For manual alignment. Do this only when visible}
+//      show_marker_shape(mainwindow.shape_comp1,9 {no change in shape and hint},20,20,10,shape_comp1_fitsX, shape_comp1_fitsY);
 
-    if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
-    begin
-      show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
-      show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
-    end;
+    with mainwindow do
+    for i:=0 to high(fshapes) do
+//       if FShapes[i].shape.visible then
+         show_marker_shape(FShapes[i].shape,9 {no change},30,30,10,FShapes[i].fitsX, FShapes[i].fitsY);
 
   end;
 end;
@@ -5847,9 +5885,7 @@ begin
            mrYes: Clipboard.AsText:=info_message;
   end;
 
-
   median_array:=nil;{free mem}
-
   Screen.Cursor:=crDefault;
 end;
 
@@ -5951,8 +5987,8 @@ begin
   stackmenu1.resize_factor1Change(nil);{update dimensions binning menu}
   stackmenu1.test_pattern1.Enabled:=head.naxis3=1;{mono}
 
-  stackmenu1.focallength1.Text:=floattostrf(focallen,ffgeneral, 4, 4);
-  stackmenu1.pixelsize1.text:=floattostrf(head.xpixsz{*XBINNING},ffgeneral, 4, 4);
+  stackmenu1.focallength1.Text:=floattostrf(focallen,ffFixed, 0, 0);
+  stackmenu1.pixelsize1.text:=floattostrf(head.xpixsz{*XBINNING},ffgeneral, 4, 0);
   stackmenu1.calculator_binning1.caption:=inttostr(head.width)+' x '+inttostr(head.height)+' pixels, binned '+floattostrf(head.Xbinning,ffgeneral,0,0)+'x'+floattostrf(head.Ybinning,ffgeneral,0,0);
   stackmenu1.focallength1Exit(nil); {update calculator}
 end;
@@ -6431,6 +6467,14 @@ begin
     result:=round(value);
 end;
 
+function strtofloat3(s:string; out error1 :integer): double;{works with either dot or komma as decimal separator}
+begin
+  s:=StringReplace(s,',','.',[]); {replaces komma by dot}
+  s:=trim(s); {remove spaces}
+  val(s,result,error1);
+  if error1<>0 then result:=0;
+end;
+
 function strtofloat2(s:string): double;{works with either dot or komma as decimal separator}
 var
   error1:integer;
@@ -6442,7 +6486,7 @@ begin
 end;
 
 
-function strtofloat1(s:string): double;{string to float, error tolerant}
+function strtofloat1(s:string): double;{string to float for dot seperator, error tolerant}
 var
   error1:integer;
 begin
@@ -7698,16 +7742,18 @@ begin
 end;
 
 procedure plot_fits(img:timage; center_image,show_header:boolean);
+type
+  PByteArray2 = ^TByteArray2;
+  TByteArray2 = Array[0..100000] of Byte;//instead of {$ifdef CPU16}32766{$else}32767{$endif} Maximum width 33333 pixels
 var
    i,j,col,col_r,col_g,col_b,linenr,columnr :integer;
    colrr,colgg,colbb,luminance, luminance_stretched,factor, largest, sat_factor,h,s,v: single;
    Bitmap  : TBitmap;{for fast pixel routine}
-   xLine :  PByteArray;{for fast pixel routine}
+   xLine :  PByteArray2;{for fast pixel routine}
    flipv, fliph : boolean;
+   ratio     : double;
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
-  img.visible:=true;
 
   {create bitmap}
   bitmap := TBitmap.Create;
@@ -7718,17 +7764,16 @@ begin
       height := head.height;
         // Unclear why this must follow width/height to work correctly.
         // If PixelFormat precedes width/height, bitmap will always be black.
-      bitmap.PixelFormat := pf24bit;
+        bitmap.PixelFormat := pf24bit;
     end;
     except;
   end;
 
   sat_factor:=1-mainwindow.saturation_factor_plot1.position/10;
 
-
-  bck.backgr:=mainwindow.minimum1.position;
+  head.backgr:=mainwindow.minimum1.position;
   cwhite:=mainwindow.maximum1.position;
-  if cwhite<=bck.backgr then cwhite:=bck.backgr+1;
+  if cwhite<=head.backgr then cwhite:=head.backgr+1;
 
   flipv:=mainwindow.flip_vertical1.Checked;
   fliph:=mainwindow.Flip_horizontal1.Checked;
@@ -7741,12 +7786,12 @@ begin
     begin
       if fliph then columnr:=(head.width-1)-j else columnr:=j;{flip horizontal?}
       col:=round(img_loaded[0,i,columnr]);
-      colrr:=(col-bck.backgr)/(cwhite-bck.backgr);{scale to 1}
+      colrr:=(col-head.backgr)/(cwhite-head.backgr);{scale to 1}
 
       if head.naxis3>=2 then {at least two colours}
       begin
         col:=round(img_loaded[1,i,columnr]);
-        colgg:=(col-bck.backgr)/(cwhite-bck.backgr);{scale to 1}
+        colgg:=(col-head.backgr)/(cwhite-head.backgr);{scale to 1}
       end
       else
       colgg:=colrr;
@@ -7754,7 +7799,7 @@ begin
       if head.naxis3>=3 then {at least three colours}
       begin
         col:=round(img_loaded[2,i,columnr]);
-        colbb:=(col-bck.backgr)/(cwhite-bck.backgr);{scale to 1}
+        colbb:=(col-head.backgr)/(cwhite-head.backgr);{scale to 1}
 
         if sat_factor<>1 then {adjust saturation}
         begin  {see same routine as stretch_img}
@@ -7787,7 +7832,7 @@ begin
         luminance:=(colrr+colgg+colbb)/3;{luminance in range 0..1}
         luminance_stretched:=stretch_c[trunc(32768*luminance)];
         factor:=luminance_stretched/luminance;
-        if factor*largest>1 then factor:=1/largest; {clamp again, could be higher then 1}
+        if factor*largest>1 then factor:=1/largest; {clamp again, could be lengther then 1}
         col_r:=round(colrr*factor*255);{stretch only luminance but keep rgb ratio!}
         col_g:=round(colgg*factor*255);{stretch only luminance but keep rgb ratio!}
         col_b:=round(colbb*factor*255);{stretch only luminance but keep rgb ratio!}
@@ -7817,6 +7862,16 @@ begin
     end;{j}
   end; {i}
 
+ //check 2gbyte limit of Timage, about 26500x27000 pixels
+  ratio:=3*(bitmap.height+1)*bitmap.width/$7FFFFFFF; //3 bytes per pixel
+  if ratio>=1 then
+  begin
+    ratio:=sqrt(ratio);//reduce surface by ratio
+    bitmap.height:=trunc(bitmap.height/ratio);//show up to 2 gbytes
+    bitmap.width:=trunc(bitmap.width/ratio);
+    memo2_message('Warning view has reached 2 gbyte limit! View width and height will be cropped at '+floattostrF(100/ratio,FFgeneral,0,0)+'%. This does not effect the image itself.');
+  end;
+
   img.picture.Graphic := Bitmap; {show image}
   Bitmap.Free;
 
@@ -7845,19 +7900,16 @@ begin
     plot_text;
     if ((annotated) and (mainwindow.annotations_visible1.checked)) then plot_annotations(false {use solution vectors},false);
 
-    //place markers based on ra, dec position. Using stored fitsX, fitsY is not reliable due to drift
-    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
-      place_marker_radec(mainwindow.shape_var1,shape_var1_ra,shape_var1_dec);//place ra,dec marker in image based on the ra,dec position
-    if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
-      place_marker_radec(mainwindow.shape_check1,shape_check1_ra,shape_check1_dec);//place ra,dec marker in image based on the ra,dec position
-    if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
-      place_marker_radec(mainwindow.shape_star3,shape_star3_ra,shape_star3_dec);//place ra,dec marker in image based on the ra,dec position
+    with mainwindow do
+    if annulus_plotted=false then ////hide all since aperture & annulus are plotted is plotted skip first time shapes. See photometry_buttonclick1
+    for i:=0 to high(fshapes) do
+//       if FShapes[i].shape.visible then
+       begin
+         celestial_to_pixel(head, fshapes[i].ra,fshapes[i].dec, fshapes[i].fitsX,fshapes[i].fitsY); {ra,dec to shape.fitsX,shape.fitsY}
+         FShapes[i].shape.visible:=true;//where set false in photometry_buttonclick1
+         show_marker_shape(FShapes[i].shape,9 {no change},30,30,10,FShapes[i].fitsX, FShapes[i].fitsY);
+       end;
 
-    if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
-    begin
-      place_marker_radec(mainwindow.shape_var2,shape_var2_ra,shape_var2_dec);//place ra,dec marker in image
-      place_marker_radec(mainwindow.shape_check2,shape_check2_ra,shape_check2_dec);//place ra,dec marker in image
-    end;
 
 
     mainwindow.statusbar1.panels[5].text:=inttostr(head.width)+' x '+inttostr(head.height)+' x '+inttostr(head.naxis3)+'   '+inttostr(nrbits)+' BPP';{give image dimensions and bit per pixel info}
@@ -7869,7 +7921,11 @@ begin
 
   {do refresh at the end for smooth display, especially for blinking }
 //  img.refresh;{important, show update}
-  img.invalidate;{important, show update. NoTe refresh aligns image to the left!!}
+
+  if img.visible=false then
+    img.visible:=true //will also refresh. This is only done once during startup
+  else
+    img.invalidate;{important, show update. NoTe refresh aligns image to the left!!}
 
 
   quads_displayed:=false; {displaying quads doesn't require a screen refresh}
@@ -8180,7 +8236,7 @@ begin
     if show_console=false then
     begin
       dwFlags := STARTF_USESHOWWINDOW;
-      wShowWindow := SW_SHOWMINIMIZED;
+      wShowWindow := SW_SHOWMINNOACTIVE;//SW_SHOWMINIMIZED which causes it to steal keyboard focus from active window. SW_SHOWMINNOACTIVE which opens the window the same way minimized but does not steal focus?
     end
     else
     wShowWindow := SW_HIDE;
@@ -8338,7 +8394,7 @@ begin
       font_name:=Sett.ReadString('main', 'font_name2',font_name);
       dum:=Sett.ReadString('main','font_style','');if dum<>'' then font_style:= strtostyle(dum);
       font_charset:=sett.ReadInteger('main','font_charset',font_charset);
-      pedestal:=sett.ReadInteger('main','pedestal',pedestal);
+      pedestal_m:=sett.ReadInteger('main','pedestal',pedestal_m);
 
 
 
@@ -8506,7 +8562,7 @@ begin
       stackmenu1.blur_factor1.text:= Sett.ReadString('stack','blur_factor','');
 
       stackmenu1.use_manual_alignment1.checked:=Sett.ReadString('stack','align_method','')='4';
-      stackmenu1.use_astrometry_alignment1.checked:=Sett.ReadString('stack','align_method','')='3';
+      stackmenu1.use_astrometric_alignment1.checked:=Sett.ReadString('stack','align_method','')='3';
       stackmenu1.use_star_alignment1.checked:=Sett.ReadString('stack','align_method','')='2';
       stackmenu1.use_ephemeris_alignment1.checked:=Sett.ReadString('stack','align_method','')='1';
 
@@ -8585,13 +8641,15 @@ begin
       dum:=Sett.ReadString('stack','star_level_colouring',''); if dum<>'' then stackmenu1.star_level_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','filter_artificial_colouring',''); if dum<>'' then stackmenu1.filter_artificial_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','resize_factor',''); if dum<>'' then stackmenu1.resize_factor1.text:=dum;
-      dum:=Sett.ReadString('stack','mark_outliers_upto',''); if dum<>'' then stackmenu1.mark_outliers_upto1.text:=dum;
+      dum:=Sett.ReadString('stack','nr_stars_p',''); if dum<>'' then stackmenu1.nr_stars_to_detect1.text:=dum;
       dum:=Sett.ReadString('stack','flux_aperture',''); if dum<>'' then stackmenu1.flux_aperture1.text:=dum;
       dum:=Sett.ReadString('stack','annulus_radius',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
+      dum:=Sett.ReadString('stack','font_size_p',''); if dum<>'' then stackmenu1.font_size_photometry1.text:=dum;
+
       c:=Sett.ReadInteger('stack','annotate_m',0); stackmenu1.annotate_mode1.itemindex:=c;
       c:=Sett.ReadInteger('stack','reference_d',0); stackmenu1.reference_database1.itemindex:=c;
-      stackmenu1.measure_all1.Checked:=Sett.ReadBool('stack','measure_all',false);
-
+      c:=Sett.ReadInteger('stack','measure_all',0); stackmenu1.measuring_method1.itemindex:=c;
+      stackmenu1.ignore_saturation1.checked:= Sett.ReadBool('stack','ign_saturation',true);//photometry tab
 
       dum:=Sett.ReadString('stack','sigma_decolour',''); if dum<>'' then stackmenu1.sigma_decolour1.text:=dum;
       dum:=Sett.ReadString('stack','sd_factor_list',''); if dum<>'' then stackmenu1.sd_factor_list1.text:=dum;
@@ -8627,10 +8685,14 @@ begin
       obscode:=Sett.ReadString('aavso','obscode',''); {photometry}
       delim_pos:=Sett.ReadInteger('aavso','delim_pos',0);
       baa_style:=Sett.ReadBool('aavso','baa_style',false);{aavso report}
+      sort_alphabetically:=Sett.ReadBool('aavso','sort_alphabetically',false);{aavso report}
+
       hjd_date:=Sett.ReadBool('aavso','hjd_date',false);{aavso report}
+      ensemble_database:=Sett.ReadBool('aavso','ensemble',true);{aavso report}
+
       aavso_filter_index:=Sett.ReadInteger('aavso','pfilter',0);
       magnitude_slope:=Sett.ReadFloat('aavso','slope',0);
-      used_check_stars:=Sett.ReadString('aavso','checkstars','');
+      used_vsp_stars:=Sett.ReadString('aavso','vsp-stars','');
 
       stackmenu1.live_stacking_path1.caption:=Sett.ReadString('live','live_stack_dir','');
       stackmenu1.monitoring_path1.caption:=Sett.ReadString('live','monitor_dir','');
@@ -8689,22 +8751,22 @@ begin
 
       c:=0;
       repeat {add blink files}
-        dum:=Sett.ReadString('files','blink'+inttostr(c),'');
-        if ((dum<>'') and (fileexists(dum))) then listview_add(stackmenu1.listview6,dum,Sett.ReadBool('files','blink'+inttostr(c)+'_check',true),B_nr);
+        dum:=Sett.ReadString('files6','blink'+inttostr(c),'');
+        if ((dum<>'') and (fileexists(dum))) then listview_add(stackmenu1.listview6,dum,Sett.ReadBool('files6','blink'+inttostr(c)+'_check',true),B_nr);
         inc(c);
       until (dum='');
 
       c:=0;
       repeat {add photometry files}
-        dum:=Sett.ReadString('files','photometry'+inttostr(c),'');
-        if ((dum<>'') and (fileexists(dum))) then listview_add(stackmenu1.listview7,dum,Sett.ReadBool('files','photometry'+inttostr(c)+'_check',true),P_nr);
+        dum:=Sett.ReadString('files7','photometry'+inttostr(c),'');
+        if ((dum<>'') and (fileexists(dum))) then listview_add(stackmenu1.listview7,dum,Sett.ReadBool('files7','photometry'+inttostr(c)+'_check',true),P_nr);
         inc(c);
       until (dum='');
 
       c:=0;
       repeat {add inspector files}
-        dum:=Sett.ReadString('files','inspector'+inttostr(c),'');
-        if ((dum<>'') and (fileexists(dum))) then  listview_add(stackmenu1.listview8,dum,Sett.ReadBool('files','inspector'+inttostr(c)+'_check',true),L_nr);
+        dum:=Sett.ReadString('files8','inspector'+inttostr(c),'');
+        if ((dum<>'') and (fileexists(dum))) then  listview_add(stackmenu1.listview8,dum,Sett.ReadBool('files8','inspector'+inttostr(c)+'_check',true),L_nr);
         inc(c);
       until (dum='');
 
@@ -8740,7 +8802,7 @@ begin
       sett.writestring('main','font_name2',font_name);
       sett.writestring('main','font_style',StyleToStr(font_style));
       sett.writeInteger('main','font_charset',font_charset);
-      sett.writeInteger('main','pedestal',pedestal);
+      sett.writeInteger('main','pedestal',pedestal_m);
 
 
       sett.writeInteger('main','minimum_position',MINIMUM1.position);
@@ -8906,7 +8968,7 @@ begin
 
       if  stackmenu1.use_manual_alignment1.checked then sett.writestring('stack','align_method','4')
       else
-      if  stackmenu1.use_astrometry_alignment1.checked then sett.writestring('stack','align_method','3')
+      if  stackmenu1.use_astrometric_alignment1.checked then sett.writestring('stack','align_method','3')
       else
       if  stackmenu1.use_star_alignment1.checked then sett.writestring('stack','align_method','2')
       else
@@ -8975,12 +9037,16 @@ begin
 
       sett.writestring('stack','resize_factor',stackmenu1.resize_factor1.text);
 
-      sett.writestring('stack','mark_outliers_upto',stackmenu1.mark_outliers_upto1.text);
+      sett.writestring('stack','nr_stars_p',stackmenu1.nr_stars_to_detect1.text);
       sett.writestring('stack','flux_aperture',stackmenu1.flux_aperture1.text);
       sett.writestring('stack','annulus_radius',stackmenu1.annulus_radius1.text);
+      sett.writestring('stack','font_size_p',stackmenu1.font_size_photometry1.text);
       sett.writeInteger('stack','annotate_m',stackmenu1.annotate_mode1.itemindex);
       sett.writeInteger('stack','reference_d',stackmenu1.reference_database1.itemindex);
-      sett.WriteBool('stack','measure_all', stackmenu1.measure_all1.checked);
+
+      sett.writeInteger('stack','measure_all',stackmenu1.measuring_method1.itemindex);
+      sett.WriteBool('stack','ign_saturation', stackmenu1.ignore_saturation1.checked);//photometry tab
+
 
       sett.writestring('stack','sigma_decolour',stackmenu1.sigma_decolour1.text);
 
@@ -9010,10 +9076,15 @@ begin
       sett.writestring('aavso','obscode',obscode);
       sett.writeInteger('aavso','delim_pos',delim_pos);
       sett.writeBool('aavso','baa_style',baa_style);{AAVSO report}
+      sett.writeBool('aavso','sort_alphabetically',sort_alphabetically);{AAVSO report}
+
+
       sett.writeBool('aavso','hjd_date',hjd_date);{AAVSO report}
+      sett.writeBool('aavso','ensemble',ensemble_database);{AAVSO report}
+
       sett.writeInteger('aavso','pfilter',aavso_filter_index);
       sett.writeFloat('aavso','slope', magnitude_slope);
-      sett.writestring('aavso','checkstars',used_check_stars);
+      sett.writestring('aavso','vsp-stars',used_vsp_stars);
 
       sett.writestring('live','live_stack_dir',stackmenu1.live_stacking_path1.caption);{live stacking}
       sett.writestring('live','monitor_dir',stackmenu1.monitoring_path1.caption);
@@ -9064,18 +9135,18 @@ begin
       end;
       for c:=0 to stackmenu1.ListView6.items.count-1  do {add blink files}
       begin
-        sett.writestring('files','blink'+inttostr(c),stackmenu1.ListView6.items[c].caption);
-        sett.writeBool('files','blink'+inttostr(c)+'_check',stackmenu1.ListView6.items[c].Checked);
+        sett.writestring('files6','blink'+inttostr(c),stackmenu1.ListView6.items[c].caption);
+        sett.writeBool('files6','blink'+inttostr(c)+'_check',stackmenu1.ListView6.items[c].Checked);
       end;
       for c:=0 to stackmenu1.ListView7.items.count-1  do {add photometry files}
       begin
-        sett.writestring('files','photometry'+inttostr(c),stackmenu1.ListView7.items[c].caption);
-        sett.writeBool('files','photometry'+inttostr(c)+'_check',stackmenu1.ListView7.items[c].Checked);
+        sett.writestring('files7','photometry'+inttostr(c),stackmenu1.ListView7.items[c].caption);
+        sett.writeBool('files7','photometry'+inttostr(c)+'_check',stackmenu1.ListView7.items[c].Checked);
       end;
       for c:=0 to stackmenu1.ListView8.items.count-1  do {add inspector files}
       begin
-        sett.writestring('files','inspector'+inttostr(c),stackmenu1.ListView8.items[c].caption);
-        sett.writeBool('files','inspector'+inttostr(c)+'_check',stackmenu1.ListView8.items[c].Checked);
+        sett.writestring('files8','inspector'+inttostr(c),stackmenu1.ListView8.items[c].caption);
+        sett.writeBool('files8','inspector'+inttostr(c)+'_check',stackmenu1.ListView8.items[c].Checked);
       end;
     end;{mainwindow}
   finally
@@ -9124,7 +9195,7 @@ begin
     pixelrow1:=image1.Picture.Bitmap.ScanLine[y];
     pixelrow2:=bmp.ScanLine[y];
       for x := 0 to w-1 do {swap left and right}
-        pixelrow2[x] := pixelrow1[w-1 -x];  {faster solution then using pbytearray as in vertical flip}
+        pixelrow2[x] := pixelrow1[w-1 -x];  {faster solution then using PByteArray as in vertical flip}
   end;
   image1.Picture.Bitmap.Canvas.Draw(0,0, bmp);// move bmp to source
   bmp.Free;
@@ -9160,9 +9231,12 @@ end;
 
 
 procedure Tmainwindow.flip_vertical1Click(Sender: TObject);
+type
+  PByteArray2 = ^TByteArray2;
+  TByteArray2 = Array[0..100000] of Byte;//instead of {$ifdef CPU16}32766{$else}32767{$endif} Maximum width 33333 pixels
 var bmp: TBitmap;
     w, h, y  : integer;
-    pixelrow1,pixelrow2 :  PByteArray;
+    pixelrow1,pixelrow2 :  PByteArray2;
 begin
   w:=image1.Picture.Width;
   h:=image1.Picture.Height;
@@ -9296,12 +9370,15 @@ begin
   application.messagebox(pchar('No area selected! Hold the right mouse button down while selecting an area.'),'',MB_OK);
 end;
 
+
 procedure Tmainwindow.batch_add_tilt1Click(Sender: TObject);
 var
   I: integer;
   err,success   : boolean;
   dobackup : boolean;
   tilt     : double;
+  headx : theader;
+  img_temp: image_array;
 begin
   OpenDialog1.Title:='Select multiple  files to measure and store tilt in header using keyword TILT';
   OpenDialog1.Options:=[ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
@@ -9313,8 +9390,6 @@ begin
   if OpenDialog1.Execute then
   begin
     Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-    dobackup:=img_loaded<>nil;
-    if dobackup then backup_img;{preserve img array and fits header of the viewer}
 
     try { Do some lengthy operation }
       with OpenDialog1.Files do
@@ -9324,21 +9399,22 @@ begin
         if esc_pressed then begin err:=true;break; end;
         filename2:=Strings[I];
         mainwindow.caption:=filename2+' file nr. '+inttostr(i+1)+'-'+inttostr(Count);;
-        if load_image(filename2,img_loaded,head,mainwindow.memo1.lines,false {recenter},false {plot}) then
+        if load_fits(filename2,true {light},true,true {update memo},0,memox,headx,img_temp) then {load image success}
         begin
           if extra_stars=false then
-            tilt:=CCDinspector(30,false {screenplot},false{three_corners},strtofloat(measuring_angle))
+            tilt:=CCDinspector(img_temp,headx,memox,30,false {screenplot},false{three_corners},strtofloat(measuring_angle))
           else
-            tilt:=CCDinspector(10,false {screenplot},false{three_corners},strtofloat(measuring_angle));
+            tilt:=CCDinspector(img_temp,headx,memox,10,false {screenplot},false{three_corners},strtofloat(measuring_angle));
 
-          if tilt<100 then
+          if tilt<100 then //success. Tilt= is added to memox in function CCDinspector
           begin
-            update_text(mainwindow.memo1.lines,'TILT    = ',floattostr2(tilt)+'                / Delta HFD between worst and best corner');;//two decimals only for nice reporting
             if fits_file_name(filename2) then
-              success:=savefits_update_header(mainwindow.memo1.lines,filename2)
+              success:=savefits_update_header(memox,filename2)
             else
-              success:=save_tiff16_secure(img_loaded,mainwindow.memo1.lines,filename2);{guarantee no file is lost}
-            if success=false then begin ShowMessage('Write error !!' + filename2);Screen.Cursor:=crDefault; exit;end;
+              success:=save_tiff16_secure(img_temp,memox,filename2);{guarantee no file is lost}
+            if success=false then begin ShowMessage('Write error !!' + filename2);Screen.Cursor:=crDefault; exit;end
+            else
+            memo2_message(filename2+', tilt = '+floattostrF(tilt,FFgeneral,0,2));
           end
           else
           memo2_message('Error adding tilt measurement: '+filename2);
@@ -9356,7 +9432,6 @@ begin
         ShowMessage('Errors!! Files modified but with errors or stopped!!');
       end;
       finally
-      if dobackup then restore_img;{for the viewer}
       Screen.Cursor:=crDefault;  { Always restore to normal }
     end;
   end;
@@ -9414,7 +9489,7 @@ begin
 
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
-  calibrate_photometry;//calibrate photometry if required
+  calibrate_photometry(img_loaded,mainwindow.Memo1.lines,head, false{update});//calibrate photometry if required
   minor_planet_at_cursor:=''; //clear last found
 
 //  plot_mpcorb(strtoint(maxcount_asteroid),strtofloat2(maxmag_asteroid),true {add annotations});
@@ -9915,7 +9990,7 @@ begin
       end;
 
       filen:=ChangeFileExt(filen,'.fits');
-      result:=save_fits(img_loaded,memox,filen,nrbits,false);
+      result:=save_fits(img_temp,memox,filen,nrbits,false);
     end;
   end;
 end;
@@ -10228,29 +10303,33 @@ begin
 end;
 
 
-function download_vsp(limiting_mag: double) : boolean;//AAVSO API access
+function download_vsp(limiting_mag: double) : boolean;//AAVSO API access check & comparison stars
 var
   s,url   : string;
   val,val2 : char;
-  count,i,j,k,fov  : integer;
-  errorRA,errorDEC :boolean;
+  count,i,j,k,fov    : integer;
+  errorRA,errorDEC   : boolean;
 begin
   result:=false;
   fov:=round(sqrt(sqr(head.width)+sqr(head.height))*abs(head.cdelt2*60)); //arcmin. cdelt2 can be negative for other solvers
   if fov>180 {arcmin} then
   begin
-    limiting_mag:=12; ////Required by AAVSO
-    memo2_message('FOV is larger then 3 degrees. Downloading from AAVSO VSX, VSP is then limited to magnitude 12.');
+    if limiting_mag>12 then memo2_message('FOV is larger then 3 degrees. Downloading from AAVSO VSX, VSP is then limited to magnitude 12.');
+    limiting_mag:=min(limiting_mag,12); ////Required by AAVSO
   end;
 
+  //https://www.aavso.org/apps/vsp/api/chart/?format=json&ra=173.475392&dec=-0.032945&fov=42&maglimit=13.0000
   url:='https://www.aavso.org/apps/vsp/api/chart/?format=json&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&fov='+inttostr(fov)+'&maglimit='+floattostr4(limiting_mag);{+'&special=std_field'}
   s:=get_http(url);{get webpage}
-  if length(s)<50 then begin beep; exit end;;
+  if length(s)=0 then begin beep; exit end;;
+  if length(s)<256 then exit; //no data for this field
 
-  setlength(vsp,1000);
+  setlength(vsp,2000);
   count:=0;
   j:=150;//skip some header stuff
   repeat
+    if count>=length(vsp) then setlength(vsp,count+2000);// increase size
+
     i:=posex('"auid":"',s,j); //AUID will be always available
     if i=0 then
             break;//no more data
@@ -10366,37 +10445,51 @@ begin
     until ((val=']') or (j>=length(s)));
 
     inc(count);//number of entries/stars
-  until count>=length(vsp);//normally will stop at above break
+  until count>=10000;//pratical limit, normally will stop at above break
   setlength(vsp,count);
   result:=true;
 end;
 
-function download_vsx(limiting_mag: double): boolean;//AAVSO API access
+function download_vsx(limiting_mag: double): boolean;//AAVSO API access variables
 var
   s,dummy,url   : string;
-  count,i,j,k,errorRa,errorDec   : integer;
-  radius,ra,dec : double;
+  count,i,j,k,errorRa,errorDec,err                : integer;
+  radius,ra,dec,ProperMotionRA,ProperMotionDEC,years_since_2000,var_period : double;
+  skip,period_filter  : boolean;
 begin
   result:=false;
   radius:=sqrt(sqr(head.width)+sqr(head.height))*abs(head.cdelt2/2); //radius in degrees. Some solvers produce files with neagative cdelt2
 
-  if radius>3 {degrees} then limiting_mag:=12; ////Required by AAVSO
+  date_to_jd(head.date_obs,'',0 {exposure});{convert date-obs to jd_start, jd_mid for proper motion}
+  if jd_start>2400000 then
+    years_since_2000:=(jd_start-2451545)/365.25 //years since 2000
+  else
+    years_since_2000:=26; //default, years since 2000
 
+  if radius>3 {degrees} then limiting_mag:=min(12,limiting_mag); ////Required by AAVSO
+
+  period_filter:=stackmenu1.annotate_mode1.itemindex <8;
+
+
+  //https://www.aavso.org/vsx/index.php?view=api.list&ra=173.478667&dec=-0.033698&radius=0.350582&tomag=13.0000&format=json
   url:='https://www.aavso.org/vsx/index.php?view=api.list&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&radius='+floattostr6(radius)+'&tomag='+floattostr4(limiting_mag)+'&format=json';
   s:=get_http(url);
-  if length(s)<25 then begin beep; exit end;;
+  if length(s)=0 then begin beep; exit end;//network error
+  if length(s)<25 then begin exit end;//no stars in this field
 
-  setlength(vsx,1000);
+  setlength(vsx,2000);
   count:=0;
   j:=25;//skip some header stuff
 
   repeat
+    if count>=length(vsx) then setlength(vsx,length(vsx)+2000);// increase size
+
     i:=posex('"Name":"',s,j); //Name will be always available
     if i=0 then
             break;//no more data
     i:=i+length('"Name":"');
     j:=posex('"',s,i);
-    vsx[count].name:=copy(s,i,j-i);
+    vsx[count].name:=stringreplace(copy(s,i,j-i),' ','_',[]);//add underscore for consistancy with local database
 
     //optional field
 //     if s[j+3]='A' then
@@ -10435,36 +10528,74 @@ begin
       inc(j);
       if ((s[j]='M') and (s[j+1]='a') and (s[j+2]='x')) then //MaxMag found, could be missing
       begin
-        i:=j+length('MaxMag":"');
+        i:=j+length('"MaxMag:"');
         k:=posex('"',s,i);
         vsx[count].maxmag:=copy(s,i,k-i);
       end
       else
-      if ((s[j]='M') and (s[j+1]='i') and (s[j+2]='n')) then //MaxMag found, could be missing
+      if ((s[j]='M') and (s[j+1]='i') and (s[j+2]='n')) then //MinMag found, could be missing
       begin
-        i:=j+length('MinMag":"');
+        i:=j+length('"MinMag:"');
         k:=posex('"',s,i);
         vsx[count].minmag:=copy(s,i,k-i);
       end
       else
       if ((s[j]='C') and (s[j+1]='a') and (s[j+2]='t')) then
       begin
-        i:=j+length('Category":"');
+        i:=j+length('"Category:"');
         k:=posex('"',s,i);
         vsx[count].category:=copy(s,i,3);
       end
       else
       if ((s[j]='P') and (s[j+1]='e') and (s[j+2]='r')) then
       begin
-        i:=j+length('Period":"');
+        i:=j+length('"Period:"');
         k:=posex('"',s,i);
         vsx[count].period:=copy(s,i,k-i);
+      end
+      else
+      if ((s[j]='E') and (s[j+1]='p') and (s[j+2]='o')) then
+      begin
+        i:=j+length('"Epoch:"');
+        k:=posex('"',s,i);
+        vsx[count].epoch:=copy(s,i,k-i);
+      end
+      else
+      if ((s[j]='P') and (s[j+1]='r') and (s[j+2]='o') and (s[j+3]='p') and (s[j+12]='D') and (s[j+13]='e')  ) then
+      begin
+        i:=j+length('"ProperMotionDec:"');
+        k:=posex('"',s,i);
+        val(copy(s,i,k-i),propermotionDEC,err);//Proper motions mas/yr
+        if err=0 then
+           vsx[count].dec:=vsx[count].dec+propermotionDec*years_since_2000/((1000*3600)*180/pi);
+
+      end
+      else
+      if ((s[j]='P') and (s[j+1]='r') and (s[j+2]='o') and (s[j+3]='p') and (s[j+12]='R') and (s[j+13]='A')  ) then
+      begin
+        i:=j+length('"ProperMotionRA:"');
+        k:=posex('"',s,i);
+        val(copy(s,i,k-i),propermotionRA,err);//Proper motions mas/yr
+        if err=0 then
+           vsx[count].ra:=vsx[count].ra+propermotionRA*years_since_2000/(cos(vsx[count].dec)*(1000*3600)*180/pi);
       end;
 
+
       if j<k then j:=k; //k could be in very rare cases 0 resulting in an endless loop
-     until ((s[j]='}') or (j=length(s)-1));
-    inc(count);//number of entries/stars
-  until count>=length(vsx);//normally will stop at above break
+    until ((s[j]='}') or (j=length(s)-1));
+
+    //filtering
+    skip:=false;
+    if period_filter then
+    begin
+      var_period:=strtofloat1(vsx[count].period);
+      if ((var_period=0) or (var_period>=3)) then  skip:=true;//only short period var's
+    end;
+
+    if skip=false then
+         inc(count);//number of entries/stars
+
+  until count>=10000;//pratical limit, normally will stop at above break
   setlength(vsx,count);
   result:=true;
 end;
@@ -10477,16 +10608,14 @@ begin
   if vsx=nil then exit;
   if length(vsx)>0 then
     ang_sep(vsx[0].ra,vsx[0].dec,head.ra0,head.dec0,sep);
-  if sep<head.width*head.cdelt2*2*pi/180 then result:=false;// first entry near to center position image then no update required
+  if sep<head.width*head.cdelt2*pi/180 then result:=false;// first entry near to center position image then no update required
 end;
 
 
-procedure Tmainwindow.variable_star_annotation1Click(Sender: TObject);
+procedure variable_star_annotation(extract_visible: boolean {extract to variable_list});
 var
-  lim_magn            : double;
+  lim_magnitude            : double;
 begin
-  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
 //0, No annotation
 //1, Annotation local DB mag 13
 //2, Annotation local DB mag 15
@@ -10500,35 +10629,46 @@ begin
 //10,Annotation online DB mag 99 & measure all
 
   case stackmenu1.annotate_mode1.itemindex of
-       0,1: begin lim_magn:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
-       2:   begin lim_magn:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
-       3:   begin lim_magn:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
-       4: lim_magn:=13;
-       5: lim_magn:=15;
-       6:lim_magn:=99;
+       0,1: begin lim_magnitude:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
+       2:   begin lim_magnitude:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
+       3:   begin lim_magnitude:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
+       4,8,12:  lim_magnitude:=11;
+       5,9,13:  lim_magnitude:=13;
+       6,19,14: lim_magnitude:=15;
+       7,11,15: lim_magnitude:=99;
        else
-          lim_magn:=99;
+          lim_magnitude:=99;
      end; //case
 
-  if lim_magn>0 then //online version
+  if lim_magnitude>0 then //online version
   begin
     repeat
       if aavso_update_required then
       begin
         memo2_message('Downloading online data from AAVSO as set in tab Photometry.');
-        if download_vsx(lim_magn)=false then begin memo2_message('Error!');break; end;
-        if download_vsp(lim_magn)=false then begin memo2_message('Error!');break; end;
+        if download_vsx(lim_magnitude)=false then begin memo2_message('No VSX data! Increasing the max magnitude could help.');break; end;
+        if download_vsp(lim_magnitude)=false then begin memo2_message('No VSP data!');break; end;
+
       end;
-      if sender<>stackmenu1.photometry_button1 then
-                   plot_vsx_vsp;
+
+      date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert date-obs to jd_start, jd_mid}
+      plot_vsx_vsp(extract_visible {extract also data});
     until true;//allow breaks to skip and go to cursor statement
   end
   else
   begin //local version
     memo2_message('Using local variable database. Online version can be set in tab Photometry');
-    plot_deepsky(sender=stackmenu1.photometry_button1); {Plot the variables on the image. If photometry_button then only fill variable_list}
+    plot_deepsky(extract_visible{then extract visible to variable_list},stackmenu1.font_size_photometry_UpDown1.position); {Plot the variables on the image. }
   end;
+end;
 
+
+
+procedure Tmainwindow.variable_star_annotation1Click(Sender: TObject);
+begin
+  if head.cd1_1=0 then begin memo2_message('No solution!'); exit; end;//no solution
+  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+  variable_star_annotation(true {load and plot});
   Screen.Cursor:=crDefault;
 end;
 
@@ -10548,9 +10688,9 @@ end;
 procedure Tmainwindow.inspection1click(Sender: TObject);
 begin
   if extra_stars=false then
-    CCDinspector(30,true {screenplot},three_corners,strtofloat(measuring_angle))
+    CCDinspector(img_loaded,head,mainwindow.memo1.lines,30,true {screenplot},three_corners,strtofloat(measuring_angle))
   else
-    CCDinspector(10,true {screenplot},three_corners,strtofloat(measuring_angle));
+    CCDinspector(img_loaded,head,mainwindow.memo1.lines,10,true {screenplot},three_corners,strtofloat(measuring_angle));
 end;
 
 
@@ -10643,7 +10783,7 @@ begin
       annulus_radius:=14;{calibrate for extended objects using full star flux}
       head.mzero_radius:=99;{calibrate for extended objects}
 
-      plot_and_measure_stars(true {calibration},false {plot stars},false{report lim magnitude});
+      plot_and_measure_stars(img_loaded,mainwindow.Memo1.lines,head,true {calibration},false {plot stars},false{report lim magnitude});
     end;
     if head.mzero=0 then begin beep; exit;end;
 
@@ -10717,7 +10857,7 @@ begin
     font_height:=round(canvas.Textheight('0')*1.0);{font size times ... to get underscore at the correct place. Fonts coordinates are all top/left coordinates }
     {$endif}
 
-    image1.Canvas.font.name:='default';
+    image1.Canvas.font.name:='Default';
 
     image1.Canvas.textout(3+tx,round(-font_height + ty), mag_str);
 
@@ -10802,6 +10942,7 @@ begin
     copy_paste:=true;
     if CTRLbutton then copy_paste_shape:=1 //ellipse
                   else copy_paste_shape:=0;//rectangle
+    shape_paste1.visible:=true;
   end {fits file}
   else
   application.messagebox(pchar('No area selected! Hold the right mouse button down while selecting an area.'),'',MB_OK);
@@ -11202,10 +11343,10 @@ begin
 end;
 
 
-procedure measure_magnitudes(annulus_rad,x1,y1,x2,y2:integer; deep: boolean; var stars :star_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
+procedure measure_magnitudes(img : image_array; headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :star_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
 var
   fitsX,fitsY,radius, i, j,nrstars,n,m,xci,yci,sqr_radius: integer;
-  hfd1,star_fwhm,snr,flux,xc,yc,detection_level,hfd_min  : double;
+  hfd1,star_fwhm,snr,flux,xc,yc,detection_level,hfd_min,adu_e  : double;
   img_sa : image_array;
   saturation_level : single;
 
@@ -11213,36 +11354,38 @@ begin
 
   SetLength(stars,5,5000);{set array length}
 
-  setlength(img_sa,1,head.height,head.width);{set length of image array}
+  setlength(img_sa,1,headx.height,headx.width);{set length of image array}
 
-  get_background(0,img_loaded,false{histogram is already available},true {calculate noise level},{out}bck);{calculate background level from peek histogram}
+  get_background(0,img,headx,histogram_update{histogram is already available},true {calculate noise level});{calculate background level from peek histogram}
 
-  if deep then detection_level:=5*bck.noise_level else detection_level:=bck.star_level;
+  if deep then detection_level:=5*headx.noise_level else detection_level:=headx.star_level;
   hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
 
   nrstars:=0;{set counters at zero}
+  adu_e:=retrieve_ADU_to_e_unbinned(headx.egain);//Used for SNR calculation in procedure HFD. Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
 
-  if head.calstat = '' then saturation_level := 64000
+
+  if headx.calstat = '' then saturation_level := 64000
   else
     saturation_level := 60000; {could be dark subtracted changing the saturation level}
-  saturation_level:=min(head.datamax_org-1,saturation_level);
+  saturation_level:=min(headx.datamax_org-1,saturation_level);
 
-  for fitsY:=0 to head.height-1 do
-    for fitsX:=0 to head.width-1  do
+  for fitsY:=0 to headx.height-1 do
+    for fitsX:=0 to headx.width-1  do
       img_sa[0,fitsY,fitsX]:=-1;{mark as star free area}
 
   for fitsY:=y1 to y2-1 do
   begin
     for fitsX:=x1 to x2-1  do
     begin
-      if (( img_sa[0,fitsY,fitsX]<=0){area not occupied by a star} and (img_loaded[0,fitsY,fitsX]- bck.backgr> detection_level)) then {new star}
+      if (( img_sa[0,fitsY,fitsX]<=0){area not occupied by a star} and (img[0,fitsY,fitsX]- headx.backgr> detection_level)) then {new star}
       begin
-        HFD(img_loaded,fitsX,fitsY,annulus_rad {typical 14, annulus radius},head.mzero_radius,0 {adu_e}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
-        if ((hfd1<15) and (hfd1>=hfd_min) {two pixels minimum} and (snr>10)) then {star detected in img_loaded}
+        HFD(img,fitsX,fitsY,annulus_rad {typical 14, annulus radius},headx.mzero_radius,adu_e, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
+        if ((hfd1<15) and (hfd1>=hfd_min) {two pixels minimum} and (snr>10)) then {star detected in img}
         begin
           {for testing}
-          //if flipvertical=false  then  starY:=round(head.height-yc) else starY:=round(yc);
-          //if fliphorizontal=true then starX:=round(head.width-xc)  else starX:=round(xc);
+          //if flipvertical=false  then  starY:=round(headx.height-yc) else starY:=round(yc);
+          //if fliphorizontal=true then starX:=round(headx.width-xc)  else starX:=round(xc);
           //  size:=round(5*hfd1);
           //  mainwindow.image1.Canvas.Rectangle(starX-size,starY-size, starX+size, starY+size);{indicate hfd with rectangle}
           //  mainwindow.image1.Canvas.textout(starX+size,starY+size,floattostrf(hfd1, ffgeneral, 2,1));{add hfd as text}
@@ -11256,20 +11399,20 @@ begin
             begin
               j:=n+yci;
               i:=m+xci;
-              if ((j>=0) and (i>=0) and (j<head.height) and (i<head.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
+              if ((j>=0) and (i>=0) and (j<headx.height) and (i<headx.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
                 img_sa[0,j,i]:=1;
             end;
 
-          if ((img_loaded[0,round(yc),round(xc)]<saturation_level) and
-              (img_loaded[0,round(yc),round(xc-1)]<saturation_level) and
-              (img_loaded[0,round(yc),round(xc+1)]<saturation_level) and
-              (img_loaded[0,round(yc-1),round(xc)]<saturation_level) and
-              (img_loaded[0,round(yc+1),round(xc)]<saturation_level) and
+          if ((img[0,round(yc),round(xc)]<saturation_level) and
+              (img[0,round(yc),round(xc-1)]<saturation_level) and
+              (img[0,round(yc),round(xc+1)]<saturation_level) and
+              (img[0,round(yc-1),round(xc)]<saturation_level) and
+              (img[0,round(yc+1),round(xc)]<saturation_level) and
 
-              (img_loaded[0,round(yc-1),round(xc-1)]<saturation_level) and
-              (img_loaded[0,round(yc+1),round(xc-1)]<saturation_level) and
-              (img_loaded[0,round(yc-1),round(xc+1)]<saturation_level) and
-              (img_loaded[0,round(yc+1),round(xc+1)]<saturation_level)  ) then {not saturated}
+              (img[0,round(yc-1),round(xc-1)]<saturation_level) and
+              (img[0,round(yc+1),round(xc-1)]<saturation_level) and
+              (img[0,round(yc-1),round(xc+1)]<saturation_level) and
+              (img[0,round(yc+1),round(xc+1)]<saturation_level)  ) then {not saturated}
           begin
             {store values}
             inc(nrstars);
@@ -11294,155 +11437,143 @@ begin
 end;
 
 
-procedure calibrate_photometry;
+procedure calibrate_photometry(img : image_array; memo : tstrings; var head : Theader; update: boolean);
 var
-  apert,annul,hfd_med : double;
-  hfd_counter                : integer;
+  apert,annul         : double;
+  hfd_counter         : integer;
 begin
   if ((head.naxis=0) or (head.cd1_1=0)) then exit;
 
   apert:=strtofloat2(stackmenu1.flux_aperture1.text); {text "max" will generate a zero}
-  if ((head.mzero=0) or (aperture_ratio<>apert){new calibration required} or (passband_active<>head.passband_database))  then
+
+
+  if ((update) or (head.mzero=0) or (aperture_ratio<>apert){new calibration required} or (passband_active<>head.passband_database))  then
   begin
     memo2_message('Photometric calibration of the measured stellar flux.');
     annulus_radius:=14;{calibrate for extended objects}
     head.mzero_radius:=99;{calibrate for extended objects}
 
-    aperture_ratio:=apert;{remember setting}
+    aperture_ratio:=apert;{remember setting for next call to this procedure}
+
     if apert<>0 then {smaller aperture for photometry. Setting <> max}
     begin
-      analyse_image(img_loaded,head,30,0 {report nr stars and hfd only}, hfd_counter,bck,hfd_med); {find background, number of stars, median HFD}
-      if hfd_med<>0 then
+      analyse_image(img,head,30,0 {report nr stars and hfd only}); {find background, number of stars, median HFD}
+      if head.hfd_median<>0 then
       begin
-        memo2_message('Median HFD is '+floattostrf(hfd_med, ffgeneral, 2,2)+'. Aperture and annulus will be adapted accordingly.');;
-        head.mzero_radius:=hfd_med*apert/2;{radius}
+        memo2_message('Median HFD is '+floattostrf(head.hfd_median, ffgeneral, 2,0)+'. Aperture and annulus will be adapted accordingly.');;
+        head.mzero_radius:=head.hfd_median*apert/2;{radius}
         annul:=strtofloat2(stackmenu1.annulus_radius1.text);
-        annulus_radius:=min(50,round(hfd_med*annul/2)-1);{Radius. Limit to 50 to prevent runtime errors}
+        annulus_radius:=min(50,round(head.hfd_median*annul/2)-1);{Radius. Limit to 50 to prevent runtime errors}
       end;
     end
     else
     memo2_message('To increase the accuracy of point sources magnitudes set a smaller aperture diameter in tab "photometry".');
 
-    plot_and_measure_stars(true {calibration},false {plot stars},true{report lim magnitude});
+    plot_and_measure_stars(img,memo, head,true {calibration},false {plot stars},true{report lim magnitude});//mzero calibration
   end;
 end;
 
 
-procedure Tmainwindow.annotate_unknown_stars1Click(Sender: TObject);
+function annotate_unknown_stars(const memox:tstrings; img : image_array; headx : theader; out countN : integer) : boolean;//annotate stars missing from the online Gaia catalog or having too bright magnitudes
 var
-  size,radius, i,j, starX, starY,fitsX,fitsY,n,m,xci,yci,hfd_counter,search_radius,countN,countO     : integer;
-  Fliphorizontal, Flipvertical,saturated : boolean;
-  hfd1,star_fwhm,snr,flux,xc,yc,measured_magn,magnd,magn_database, delta_magn,magn_limit_database,
-  sqr_radius, hfd_median : double;
+  sizebox,radius, i,j, starX, starY,fitsX,fitsY,n,m,xci,yci,search_radius,ratio_counter     : integer;
+  saturated,galaxy                                                             : boolean;
+  hfd1,star_fwhm,snr,flux,xc,yc,measured_magn,magnd,magn_database, delta_magn,magn_limit_database,  sqr_radius,flux2,ratio,ratio_sum,hfd2 : double;
   messg : string;
   img_temp3,img_sa :image_array;
   data_max: single;
+
+
 const
    default=1000;
 
  begin
-  if head.naxis=0 then exit; {file loaded?}
+  if headx.naxis=0 then exit; {file loaded?}
+
+  result:=false;
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
-  calibrate_photometry;
-
-
-  if head.mzero=0 then
-  begin
-    beep;
-    img_sa:=nil;
-    img_temp3:=nil;
-    Screen.Cursor:=crDefault;
-    exit;
-  end;
-
-  Flipvertical:=mainwindow.flip_vertical1.Checked;
-  Fliphorizontal:=mainwindow.Flip_horizontal1.Checked;
-
   magn_limit_database:=10*21;//magn, Online Gaia via Vizier
-
-  image1.Canvas.Pen.Mode := pmMerge;
-  image1.Canvas.Pen.width :=1;
-  image1.Canvas.brush.Style:=bsClear;
-  image1.Canvas.font.color:=clyellow;
-  image1.Canvas.font.name:='default';
-  image1.Canvas.font.size:=10;
-  mainwindow.image1.Canvas.Pen.Color := clred;
-
-
-  setlength(img_temp3,1,head.height,head.width);{set size of image array}
-  for fitsY:=0 to head.height-1 do
-    for fitsX:=0 to head.width-1  do
+  setlength(img_temp3,1,headx.height,headx.width);{set size of image array}
+  for fitsY:=0 to headx.height-1 do
+    for fitsX:=0 to headx.width-1  do
       img_temp3[0,fitsY,fitsX]:=default;{clear}
-  plot_artificial_stars(img_temp3,head,magn_limit {measured});{create artificial image with database stars as pixels}
+  if plot_artificial_stars(img_temp3,headx)=false then exit;{create artificial image with database stars as pixels}
 
-//  img_loaded:=img_temp3;
-//  plot_fits(mainwindow.image1,true,true);
-//  exit;
+// for testing
+// img_loaded:=img_temp3;
+// plot_fits(mainwindow.image1,true,true);
+// exit;
 
 //  get_background(0,img_loaded,false{histogram is already available},true {calculate noise level},{var}cblack,star_level);{calculate background level from peek histogram}
 
-  analyse_image(img_loaded,head,10 {snr_min},0 {report nr stars and hfd only},hfd_counter,bck, hfd_median); {find background, number of stars, median HFD}
-  search_radius:=max(3,round(hfd_median));
+  remove_key(memox,'ANNOTATE',true{all});{remove older annotations.}
 
-  setlength(img_sa,1,head.height,head.width);{set length of image array}
-   for fitsY:=0 to head.height-1 do
-    for fitsX:=0 to head.width-1  do
+  analyse_image(img,headx,10 {snr_min},0 {report nr stars and hfd only}); {find background, number of stars, median HFD}
+  search_radius:=max(3,round(headx.hfd_median));
+
+  setlength(img_sa,1,headx.height,headx.width);{set length of image array}
+   for fitsY:=0 to headx.height-1 do
+    for fitsX:=0 to headx.width-1  do
       img_sa[0,fitsY,fitsX]:=-1;{mark as star free area}
 
 
   countN:=0;
-  countO:=0;
-  data_max:=head.datamax_org-1;
+  data_max:=headx.datamax_org-1;
+  ratio_counter:=0;
+  ratio_sum:=0;
 
-  for fitsY:=0 to head.height-1 do
+  for fitsY:=0 to headx.height-1 do
   begin
-    for fitsX:=0 to head.width-1  do
+    for fitsX:=0 to headx.width-1  do
     begin
-      if (( img_sa[0,fitsY,fitsX]<=0){area not occupied by a star} and (img_loaded[0,fitsY,fitsX]- bck.backgr>5*bck.noise_level {star_level} ){star}) then {new star}
+
+      //if ((FITSX=1574-1) and  (FITSy=1013)) then
+      //beep;
+
+      if (( img_sa[0,fitsY,fitsX]<=0){area not occupied by a star} and (img[0,fitsY,fitsX]- headx.backgr>5*headx.noise_level {star_level} ){star}) then {new star}
       begin
 
-        HFD(img_loaded,fitsX,fitsY,round(1.5* hfd_median){annulus radius},3.0*hfd_median {flux aperture restriction},0 {adu_e}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
+        HFD(img,fitsX,fitsY,14{annulus radius},98{3.0*headx.hfd_median} {flux aperture restriction},0 {adu_e}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
 
         //memo2_message(floattostr(xc)+',  ' +floattostr(yc));
 
         xci:=round(xc);{star center as integer}
         yci:=round(yc);
-        if ((xci>0) and (xci<head.width-1) and (yci>0) and (yci<head.height-1)) then
-        saturated:=not ((img_loaded[0,yci,xci]<data_max) and
-                        (img_loaded[0,yci,xci-1]<data_max) and
-                        (img_loaded[0,yci,xci+1]<data_max) and
-                        (img_loaded[0,yci-1,xci]<data_max) and
-                        (img_loaded[0,yci+1,xci]<data_max) and
+        if ((xci>0) and (xci<headx.width-1) and (yci>0) and (yci<headx.height-1)) then
+        saturated:=not ((img[0,yci,xci]<data_max) and
+                        (img[0,yci,xci-1]<data_max) and
+                        (img[0,yci,xci+1]<data_max) and
+                        (img[0,yci-1,xci]<data_max) and
+                        (img[0,yci+1,xci]<data_max) and
 
-                        (img_loaded[0,yci-1,xci-1]<data_max) and
-                        (img_loaded[0,yci+1,xci-1]<data_max) and
-                        (img_loaded[0,yci-1,xci+1]<data_max) and
-                        (img_loaded[0,yci+1,xci+1]<data_max)  )
+                        (img[0,yci-1,xci-1]<data_max) and
+                        (img[0,yci+1,xci-1]<data_max) and
+                        (img[0,yci-1,xci+1]<data_max) and
+                        (img[0,yci+1,xci+1]<data_max)  )
         else saturated:=false;
 
-        if (((hfd1<hfd_median*1.3) or (saturated){larger then normal}) and (hfd1>=hfd_median*0.75) and (snr>10)) then {star detected in img_loaded}
+        if (((hfd1<headx.hfd_median*1.5) or (saturated){larger then normal}) and (hfd1>=headx.hfd_median*0.75) and (snr>10) and (img_sa[0,fitsY,fitsX]<=0) {prevent double detection due to spikes}) then {star detected in img}
         begin
                       {for testing}
-              //      if flipvertical=false  then  starY:=round(head.height-yc) else starY:=round(yc);
-              //      if fliphorizontal=true then starX:=round(head.width-xc)  else starX:=round(xc);
+              //      if flipvertical=false  then  starY:=round(headx.height-yc) else starY:=round(yc);
+              //      if fliphorizontal=true then starX:=round(headx.width-xc)  else starX:=round(xc);
               //      size:=round(5*hfd1);
               //      mainwindow.image1.Canvas.Rectangle(starX-size,starY-size, starX+size, starY+size);{indicate hfd with rectangle}
-              //      mainwindow.image1.Canvas.textout(starX+size,starY+size,floattostrf(hfd1, ffgeneral, 2,1));{add hfd as text}
-              //      if ((abs(xc-2294)<4) and  (abs(yc-274)<4)) then
-              //      beep;
+              //      mainwindow.image1.Canvas.textout(starX+size,starY+size,floattostrf(hfd1, ffgeneral, 2,0));{add hfd as text}
 
-          radius:=round(3.0*hfd_median);{for marking star area. A value between 2.5*hfd and 3.5*hfd gives same performance. Note in practice a star PSF has larger wings then predicted by a Gaussian function}
+          radius:=round(3.0*headx.hfd_median);{for marking star area. A value between 2.5*hfd and 3.5*hfd gives same performance. Note in practice a star PSF has larger wings then predicted by a Gaussian function}
           sqr_radius:=sqr(radius);
           for n:=-radius to +radius do {mark the whole circular star area as occupied to prevent double detection's}
             for m:=-radius to +radius do
             begin
               j:=n+yci;
               i:=m+xci;
-              if ((j>=0) and (i>=0) and (j<head.height) and (i<head.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
+              if ((j>=0) and (i>=0) and (j<headx.height) and (i<headx.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
               img_sa[0,j,i]:=+1;{mark as star area}
+              //if img_sa[0,1013,1574]>1 then
+              //beep;
             end;
-           measured_magn:=round(10*(head.MZERO - ln(flux)*2.5/ln(10)));{magnitude x 10}
+           measured_magn:=round(10*(headx.MZERO - ln(flux)*2.5/ln(10)));{magnitude x 10}
            if measured_magn<magn_limit_database-10 then {bright enough to be in the database}
            begin
              magn_database:=default;{1000}
@@ -11450,6 +11581,9 @@ const
                for j:=-search_radius to search_radius do
                if sqr(i)+sqr(j)<=sqr(search_radius) then //circle tolerance area
                begin {database star available?}
+                //        if ((abs(xc+i-1574)<5) and (abs(yc+j-1013)<5)) then
+                //                   beep;
+
                  magnd:=img_temp3[0,round(yc)+j,round(xc)+i];
                  if magnd<default then {a star from the database}
                    if magn_database=default then //empthy
@@ -11458,43 +11592,89 @@ const
                       magn_database:=-2.5*ln(power(10,-0.4*magn_database) + power(10,-0.4*magnd))/ln(10);//combine magnitudes of the stars
                end;
 
+             //preperation for galaxy test
+             HFD(img,fitsX,fitsY,14{annulus radius},0.5*hfd1 {radius of flux aperture restriction},0 {adu_e}, hfd2,star_fwhm,snr,flux2,xc,yc);//star HFD and FWHM
+             if ((snr>0) and (abs(xci-xc)<=1) and (abs(yci-yc)<=1)) then //same star. Errors happen
+             begin
+               ratio:=(flux-flux2)/flux; //flux beyond HFD
+               ratio_sum:=ratio_sum+ratio;
+               inc(ratio_counter);
+               //memo2_message('Ratio '+floattostrF(ratio_sum/ratio_counter,FFFixed,0,2));
+             end;
+
+
              delta_magn:=measured_magn - magn_database; {delta magnitude time 10}
              if  delta_magn<-10 then {unknown star, 1 magnitude brighter then database}
              begin {mark}
-               if Flipvertical=false then  starY:=round(head.height-yc) else starY:=round(yc);
-               if Fliphorizontal     then starX:=round(head.width-xc)  else starX:=round(xc);
+
+               //test for galaxy
+               if ((ratio_counter>0) and (ratio>1.05*(ratio_sum/ratio_counter)) ) then //larger then average. Too slow drop off of flux
+                 galaxy:=true//galaxy
+               else
+                 galaxy:=false;
+
                if magn_database=1000 then
                begin
-                  messg:=''; {unknown star}
-                  inc(countN);
+                 messg:=''; //unknown star
                end
                else
                begin
-                 messg:=' Δ'+inttostr(round(delta_magn)); {star but wrong magnitude}
-                 inc(countO);
+                 messg:=' \u0394'+inttostr(round(delta_magn)); //star but wrong magnitude.  Pack Δ as in ascii as escape unicode. So \uAAAA where AAAA is hexdec unicode character
                end;
-               size:=round(5*hfd1); {for rectangle annotation}
-               image1.Canvas.Rectangle(starX-size,starY-size, starX+size, starY+size);{indicate hfd with rectangle}
-               image1.Canvas.textout(starX+size,starY,inttostr(round(measured_magn))  +messg );{add magnitude as text}
+               sizebox:=round(5*hfd1); //for rectangle annotation
+
+               if galaxy=false then
+               begin
+              //   messg:=messg+' '+floattostrF(ratio,FFFixed,0,2);
+                 add_text(memox,'ANNOTATE=',#39+copy(floattostrF(xc-sizebox,FFFixed,0,0)+';'+floattostrF(yc-sizebox,FFFixed,0,0)+';'+floattostrF(xc+sizebox,fffixed,0,0)+';'+floattostrF(yc+sizebox,FFFixed,0,0)+';-1;'+messg+';;',1,68)+#39); {store in FITS coordinates 1..}
+                 inc(countN);
+               end
+               else
+               begin
+                 add_text(memox,'ANNOTATE=',#39+copy(floattostrF(xc+5,FFFixed,0,0)+';'+floattostrF(yc+5,FFFixed,0,0)+';'+floattostrF(xc+10,fffixed,0,0)+';'+floattostrF(yc+10,FFFixed,0,0)+';1;\u2601;;',1,68)+#39); {store in FITS coordinates 1..}
+               // add_text(memox,'ANNOTATE=',#39+copy(floattostrF(xc+5,FFFixed,0,0)+';'+floattostrF(yc+5,FFFixed,0,0)+';'+floattostrF(xc+10,fffixed,0,0)+';'+floattostrF(yc+10,FFFixed,0,0)+';1;\u2601'+' '+floattostrF(ratio,FFFixed,0,2)+';;',1,68)+#39); {store in FITS coordinates 1..}
+               end;
+
+
+               annotated:=true;{header contains annotations}
+
+
+               //memo2_message(floattostrF(ratio_sum/ratio_counter,FFFixed,0,2));
+
              end;
            end;
-
         end;{HFD good}
       end;
-    end;
-  end;
+    end;//fits loop
+  end; //fits loop
 
-
-  img_temp3:=nil;{free mem}
-  img_sa:=nil;{free mem}
-
-  mainwindow.image1.Canvas.font.size:=10;
-  mainwindow.image1.Canvas.brush.Style:=bsClear;
-  mainwindow.image1.Canvas.textout(20,head.height-20,inttostr(countN)+' unknown stars, '+inttostr(countO)+' magnitude offsets.' );
-
-  Screen.Cursor:=crDefault;
+  result:=true;
+  screen.cursor:=crdefault;
 end;
 
+
+procedure Tmainwindow.annotate_unknown_stars1Click(Sender: TObject);
+var
+  countN,countO : integer;
+begin
+  mainwindow.Memo1.Lines.beginUpdate;
+
+  calibrate_photometry(img_loaded,mainwindow.Memo1.lines,head, false{update});
+  if head.mzero=0 then
+  begin
+     beep;
+     Screen.Cursor:=crDefault;
+     exit;
+   end;
+  Screen.Cursor:=crDefault;
+  annotate_unknown_stars(mainwindow.Memo1.lines,img_loaded, head,countN);// add unknow stars to header
+
+  mainwindow.Memo1.Lines.endUpdate;
+
+  mainwindow.image1.Canvas.textout(30,head.height-20,inttostr(countN)+' Nova candidates.' );
+
+  plot_annotations(false {use solution vectors},false);
+end;
 
 procedure Tmainwindow.inspector1Click(Sender: TObject);
 begin
@@ -11567,10 +11747,10 @@ begin
   if head.naxis=0 then exit; {file loaded?}
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
-  subframe:=(sender=export_star_info1); //full frame or sub section
+  subframe:=(sender=export_star_info1); //report. full frame or sub section
   formalism:=mainwindow.Polynomial1.itemindex;
 
-  calibrate_photometry;
+  calibrate_photometry(img_loaded,mainwindow.Memo1.lines,head,true);
 
   if head.mzero=0 then
   begin
@@ -11587,7 +11767,7 @@ begin
   image1.Canvas.Pen.color :=clred;
   image1.Canvas.brush.Style:=bsClear;
   image1.Canvas.font.color:=clyellow;
-  image1.Canvas.font.name:='default';
+  image1.Canvas.font.name:='Default';
 
   fontsize:=8;
   image1.Canvas.font.size:=fontsize;
@@ -11597,11 +11777,22 @@ begin
   mainwindow.image1.Canvas.Pen.mode := pmXor;
 
 
-  if subframe then
+  if subframe then //report
   begin
+    if head.magn_limit>gaia_magn_limit then //go deeper
+      if read_stars_online(head.ra0,head.dec0,(pi/180)*min(180,max(head.height,head.width)*abs(head.cdelt2)), head.magn_limit+1.0 {max_magnitude, one magnitude extra})= false then
+       begin
+         memo2_message('Error. failure accessing Vizier for Gaia star database!');
+         Screen.Cursor:=crDefault;
+         exit;
+       end;
+
+
+
+
     if startX>stopX then begin dum:=stopX; stopX:=startX; startX:=dum; end;{swap}
     if startY>stopY then begin dum:=stopY; stopY:=startY; startY:=dum; end;
-    measure_magnitudes(14,startX,startY,stopX,stopY,true {deep},stars);
+    measure_magnitudes(img_loaded,head,14,startX,startY,stopX,stopY,false{histogram update},true {deep},stars);
     report:=magn_limit_str+#10;
     report:=report+'Passband filter used: '+head.filter_name+#10;
     report:=report+'Passband database='+head.passband_database+#10;
@@ -11612,8 +11803,9 @@ begin
     report:=report+'fitsX'+#9+'fitsY'+#9+'HFD'+#9+'α[°]'+#9+'δ[°]'+#9+'ADU'+#9+'SNR'+#9+'Magn_measured'+#9+'|'+#9+'Gaia-V'+#9+'Gaia-B'+#9+'Gaia-R'+#9+'Gaia-SG'+#9+'Gaia-SR'+#9+'Gaia-SI'+#9+'Gaia-G'+#9+'Gaia-BP'+#9+'Gaia-RP'+#10;
   end
   else
-    measure_magnitudes(14,0,0,head.width-1,head.height-1,true {deep},stars);
+    measure_magnitudes(img_loaded,head,14,0,0,head.width-1,head.height-1,false{histogram update},true {deep},stars);
 
+  memo2_message('Annotated '+inttostr(length(stars[0]))+' stars down to SNR 7');
 
   if length(stars[0])>0 then
   begin
@@ -11633,7 +11825,7 @@ begin
       magn:=round(10*magnitude);
       image1.Canvas.textout(starX,starY-text_height,inttostr(magn) );{add magnitude as text}
 
-      if subframe then
+      if subframe then //report
       begin
         pixel_to_celestial(head,1+stars[0,i],1+stars[1,i],formalism,raM,decM);//+1 to get fits coordinated
         rastr:=floattostrF(raM*180/pi,FFfixed,9,6);
@@ -11659,9 +11851,8 @@ begin
     image1.Canvas.font.size:=fontsize;
     image1.Canvas.font.color:=clwhite;
     text_height:=mainwindow.image1.Canvas.textheight('T');{the correct text height, also for 4k with "make everything bigger"}
-    image1.Canvas.textout(round(fontsize*2),head.height-text_height,magn_limit_str);  {magn_limit global variable calculate in plot_and_measure_stars}
-
-
+    if head.magn_limit<>0 then
+      image1.Canvas.textout(round(fontsize*2),head.height-text_height,'Limiting magnitude '+floattostrF(head.magn_limit,FFFixed,0,2)+ ' (SNR=7, aperture ⌀'+floattostrF(head.mzero_radius,FFFixed,0,2) + ')');  {magn_limit is calculated plot_and_measure_stars}
   end
   else
   begin// to Clipboard
@@ -11861,24 +12052,10 @@ end;      }
 //end;
 
 
-procedure standard_equatorial2(ra0,dec0,x,y,cdelt: double; var ra,dec : double); inline;{transformation from CCD coordinates into equatorial coordinates}
-var sin_dec0 ,cos_dec0 : double;
-begin
-  sincos(dec0  ,sin_dec0 ,cos_dec0);
-  x:=x *cdelt/ (3600*180/pi);{scale CCD pixels to standard coordinates (tang angle)}
-  y:=y *cdelt/ (3600*180/pi);
-
-  ra  := ra0 + arctan2 (-x, cos_DEC0- y*sin_DEC0);{atan2 is required for images containing celestial pole}
-  if ra>pi*2 then ra:=ra-pi*2; {prevent values above 2*pi which confuses the direction detection later}
-  if ra<0 then ra:=ra+pi*2;
-  dec := arcsin ( (sin_dec0+y*cos_dec0)/sqrt(1.0+x*x+y*y) );
-end;
-
-
 procedure Tmainwindow.calibrate_photometry1Click(Sender: TObject);
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-  calibrate_photometry;
+  calibrate_photometry(img_loaded,mainwindow.Memo1.lines,head, true {update});
   Screen.Cursor:=crDefault;
 end;
 
@@ -11972,11 +12149,14 @@ end;
 
 
 procedure Tmainwindow.stretch_draw_fits1Click(Sender: TObject);
+type
+  PByteArray2 = ^TByteArray2;
+  TByteArray2 = Array[0..100000] of Byte;//instead of {$ifdef CPU16}32766{$else}32767{$endif} Maximum width 33333 pixels
 var
   tmpbmp: TBitmap;
   ARect: TRect;
   x, y,x2,y2 : Integer;
-  xLine: PByteArray;
+  xLine: PByteArray2;
   ratio    : double;
   flipH,flipV : boolean;
 begin
@@ -12270,7 +12450,7 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
   load_deep;{load the deepsky database once. If loaded no action}
-  plot_deepsky(false);{plot the deep sky object on the image}
+  plot_deepsky(false,8);{plot the deep sky object on the image}
   Screen.Cursor:=crDefault;
 end;
 
@@ -12392,7 +12572,7 @@ end;
 
 procedure plot_the_annotation(x1,y1,x2,y2:integer; typ:double; name :string);{plot annotation from header in ASTAP format}
 var                                                                               {typ >0 line, value defines thickness line}
-  size,xcenter,ycenter,text_height,text_width,fontsize,left,top  :integer;                          {type<=0 rectangle or two lines, value defines thickness lines}
+  size,xcenter,ycenter,text_height,text_width,fontsize,left,top  :integer;        {type<=0 rectangle or two lines, value defines thickness lines}
 begin
   dec(x1); {convert to screen coordinates 0..}
   dec(y1);
@@ -12450,10 +12630,10 @@ end;
 
 procedure plot_annotations(use_solution_vectors,fill_combo : boolean); {plot annotations stored in fits header. Offsets are for blink routine}
 var
-  count1,x1,y1,x2,y2 : integer;
+  count1,x1,y1,x2,y2,pos1,pos2,charnr,i : integer;
   typ     : double;
   List: TStrings;
-  name,magn : string;
+  annotation,magn,dummy : string;
 begin
   if head.naxis=0 then exit; {file loaded?}
 
@@ -12482,16 +12662,20 @@ begin
         ExtractStrings([';'], [], PChar(copy(mainwindow.Memo1.Lines[count1],12,posex(#39,mainwindow.Memo1.Lines[count1],20)-12)),List);
 
 
-        if list.count>=6  then {correct annotation}
+        if list.count>=5  then {correct annotation}
         begin
           x1:=round(strtofloat2(list[0]));
           y1:=round(strtofloat2(list[1]));
           x2:=round(strtofloat2(list[2]));
           y2:=round(strtofloat2(list[3]));
 
-          if (  ( abs(shape_var1_fitsX-(x1+x2)/2) <30) and (abs(shape_var1_fitsY-(y1+y2)/2)<30)) then
+          with mainwindow do
+          for i:=0 to high(fshapes) do
+          if (  ( abs(fshapes[i].fitsX-(x1+x2)/2) <30) and (abs(fshapes[i].fitsY-(y1+y2)/2)<30)) then
           begin
-            var_lock:=list[5];
+//            var_lock:=list[5];
+            mainwindow.fshapes[i].shape.HINT:=list[5];
+            memo2_message('Locked on object: '+list[5]);
           end;
 
 
@@ -12501,21 +12685,37 @@ begin
             y1:=round(solution_vectorY[0]*(x1)+solution_vectorY[1]*(y1)+solution_vectorY[2]); {correction y:=aX+bY+c}
             x2:=round(solution_vectorX[0]*(x2)+solution_vectorX[1]*(y2)+solution_vectorX[2]); {correction x:=aX+bY+c}
             y2:=round(solution_vectorY[0]*(x2)+solution_vectorY[1]*(y2)+solution_vectorY[2]); {correction y:=aX+bY+c}
-
           end;
 
-
           typ:=strtofloat2(list[4]);
-          name:=list[5];
+
+          if list.count>5 then //empthy positions are not in the list
+          begin
+            annotation:=list[5];
+            pos1:=1;
+            repeat //reconstruct escaped unicode. \uAAAA where AAAA is hexdec unicode character
+              pos1:=posex('\u',annotation,pos1);
+              if pos1>0 then
+              begin
+                  dummy:=copy(annotation,pos1+2,4);
+                  charnr:=hex2dec(copy(annotation,pos1+2,4));
+                  delete(annotation,pos1,6);
+                  insert(widechar(charnr),annotation,pos1);
+              end;
+            until pos1=0;
+          end
+          else
+          annotation:='';
+
           if list.count>6  then  magn:=list[6] else magn:='';
 
-          plot_the_annotation(x1,y1,x2,y2,typ, name+magn);
+          plot_the_annotation(x1,y1,x2,y2,typ, annotation+magn);
 
           if ((list.count>7) and (abs( (x1+x2)/2 - (startx+stopx)/2)<15 ) and  (abs((y1+y2)/2 - (starty+stopy)/2)<15)) then
               minor_planet_at_cursor:=list[7];//for mpc1992 report line
 
           if fill_combo then {add asteroid annotations to combobox for ephemeris alignment}
-            stackmenu1.ephemeris_centering1.Additem(name,nil);
+            stackmenu1.ephemeris_centering1.Additem(annotation,nil);
 
         end;
       end;
@@ -12591,7 +12791,7 @@ begin
    deltaY:=stopY-startY;
    len:=round(sqrt(sqr(deltaX)+sqr(deltaY)));
    for i:=0 to len-1 do
-     img_loaded[0,startY+round(i*deltaY/len) ,startX+round(i*deltaX/len)]:=round((cwhite+bck.backgr)/2);
+     img_loaded[0,startY+round(i*deltaY/len) ,startX+round(i*deltaX/len)]:=round((cwhite+head.backgr)/2);
 
   {convert to screen coordinates. Screen coordinates are used to have the font with the correct orientation}
   if mainwindow.flip_horizontal1.checked then begin startX:=head.width-startX; stopX:=head.width-stopX;  end;
@@ -12605,7 +12805,7 @@ begin
       x2:=3-length(value)*7*fontsize;{place the first pixel or last pixel of the text at the location}
   if deltaY>=0 then y2:=8*fontsize else y2:=0;
 
-  annotation_to_array(value, true{transparant},round((cwhite+bck.backgr)/2) {colour},fontsize,stopX+x2,stopY+y2,img_loaded);{string to image array as annotation, result is flicker free since the annotion is plotted as the rest of the image}
+  annotation_to_array(value, true{transparant},round((cwhite+head.backgr)/2) {colour},fontsize,stopX+x2,stopY+y2,img_loaded);{string to image array as annotation, result is flicker free since the annotion is plotted as the rest of the image}
 
   plot_fits(mainwindow.image1,false,true);
 end;
@@ -12793,25 +12993,6 @@ begin
     mainwindow.image1.left:=(mainwindow.panel1.Width - mainwindow.image1.width) div 2;
 
     image_move_to_center:=false;{mark as job done}
-
-    {update shapes to new position}
-//    show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
-//    show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
-
-//    if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
-  //     show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
-//     if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
-  //     show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
- //    if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
-  //     show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
-
-//    if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
-  //  begin
- //     place_marker_radec(mainwindow.shape_var2,shape_var2_ra,shape_var2_dec);//place ra,dec marker in image
-   //   place_marker_radec(mainwindow.shape_check2,shape_check2_ra,shape_check2_dec);//place ra,dec marker in image
-//    end;
-
-
   end;
 end;
 
@@ -12830,7 +13011,7 @@ begin
 
 procedure Tmainwindow.FormResize(Sender: TObject);
 var
-    h,w,mw: integer;
+    h,w,mw,i: integer;
 begin
 
 {$IfDef Darwin}//{MacOS}
@@ -12859,19 +13040,23 @@ begin
   show_marker_shape(mainwindow.shape_marker3,9 {no change in shape and hint},30,30,10{minimum},shape_marker3_fitsX, shape_marker3_fitsY);
   show_marker_shape(mainwindow.shape_marker4,9 {no change in shape and hint},60,60,10{minimum},shape_marker4_fitsX, shape_marker4_fitsY);
 
-  if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
-    show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
-  if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
-    show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
-  if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
-    show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+//  if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+//    show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+//  if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+//    show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+//  if mainwindow.shape_comp1.visible then {For manual alignment. Do this only when visible}
+//    show_marker_shape(mainwindow.shape_comp1,9 {no change in shape and hint},20,20,10,shape_comp1_fitsX, shape_comp1_fitsY);
 
-  if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
-  begin
-    show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
-    show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
-  end;
+//  if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+//  begin
+//    show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
+//    show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
+//  end;
 
+  with mainwindow do
+  for i:=0 to high(fshapes) do
+//     if FShapes[i].shape.visible then
+       show_marker_shape(FShapes[i].shape,9 {no change},30,30,10,FShapes[i].fitsX, FShapes[i].fitsY);
 
 end;
 
@@ -12932,7 +13117,7 @@ var
    JPG: TJPEGImage;
 begin
   load_deep;{load the deepsky database once. If loaded no action}
-  plot_deepsky(false);{annotate}
+  plot_deepsky(false,8);{annotate}
   JPG := TJPEGImage.Create;
   try
     JPG.Assign(mainwindow.image1.Picture.Graphic);    //Convert data into jpg
@@ -12967,9 +13152,9 @@ begin
     writeln(f,'CD2_1='+floattostrE(head.cd2_1));       // CD matrix to convert (x,y) to (Ra, Dec)
     writeln(f,'CD2_2='+floattostrE(head.cd2_2));       // CD matrix to convert (x,y) to (Ra, Dec)
 
-    if sqmfloat>0 then writeln(f,'SQM='+floattostrE(sqmfloat));  // sky background
-    if hfd_median>0 then writeln(f,'HFD='+floattostrE(hfd_median));
-    if hfd_counter>0 then  writeln(f,'STARS='+floattostrE(hfd_counter));//number of stars
+    if head.sqmfloat>0 then writeln(f,'SQM='+floattostrE(head.sqmfloat));  // sky background
+    if head.hfd_median>0 then writeln(f,'HFD='+floattostrE(head.hfd_median));
+    if head.hfd_counter>0 then  writeln(f,'STARS='+floattostrE(head.hfd_counter));//number of stars
   end
   else
   begin
@@ -13296,7 +13481,7 @@ end;
 
 procedure FixHiddenFormProblem(Screen: TScreen; theform: TForm ); //for users who change from two to one monitor
 var
-  i,left,right,top,bottom : integer;
+  i,left,right,top,bottom,halfwidth,halfheight : integer;
 begin
   left:=0;
   right:=0;
@@ -13310,11 +13495,12 @@ begin
     top:=math.min(top,screen.Monitors[i].BoundsRect.top);
     bottom:=math.max(bottom,screen.Monitors[i].BoundsRect.bottom);
   end;
-
-  theform.Left:=max(theform.left,left);//prevent too left
-  theform.Left:=min(theform.left,right-theform.width);//prevent too right
+  halfwidth:=theform.width div 2;
+  halfheight:=theform.height div 2;
+  theform.Left:=max(theform.left,left-halfwidth);//prevent too left
+  theform.Left:=min(theform.left,right-halfwidth);//prevent too right
   theform.top:=max(theform.top,top);//prevent too high
-  theform.top:=min(theform.top,bottom-theform.height);//prevent too low
+  theform.top:=min(theform.top,bottom-halfheight);//prevent too low
 end;
 
 
@@ -13324,7 +13510,6 @@ var
   histogram_done,file_loaded,debug,filespecified,analysespecified,extractspecified,extractspecified2,focusrequest,checkfilter, wresult : boolean;
   snr_min                     : double;
   binning,focus_count,report  : integer;
-  bck                         : Tbackground;
   filename_output             : string;
 begin
   user_path:=GetAppConfigDir(false);{get user path for app config}
@@ -13358,22 +13543,22 @@ begin
         '-f  filename'+#10+
         '-r  radius_area_to_search[degrees]'+#10+      {changed}
         '-fov height_field[degrees]'+#10+
-        '-ra  center_right_ascension[hours]'+#10+
-        '-spd center_south_pole_distance[degrees]'+#10+
+        '-ra  right_ascension[hours]'+#10+
+        '-spd south_pole_distance[degrees]'+#10+
         '-s  max_number_of_stars {typical 500}'+#10+
         '-t  tolerance'+#10+
         '-m  minimum_star_size["]'+#10+
-        '-z  downsample_factor[0,1,2,3,4] {Downsample prior to solving. 0 is auto}'+#10+
+        '-z  downsample_factor[0,1,2,3,4,..] {Downsample prior to solving. Specify 0 for auto selection}'+#10+
         #10+
         '-check  {Apply check pattern filter prior to solving. Use for raw OSC images only when binning is 1x1}' +#10+
         '-d  path {Specify a path to the star database}'+#10+
         '-D  abbreviation {Specify a star database [d80,d50,..]}'+#10+
         '-o  file {Name the output files with this base path & file name}'+#10+
         '-sip     {Add SIP (Simple Image Polynomial) coefficients}'+#10+
-        '-speed mode[auto/slow] {Slow is forcing reading a larger database area for more overlap to improve initial detection}'+#10+
+        '-speed mode[auto/slow] {Slow is forcing more area overlap while searching to improve detection}'+#10+
         '-wcs  {Write a .wcs file  in similar format as Astrometry.net. Else text style.}' +#10+
-        '-log   {Write the solver log to file}'+#10+
-        '-update  {update the FITS/TIFF header with the found solution.  Jpeg, png will be written as fits}' +#10+
+        '-log   {Write the solver log to a .log text file.}'+#10+
+        '-update  {Add the solution to the input fits/tiff file header. Jpeg, png will be written as fits}' +#10+
         #10+
         'Analyse options:' +#10+
         '-analyse snr_min {Analyse only and report median HFD and number of stars used}'+#10+
@@ -13502,14 +13687,14 @@ begin
               report:=2; {report nr stars and hfd and export csv file}
             end;
             if snr_min=0 then snr_min:=30;
-            analyse_image(img_loaded,head,snr_min,report, hfd_counter,bck,hfd_median); {find background, number of stars, median HFD}
+            analyse_image(img_loaded,head,snr_min,report); {find background, number of stars, median HFD}
             if isConsole then {stdout available, compile targe option -wh used}
             begin
-              writeln('HFD_MEDIAN='+floattostrF(hfd_median,ffFixed,0,1));
-              writeln('STARS='+inttostr(hfd_counter));
+              writeln('HFD_MEDIAN='+floattostrF(head.hfd_median,ffFixed,0,1));
+              writeln('STARS='+inttostr(head.hfd_counter));
             end;
             {$IFDEF msWindows}
-            halt(round(hfd_median*100)*1000000+hfd_counter);{report in errorlevel the hfd and the number of stars used}
+            halt(round(head.hfd_median*100)*1000000+head.hfd_counter);{report in errorlevel the hfd and the number of stars used}
             {$ELSE}
             halt(errorlevel);{report hfd in errorlevel. In linux only range 0..255 possible}
             {$ENDIF}
@@ -13530,20 +13715,12 @@ begin
           begin
             if hasoption('sqm') then {sky quality}
             begin
-              pedestal:=round(strtofloat2(GetOptionValue('sqm')));
-              if calculate_sqm(false {get backgr},false{get histogr},{var} pedestal) then {sqm found}
+              pedestal_m:=round(strtofloat2(GetOptionValue('sqm')));
+              if calculate_sqm(img_loaded,head,mainwindow.memo1.lines,false {get backgr},false{get histogr},{var} pedestal_m) then {sqm found}
               begin
-                if centalt=''  then //no old altitude
-                begin
-                  centalt:=floattostr2(altitudefloat);
-                  update_text(mainwindow.memo1.lines,'CENTALT =',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
-                  update_text(mainwindow.memo1.lines,'OBJCTALT=',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
-                end;
-                update_text(mainwindow.memo1.lines,'SQM     = ',floattostr2(sqmfloat)+'               / Sky background [magn/arcsec^2]');//two decimals only for nice reporting
-                update_text(mainwindow.memo1.lines,'COMMENT SQM',', used '+inttostr(pedestal)+' as pedestal value');
-              end
-              else
-              update_text(mainwindow.memo1.lines,'SQM     =',char(39)+'Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.'+char(39));
+                //values are added to header in procedure calculate_sqm
+              end;
+
               if airmass=0 then
               begin
                 airmass:=AirMass_calc(altitudefloat);
@@ -13615,7 +13792,7 @@ begin
           begin
             snr_min:=strtofloat2(getoptionvalue('extract2'));
             if snr_min=0 then snr_min:=30;
-            analyse_image(img_loaded,head,snr_min,2{export CSV only}, hfd_counter,bck,hfd_median); {find background, number of stars, median HFD}
+            analyse_image(img_loaded,head,snr_min,2{export CSV only}); {find background, number of stars, median HFD}
           end;
 
 
@@ -13701,9 +13878,10 @@ end;
 procedure Tmainwindow.batch_add_solution1Click(Sender: TObject);
 var
   i,nrskipped, nrsolved,nrfailed,file_age,pedestal2,oldnrbits                         : integer;
-  dobackup,add_lim_magn,solution_overwrite,solved,maintain_date,success,image_changed : boolean;
+  add_lim_magn,solution_overwrite,solved,maintain_date,success,image_changed : boolean;
   failed,skipped,mess                           : string;
   startTick  : qword;{for timing/speed purposes}
+  az         : double;
   headx : theader;
   img_temp: image_array;
 
@@ -13786,31 +13964,42 @@ begin
           begin
             if add_lim_magn then
             begin
-              calibrate_photometry;
-              update_float(memox,'LIM_MAGN=',' / estimated limiting magnitude for point sources',false ,magn_limit);
+              calibrate_photometry(img_temp,memoX,headX, false{update});//this will add also head.magn_limit to memoX
 
-              mess:='';
+              mess:='LIM_MAGN';
 
-              if ((pedestal<>0) or (pos('D',headx.calstat)>0)) then
+              if centalt=''  then //no old altitude
+              begin
+                calculate_az_alt(1 {force calculation from ra, dec} ,headx,{out}az,altitudefloat);//altitudefloat is also calculated in SQM but it could skipped
+                centalt:=floattostr2(altitudefloat);
+                update_text(memox,'CENTALT =',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+                update_text(memox,'OBJCTALT=',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+                mess:=mess+', CENT-ALT';
+              end
+              else
+              altitudefloat:=strtofloat2(centalt);
+
+              if ((airmass=0) or (airmass=999)) then
+              begin
+                airmass:=AirMass_calc(altitudefloat);
+                update_generic(memox,'AIRMASS ',floattostr4(airmass),'Relative optical path.                        ');{update header using text only}
+                mess:=mess+', AIRMASS';
+              end;
+
+              if ((pedestal_m<>0) or (pos('D',headx.calstat)>0)) then
               begin
                 //jd_start:=0; { if altitude missing then force an date to jd conversion'}
-                pedestal2:=pedestal; {protect pedestal setting}
-                if calculate_sqm(true {get backgr},true {get histogr},{var}pedestal2) then
+                pedestal2:=pedestal_m; {protect pedestal setting}
+                if calculate_sqm(img_temp,headx,memox,true {get backgr},true {get histogr},{var}pedestal2) then
                 begin
-                  update_text(memox,'SQM     = ',floattostr2(sqmfloat)+'               / Sky background [magn/arcsec^2]');//two decimals only for nice reporting
-                  update_text(memox,'COMMENT SQM',', used '+inttostr(pedestal2)+' as pedestal value');
-                  mess:=', SQM';
-                  if centalt=''  then //no old altitude
-                  begin
-                    centalt:=floattostr2(altitudefloat);
-                    update_text(memox,'CENTALT =',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
-                    update_text(memox,'OBJCTALT=',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
-                    mess:=mess+', CENT-ALT';
-                  end;
+                  //memo is updated in calculate_sqm
+//                  update_text(memox,'SQM     = ',floattostr2(headx.sqmfloat)+'               / Sky background [magn/arcsec^2]');//two decimals only for nice reporting
+//                  update_text(memox,'COMMENT SQM',', used '+inttostr(pedestal2)+' as pedestal value');
+                  mess:=mess+', SQM';
                 end
                 else
                 begin
-                  update_text(memox,'SQM     =',char(39)+'Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.'+char(39));
+//                  update_text(memox,'SQM     =',char(39)+'Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.'+char(39));
                   memo2_message('Error calculating SQM value! Check in the SQM menu (ctrl+Q) first.');
                 end;
               end
@@ -13819,13 +14008,8 @@ begin
                 update_text(memox,'SQM     =',char(39)+'Error! Specify first fixed pedestal value in the SQM menu (ctrl+Q).'+char(39));
                 memo2_message('Can not measure SQM. Specifiy first a fixed pedestal value in the SQM menu. De pedestal value is the median dark or bias value');
               end;
-              if airmass=0 then
-              begin
-                airmass:=AirMass_calc(altitudefloat);
-                update_generic(memox,'AIRMASS ',floattostr4(airmass),'Relative optical path.                        ');{update header using text only}
-                mess:=mess+', AIRMASS';
-              end;
-              memo2_message('Added keyword(s) LIM_MAGN'+mess);
+
+              memo2_message('Added keyword(s) '+mess);
             end;
 
             if maintain_date then file_age:=Fileage(filename2);
@@ -13932,8 +14116,8 @@ begin
 //  annotation_magn :=inputbox('Annotate stars','Annotate up to magnitude:' ,annotation_magn);
 //  annotation_magn:=StringReplace(annotation_magn,',','.',[]); {replaces komma by dot}
 
-  calibrate_photometry;
-  plot_and_measure_stars(false {calibration},true {plot stars},false {measure lim magn});{plot stars}
+  calibrate_photometry(img_loaded,mainwindow.Memo1.lines,head, false{update});
+  plot_and_measure_stars(img_loaded,mainwindow.Memo1.lines,head,false {calibration},true {plot stars},false {measure lim magn});{plot stars}
 end;
 
 
@@ -14118,13 +14302,11 @@ end;
 
 procedure Tmainwindow.ra1Change(Sender: TObject);
 var
-    str1   : string;
    errorRA : boolean;
 begin
   ra_text_to_radians(ra1.text,ra_radians,errorRA); {convert ra in text to double in radians}
 
-  str(ra_radians*12/pi:0:6,str1);
-  ra_label.Caption:=str1;
+  ra_label.Caption:=floattostrF(ra_radians*12/pi,FFfixed,0,4);
 
   if errorRA then mainwindow.ra1.color:=clred else mainwindow.ra1.color:=clwindow;
 end;
@@ -14183,15 +14365,10 @@ end;
 
 procedure Tmainwindow.dec1Change(Sender: TObject);
 var
-   str1     : string;
    errorDEC : boolean;
 begin
-
   dec_text_to_radians(dec1.text,dec_radians,errorDEC); {convert dec in text to double in radians}
-
-  str(dec_radians*180/pi:0:6,str1);
-  dec_label.Caption:=str1;
-
+  dec_label.Caption:=floattostrF(dec_radians*180/pi,FFfixed,0,4);
   if (errorDEC) then mainwindow.dec1.color:=clred else mainwindow.dec1.color:=clwindow;
 end;
 
@@ -14448,8 +14625,8 @@ begin
     end;
     head.crota2:=fnmodulo(head.crota2+angle*flipped_image*flipped_view,360);
     head.crota1:=fnmodulo(head.crota1+angle*flipped_image*flipped_view,360);
-    head.crpix1:=head.width/2;
-    head.crpix2:=head.height/2;
+    head.crpix1:=(head.width+1)/2;
+    head.crpix2:=(head.height+1)/2;
     old_to_new_WCS(head);{convert old style FITS to newd style}
 
     update_float(mainwindow.memo1.lines,'CD1_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_1);
@@ -14729,7 +14906,7 @@ begin
   end;
 
   database_nr:=6;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
-  plot_deepsky(false);
+  plot_deepsky(false,8);
 end;
 
 
@@ -14804,7 +14981,7 @@ begin
   end;
 
   database_nr:=6;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
-  plot_deepsky(false);
+  plot_deepsky(false,8);
 end;
 
 
@@ -14943,12 +15120,10 @@ begin
     x1:=(stopX+startX) div 2;
     y1:=(stopY+startY) div 2;
     plot_the_circle(x1-radius,y1-radius,x1+radius,y1+radius);
-    url:='http://ned.ipac.caltech.edu/conesearch?in_csys=Equatorial&in_equinox=J2000&coordinates='+ra8+'d%20'+sgn+dec8+'d&radius=' +floattostr6(max(ang_w,ang_h)/(60*2))+'&corr_z=1&z_constraint=Unconstrained&z_unit=z&ot_include=ANY&nmp_op=ANY&search_type=Near%20Position%20Search&out_csys=Equatorial&out_equinox=Same%20as%20Input&obj_sort=Distance%20to%20search%20center'+'&in_objtypes1[Galaxies]=Galaxies&in_objtypes1[GPairs]=GPairs&in_objtypes1[GTriples]=GTriples&in_objtypes1[GGroups]=GGroups&in_objtypes1[GClusters]=GClusters&in_objtypes1[QSO]=QSO&in_objtypes1[QSOGroups]=QSOGroups&in_objtypes1[GravLens]=GravLens&in_objtypes1[AbsLineSys]=AbsLineSys&in_objtypes1[EmissnLine]=EmissnLine';
-    //http://ned.ipac.caltech.edu/conesearch?in_csys=Equatorial&in_equinox=J2000&coordinates=12.000d%20%2B45.0000d&radius=2&corr_z=1&z_constraint=Unconstrained&z_unit=z&ot_include=ANY&nmp_op=ANY&search_type=Near%20Position%20Search&out_csys=Equatorial&out_equinox=Same%20as%20Input&obj_sort=Distance%20to%20search%20center
+    ///url:=http://ned.ipac.caltech.edu/conesearch?search_type=Near%20Position%20Search&in_csys=Equatorial&in_equinox=J2000&ra=12.3&dec=33.95&radius=8.988333
+    url:='http://ned.ipac.caltech.edu/conesearch?search_type=Near%20Position%20Search&in_csys=Equatorial&in_equinox=J2000&ra='+ra8+'d&dec='+sgn+dec8+'&radius=' +floattostr6(max(ang_w,ang_h)/(60*2));
   end
   else
-
-
   begin {sender aavso_chart1}
     annotation_magn:=inputbox('Chart request','Limiting magnitude chart:' ,annotation_magn);
     annotation_magn:=StringReplace(annotation_magn,',','.',[]); {replaces komma by dot}
@@ -14989,6 +15164,7 @@ var
   xc,yc,hfd2,fwhm_star2,snr,flux : double;
 begin
   result:=false; {assume failure}
+
   if pos('small',stackmenu1.manual_centering1.text)<>0 then {comet}
   begin
     find_star_center(img,10,startX,startY,xc,yc);
@@ -15048,7 +15224,6 @@ begin
   begin
     if find_reference_star(img_loaded) then
     begin
-      if snr>10 then shapetype:=1 {circle} else shapetype:=0;{square}
       with stackmenu1 do
         for c := 0 to listview1.Items.Count - 1 do
           if listview1.Items[c].Selected then
@@ -15064,99 +15239,44 @@ begin
     end;
   end
   else
-  if ((stackmenu1.pagecontrol1.tabindex=8) and   (stackmenu1.measure_all1.checked=false))  then {photometry}
+  if ((stackmenu1.pagecontrol1.tabindex=8) and   (stackmenu1.measuring_method1.itemindex=0))  then {photometry}
   begin
     {star alignment}
     HFD(img_loaded,startX,startY,14{annulus radius},99 {flux aperture restriction},0 {adu_e},hfd2,fwhm_star2,snr,flux,xc,yc); {auto center using HFD function}
+
+
+
+
     if hfd2<90 then {detected something}
     begin
       if snr>5 then shapetype:=1 {circle} else shapetype:=0;{square}
       xcf:=xc+1;{make fits coordinates}
       ycf:=yc+1;
-      if shape_nr=1 then//var
-      begin
-        if ((abs(shape_check1_fitsX-xcf)<=3) and (abs(shape_check1_fitsY-ycf)<=3)) then
-          begin
-            shape_check1_fitsX:=shape_var1_fitsX;
-            shape_check1_fitsY:=shape_var1_fitsY;
-            shape_check1_ra:=shape_var1_ra;
-            shape_check1_dec:=shape_var1_dec;
-          end{swap, prevent overlapping}
-        else
-          if ((abs(shape_star3_fitsX-xcf)<=3) and (abs(shape_star3_fitsY-ycf)<=3)) then
-          begin
-            shape_star3_fitsX:=shape_var1_fitsX;
-            shape_star3_fitsY:=shape_var1_fitsY;
-            shape_star3_ra:=shape_var1_ra;
-            shape_star3_dec:=shape_var1_dec;
-          end;
-        shape_var1_fitsX:=xcf; shape_var1_fitsY:=ycf;
-        pixel_to_celestial(head,xcf,ycf,0,shape_var1_ra,shape_var1_dec);{store shape position in ra,dec for positioning accurate at an other image}
-      end
-      else
-      if shape_nr=2 then //check
-      begin
-        if ((abs(shape_var1_fitsX-xcf)<=3) and (abs(shape_var1_fitsY-ycf)<=3)) then
+        if head.cd1_1<>0 then
         begin
-          shape_var1_fitsX:=shape_check1_fitsX;
-          shape_var1_fitsY:=shape_check1_fitsY;
-          shape_var1_ra:=shape_check1_ra;
-          shape_var1_dec:=shape_check1_dec;
-        end{swap, prevent overlapping}
-        else
-          if ((abs(shape_star3_fitsX-xcf)<=3) and (abs(shape_star3_fitsY-ycf)<=3)) then
-          begin
-            shape_star3_fitsX:=shape_check1_fitsX;
-            shape_star3_fitsY:=shape_check1_fitsY;
-            shape_star3_ra:=shape_check1_ra;
-            shape_star3_dec:=shape_check1_dec;
-          end;
-        shape_check1_fitsX:=xcf; shape_check1_fitsY:=ycf; {calculate fits positions}
-        pixel_to_celestial(head,xcf,ycf,0,shape_check1_ra,shape_check1_dec);{store shape position in ra,dec for positioning accurate at an other image}
+          pixel_to_celestial(head,xcf,ycf,0,shape_var1_ra,shape_var1_dec);{store shape position in ra,dec for positioning accurate at an other image}
+          error_label1.visible:=false;
 
-      end
-      else
-      if shape_nr=3 then //star3
-      begin
-        if ((abs(shape_var1_fitsX-xcf)<=3) and (abs(shape_var1_fitsY-ycf)<=3)) then
-          begin
-            shape_var1_fitsX:=shape_star3_fitsX;
-            shape_var1_fitsY:=shape_star3_fitsY;
-            shape_var1_ra:=shape_star3_ra;
-            shape_var1_dec:=shape_star3_dec;
-          end{swap, prevent overlapping}
+          GenerateShapes(shape_nr,round(xcf),round(ycf),60,60,3 {penwidth},stEllipse, clLime,'?');
+          fshapes[shape_nr].fitsX:=xcf;
+          fshapes[shape_nr].fitsY:=ycf;
+          pixel_to_celestial(head,xcf,ycf,0,fshapes[shape_nr].ra,fshapes[shape_nr].dec);{store shape position in ra,dec for accurate positioning on an other image}
+          fshapes[shape_nr].Shape.hint:=prepare_IAU_designation(fshapes[shape_nr].ra,fshapes[shape_nr].dec);//IAU designation till overriden by match with database
+          show_marker_shape(FShapes[shape_nr].shape,9 {no change},20,20,10,FShapes[shape_nr].fitsX, FShapes[shape_nr].fitsY);
+        end
         else
-          if ((abs(shape_check1_fitsX-xcf)<=3) and (abs(shape_check1_fitsY-ycf)<=3)) then
-            begin
-              shape_check1_fitsX:=shape_star3_fitsX;
-              shape_check1_fitsY:=shape_star3_fitsY;
-              shape_check1_ra:=shape_star3_ra;
-              shape_check1_dec:=shape_star3_dec;
-            end;
-        shape_star3_fitsX:=xcf; shape_star3_fitsY:=ycf;
-        pixel_to_celestial(head,xcf,ycf,0,shape_star3_ra,shape_star3_dec);{store shape position in ra,dec for positioning accurate at an other image}
-      end;
-      Shape_var1.HINT:='?';//reset any labels
-      shape_check1.HINT:='?';
-      show_marker_shape(mainwindow.shape_var1,shapetype,20,20,10{minimum},shape_var1_fitsX, shape_var1_fitsY);
-      show_marker_shape(mainwindow.shape_check1,7 {shapetype},20,20,10{minimum},shape_check1_fitsX, shape_check1_fitsY);
-      show_marker_shape(mainwindow.shape_star3,shapetype,20,20,10{minimum},shape_star3_fitsX, shape_star3_fitsY);
+        begin
+          error_label1.caption:='Variable position undefined due to missing image solution!';
+          error_label1.visible:=true;
+        end;
 
       inc(shape_nr);
-      if shape_nr>=4 then
-      shape_nr:=1;
+      if shape_nr>=10 then
+      shape_nr:=0;
 
-      //check if Var is within an annotation
-      var_lock:='';//clear name
+
       if ((annotated) and (mainwindow.annotations_visible1.checked)) then
-      begin
-        plot_annotations(false {use solution vectors},false);
-        if var_lock<>'' then
-        begin
-          memo2_message('Var locked on object: '+var_lock);
-          mainwindow.shape_var1.HINT:=var_lock;
-        end;
-      end;
+         plot_annotations(false {use solution vectors},false);//check if an annotation is near
 
     end;
 
@@ -15212,10 +15332,10 @@ end;
 
 
 
-{calculates star HFD and FWHM, SNR, xc and yc are center of gravity, rs is the boxsize, aperture for the flux measurment. All x,y coordinates in array[0..] positions}
+{calculates star HFD and FWHM, SNR, xc and yc are center of gravity, rs is the boxsize, aperture for the flux measurement. All x,y coordinates in array[0..] positions}
 {aperture_small is used for photometry of stars. Set at 99 for normal full flux mode}
 {Procedure uses two global accessible variables:  r_aperture and sd_bg }
-procedure HFD(img: image_array;x1,y1,rs {annulus diameter}: integer;aperture_small, adu_e {unbinned} :double; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
+procedure HFD(img: image_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
 const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
   samplepoints=5; // for photometry. emperical gives about 10% to 20 % improvment
@@ -15398,6 +15518,7 @@ begin
     end;
     flux:=max(sumval,0.00001);//prevent dividing by zero or negative values
     radius:=r_aperture;
+    hfd1:=2*SumValR/flux;
   end
   else
   begin //photometry mode. Measure only the bright center of the star for a better SNR
@@ -15415,13 +15536,13 @@ begin
       SumVal:=SumVal+Val;//Sumval will be star total star flux
       SumValR:=SumValR+Val*r; //Method Kazuhisa Miyashita, see notes of HFD calculation method, note calculate HFD over square area. Works more accurate then for round area
     end;
-    flux:=max(sumval_small,0.00001);//prevent dividing by zero or negative values
+    flux:=max(sumval_small,0.00001);//Flux in the restricted aperture only. Prevent dividing by zero or negative values
     radius:=aperture_small; // use smaller aperture
+    hfd1:=2*SumValR/max(SumVal,0.00001);//divide by the all flux of the star
   end; //photometry mode
 
-  star_fwhm:=2*sqrt(pixel_counter/pi);{calculate from surface (by counting pixels above half max) the diameter equals FWHM }
-  hfd1:=2*SumValR/flux;
   hfd1:=max(0.7,hfd1);
+  star_fwhm:=2*sqrt(pixel_counter/pi);{calculate from surface (by counting pixels above half max) the diameter equals FWHM }
 
   if adu_e<>0 then
   begin //adu to e- correction
@@ -15658,7 +15779,7 @@ begin
 //  Ik ga er vanuit dat het ontvangen licht in de pixels totaal 100 electrons (e-) in een echte pixel vrijmaakt. De ruis (σ) ofwel shot noise is dan ongeveer de wortel van het aantal electrons.
 //  Bij software binning halveert de pixelruis met een factor 2 voor zowel de ruis uitgedrukt in ADU als electrons. Ruis sommeer je als σ_tot:=sqrt(σ1^2+ σ2^2)
 
-  result:=floattostrF(sd,FFGeneral,3,3);
+  result:=floattostrF(sd,FFFixed,0,1);
 
   if adu_e<>0 then
     result:=result+' e-' // in electrons
@@ -15669,7 +15790,7 @@ procedure Tmainwindow.Image1MouseMove(Sender: TObject; Shift: TShiftState; X, Y:
 var
   hfd2,fwhm_star2,snr,flux,xf,yf, raM,decM,sd,dummy,conv_factor, adu_e : double;
   s1,s2, hfd_str, fwhm_str,snr_str,mag_str,dist_str,pa_str             : string;
-  width5,height5,box_SX,box_SY,flipH,flipV,iterations, box_LX,box_LY   : integer;
+  width5,height5,box_SX,box_SY,flipH,flipV,iterations, box_LX,box_LY,i : integer;
   color1:tcolor;
   r,b :single;
 begin
@@ -15705,18 +15826,23 @@ begin
            show_marker_shape(mainwindow.shape_manual_alignment1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
 
          {photometry measure all markers}
-         if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
-           show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
-         if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
-           show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
-         if mainwindow.shape_star3.visible then {For manual alignment. Do this only when visible}
-           show_marker_shape(mainwindow.shape_star3,9 {no change in shape and hint},20,20,10,shape_star3_fitsX, shape_star3_fitsY);
+//         if mainwindow.shape_var1.visible then {For manual alignment. Do this only when visible}
+//           show_marker_shape(mainwindow.shape_var1,9 {no change in shape and hint},20,20,10,shape_var1_fitsX, shape_var1_fitsY);
+//         if mainwindow.shape_check1.visible then {For manual alignment. Do this only when visible}
+//           show_marker_shape(mainwindow.shape_check1,9 {no change in shape and hint},20,20,10,shape_check1_fitsX, shape_check1_fitsY);
+//         if mainwindow.shape_comp1.visible then {For manual alignment. Do this only when visible}
+//           show_marker_shape(mainwindow.shape_comp1,9 {no change in shape and hint},20,20,10,shape_comp1_fitsX, shape_comp1_fitsY);
 
-          if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
-          begin
-            show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
-            show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
-          end;
+//          if mainwindow.shape_var2.visible then //update the shape position based on ra,dec values
+//          begin
+//            show_marker_shape(mainwindow.shape_var2,9 {no change in shape and hint},50,50,10,shape_var2_fitsX, shape_var2_fitsY);
+//            show_marker_shape(mainwindow.shape_check2,9 {no change in shape and hint},50,50,10,shape_check2_fitsX, shape_check2_fitsY);
+//          end;
+
+          with mainwindow do
+          for i:=0 to high(fshapes) do
+//             if FShapes[i].shape.visible then
+               show_marker_shape(FShapes[i].shape,9 {no change},30,30,10,FShapes[i].fitsX, FShapes[i].fitsY);
        end;
      end;
 
@@ -15791,8 +15917,8 @@ begin
    if head.naxis3=3 then {for star temperature}
    begin
      try
-       r:=img_loaded[0,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-bck.backgr;
-       b:=img_loaded[2,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-bck.backgr;
+       r:=img_loaded[0,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-head.backgr;
+       b:=img_loaded[2,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-head.backgr;
      except
        {some rounding error, just outside dimensions}
      end;
@@ -15996,7 +16122,7 @@ begin
 end;
 
 
-function stretch_img(img: image_array):image_array;{stretch image, three colour or mono}
+function stretch_img(img: image_array; head : theader):image_array;{stretch image, three colour or mono}
 var
  colrr,colgg,colbb,col_r,col_g,col_b, largest,luminance,luminance_stretched,factor,sat_factor,h,s,v : single;
  width5,height5,colours5,fitsX,fitsY :integer;
@@ -16018,9 +16144,9 @@ begin
         col_g:=img[1,fitsY,fitsX];
         col_b:=img[2,fitsY,fitsX];
 
-        colrr:=(col_r-bck.backgr)/(cwhite-bck.backgr);{scale to 0..1}
-        colgg:=(col_g-bck.backgr)/(cwhite-bck.backgr);{scale to 0..1}
-        colbb:=(col_b-bck.backgr)/(cwhite-bck.backgr);{scale to 0..1}
+        colrr:=(col_r-head.backgr)/(cwhite-head.backgr);{scale to 0..1}
+        colgg:=(col_g-head.backgr)/(cwhite-head.backgr);{scale to 0..1}
+        colbb:=(col_b-head.backgr)/(cwhite-head.backgr);{scale to 0..1}
 
         if sat_factor<>1 then {adjust saturation}
         begin
@@ -16068,7 +16194,7 @@ begin
       else
       begin {mono, naxis3=1}
         col_r:=img[0,fitsY,fitsX];
-        colrr:=(col_r-bck.backgr)/(cwhite-bck.backgr);{scale to 1}
+        colrr:=(col_r-head.backgr)/(cwhite-head.backgr);{scale to 1}
         if colrr<=0.00000000001 then colrr:=0.00000000001;
         if colrr>1 then colrr:=1;
         if stretch_on then
@@ -16297,20 +16423,23 @@ end;
 
 function save_tiff16(img: image_array; memo: tstrings; filen2:string;flip_H,flip_V:boolean): boolean;{save to 16 bit TIFF file }
 var
-  i, j, k,m,colours5,width5,height5      :integer;
+  i, j, k,m,nrcolours,w,h      :integer;
   image: TFPCustomImage;
   writer: TFPCustomImageWriter;
   thecolor  : Tfpcolor;
   format    : string;
   factor    : single;
 begin
-  colours5:=length(img);{nr colours}
-  width5:=length(img[0,0]);{width}
-  height5:=length(img[0]);{height}
+  nrcolours:=length(img);{nr colours}
+  w:=length(img[0,0]);{width}
+  h:=length(img[0]);{height}
 
-  Image := TFPMemoryImage.Create(width5, height5);
+  if nrcolours>1 then
+     Image := TFPMemoryImage.Create(w, h)//colour buffer, allows ups up to 2gbyte/3
+   else
+     Image := TFPCompactImgGray16Bit.Create(w, h);//allows ups up to 2gbyte
+
   Writer := TFPWriterTIFF.Create;
-
 
   Image.Extra[TiffAlphaBits]:='0';
 
@@ -16330,7 +16459,7 @@ begin
   Image.Extra[TiffBlueBits]:=format;
   Image.Extra[TiffGrayBits]:=format;   {add unit fptiffcmn to make this work. see https://bugs.freepascal.org/view.php?id=35081}
 
-  if colours5=1 then {grayscale}
+  if nrcolours=1 then {grayscale}
     Image.Extra[TiffPhotoMetric]:='1' {PhotometricInterpretation = 0 (Min-is-White), 1 (Min-is-Black),  so for 1  black is $0000, White is $FFFF}
   else
     Image.Extra[TiffPhotoMetric]:='2';{RGB colour}
@@ -16342,15 +16471,15 @@ begin
   Image.Extra[TiffCompression]:= '8'; {FPWriteTiff only support only writing Deflate compression. Any other compression setting is silently replaced in FPWriteTiff at line 465 for Deflate. FPReadTiff that can read other compressed files including LZW.}
 
 
-  For i:=0 to height5-1 do
+  For i:=0 to h-1 do
   begin
-    if flip_V=false then k:=height5-1-i else k:=i;{reverse fits down to counting}
-    for j:=0 to width5-1 do
+    if flip_V=false then k:=h-1-i else k:=i;{reverse fits down to counting}
+    for j:=0 to w-1 do
     begin
-      if flip_H=true then m:=width5-1-j else m:=j;
+      if flip_H=true then m:=w-1-j else m:=j;
       thecolor.red:=min(max(0,round(img[0,k,m]*factor)), $FFFF);
-      if colours5>1 then thecolor.green:=min(max(0,round(img[1,k,m]*factor)), $FFFF)  else thecolor.green:=thecolor.red;
-      if colours5>2 then thecolor.blue:=min(max(0,round(img[2,k,m]*factor)), $FFFF)   else thecolor.blue:=thecolor.red;
+      if nrcolours>1 then thecolor.green:=min(max(0,round(img[1,k,m]*factor)), $FFFF)  else thecolor.green:=thecolor.red;
+      if nrcolours>2 then thecolor.blue:=min(max(0,round(img[2,k,m]*factor)), $FFFF)   else thecolor.blue:=thecolor.red;
       thecolor.alpha:=65535;
       image.Colors[j,i]:=thecolor;
     end;
@@ -16616,7 +16745,7 @@ end;
 
 procedure Tmainwindow.electron_to_adu_factors1Click(Sender: TObject);
 begin
-  if head.egain='' then head.egain:=floattostrF(egain_default,FFgeneral,3,3);
+  if head.egain='' then head.egain:=floattostrF(egain_default,FFgeneral,3,0);
   head.egain:=InputBox('factor e-/ADU, unbinned?',
   'At unity gain this factor shall be 1'+#10
   ,head.egain);
@@ -16901,7 +17030,7 @@ begin
     begin
       if savedialog1.filterindex=1 then
       begin
-        img_temp:=stretch_img(img_loaded);
+        img_temp:=stretch_img(img_loaded,head);
         save_png16(img_temp,ChangeFileExt(savedialog1.filename,'.png'),flip_horizontal1.checked,flip_vertical1.checked);  {Change extension is only required due to bug in macOS only. 2021-10-9 See https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/39423}
       end
       else
@@ -16910,7 +17039,7 @@ begin
       else
       if savedialog1.filterindex=3 then
       begin
-        img_temp:=stretch_img(img_loaded);
+        img_temp:=stretch_img(img_loaded,head);
         save_tiff16(img_temp,mainwindow.memo1.lines,ChangeFileExt(savedialog1.filename,'.tif'),flip_horizontal1.checked,flip_vertical1.checked);
       end
       else
@@ -16922,7 +17051,7 @@ begin
       else
       if savedialog1.filterindex=6 then
       begin
-        img_temp:=stretch_img(img_loaded);
+        img_temp:=stretch_img(img_loaded,head);
         save_PPM_PGM_PFM(img_temp,48 {colour depth},ChangeFileExt(savedialog1.filename,'.ppm'),flip_horizontal1.checked,flip_vertical1.checked);
       end
       else
@@ -16936,7 +17065,7 @@ begin
     begin {gray}
       if savedialog1.filterindex=1 then
       begin
-        img_temp:=stretch_img(img_loaded);
+        img_temp:=stretch_img(img_loaded,head);
         save_png16(img_temp,ChangeFileExt(savedialog1.filename,'.png'),flip_horizontal1.checked,flip_vertical1.checked);
       end
       else
@@ -16945,7 +17074,7 @@ begin
       else
       if savedialog1.filterindex=3 then
       begin
-        img_temp:=stretch_img(img_loaded);
+        img_temp:=stretch_img(img_loaded,head);
         save_tiff16(img_temp,mainwindow.memo1.lines,ChangeFileExt(savedialog1.filename,'.tif'),flip_horizontal1.checked,flip_vertical1.checked);
       end
       else
@@ -16957,7 +17086,7 @@ begin
       else
       if savedialog1.filterindex=6 then
       begin
-        img_temp:=stretch_img(img_loaded);
+        img_temp:=stretch_img(img_loaded,head);
         save_PPM_PGM_PFM(img_temp,16{colour depth}, ChangeFileExt(savedialog1.filename,'.pgm'), flip_horizontal1.checked,flip_vertical1.checked);
       end
       else

@@ -14,7 +14,8 @@ interface
 uses
    Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ComCtrls,
    LCLIntf, Buttons,{for for getkeystate, selectobject, openURL}
-   astap_main, unit_annotation,unit_hjd,unit_stack;
+   astap_main, unit_annotation,unit_hjd,unit_stack,
+   unit_astrometric_solving; //for binning without changing the header
 
 type
 
@@ -43,18 +44,17 @@ type
     latitude1: TEdit;
     longitude1: TEdit;
     ok1: TButton;
-    procedure date_obs1Exit(Sender: TObject);
+    procedure date_obs1EditingDone(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure FormKeyPress(Sender: TObject; var Key: char);
     procedure FormShow(Sender: TObject);
     procedure help_sqm_measurement1Click(Sender: TObject);
     procedure latitude1Change(Sender: TObject);
-    procedure latitude1Exit(Sender: TObject);
-    procedure longitude1Change(Sender: TObject);
-    procedure longitude1Exit(Sender: TObject);
+    procedure latitude1EditingDone(Sender: TObject);
+    procedure longitude1EditingDone(Sender: TObject);
     procedure ok1Click(Sender: TObject);
-    procedure pedestal1Exit(Sender: TObject);
-    procedure sqm_applydf1Change(Sender: TObject);
+    procedure pedestal1EditingDone(Sender: TObject);
+    procedure sqm_applydf1Click(Sender: TObject);
   private
 
   public
@@ -66,7 +66,10 @@ var
 
   sqm_applyDF: boolean;
 
-function calculate_sqm(get_bk,get_his : boolean; var pedestal2 : integer) : boolean; {calculate sky background value}
+function calculate_sqm(img: image_array; var headx : theader; memox : tstrings; get_bk,get_his : boolean; var pedestal2 : integer) : boolean; {calculate sky background value}
+
+const
+  pedestal_m: integer=0;
 
 
 implementation
@@ -76,17 +79,16 @@ implementation
 
 var
   site_lat_radians,site_long_radians  : double;
-  backup_made                         : boolean;
 
-
-function calculate_sqm(get_bk,get_his : boolean; var pedestal2 : integer) : boolean; {calculate sky background value}
+function calculate_sqm(img: image_array; var headx : theader; memox : tstrings; get_bk,get_his : boolean; var pedestal2 : integer) : boolean; {calculate sky background value}
 var
-  correction,az,airm         : double;
-  bayer,form_exist           : boolean;
+  correction,az,airm                         : double;
+  bayer,form_exist                           : boolean;
+  img2                                       : image_array;
 begin
   form_exist:=form_sqm1<>nil;   {see form_sqm1.FormClose action to make this working reliable}
 
-  bayer:=((bayerpat<>'') and (head.Xbinning=1));
+  bayer:=((bayerpat<>'') and (headx.Xbinning=1));
 
   if form_exist then
   begin
@@ -94,29 +96,27 @@ begin
     begin
       form_sqm1.green_message1.caption:='This OSC image is automatically binned 2x2.'+#10;
       application.processmessages;
-      if backup_made=false then //else the backup is already made in applyDF1
-      begin
-        backup_img; {move viewer data to img_backup}
-        backup_made:=true;
-      end;
-      bin_X2X3X4(img_loaded,head,mainwindow.memo1.lines,2); //bin 2x2
+      bin_mono_and_crop(2, 1{crop},img,img2);// Make mono, bin and crop without changing the header. Bin result in img2
     end
     else
       form_sqm1.green_message1.caption:='';
   end;
 
-  if ((head.mzero=0) or (head.mzero_radius<>99){calibration was for point sources})  then {calibrate and ready for extendend sources}
+  if ((headx.mzero=0) or (headx.mzero_radius<>99){calibration was for point sources})  then {calibrate and ready for extendend sources}
   begin
     annulus_radius:=14;{calibrate for extended objects using full star flux}
-    head.mzero_radius:=99;{calibrate for extended objects}
-    plot_and_measure_stars(true {calibration},false {plot stars},false{report lim magnitude});
+    headx.mzero_radius:=99;{calibrate for extended objects}
+    if bayer=false then
+       plot_and_measure_stars(img,memox,headx,true {calibration},false {plot stars},false{report lim magnitude})
+    else
+       plot_and_measure_stars(img2,memox,headx,true {calibration},false {plot stars},false{report lim magnitude})//measure binned image
   end;
   result:=false;
-  if head.mzero>0 then
+  if headx.mzero>0 then
   begin
-    if get_bk then get_background(0,img_loaded,get_his {histogram},false {calculate also noise level} ,{var}bck);
+    if get_bk then get_background(0,img,headX, get_his {histogram},false {calculate also noise level});
 
-    if (pos('D',head.calstat)>0) then
+    if (pos('D',headx.calstat)>0) then
     begin
       if pedestal2>0 then
       begin
@@ -129,49 +129,55 @@ begin
        if form_exist then form_sqm1.error_message1.caption:=form_sqm1.error_message1.caption+'Pedestal value missing!'+#10
        else
        begin
-         memo2_message('Pedestal value missing!');
+         memo2_message('Pedestal value missing! Set in menu CTRL+Q');
          warning_str:=warning_str+'Pedestal value missing!';
        end;
 
-    if pedestal2>=bck.backgr then
+    if pedestal2>=headX.backgr then
     begin
       if form_exist then form_sqm1.error_message1.caption:=form_sqm1.error_message1.caption+'Too high pedestal value!'+#10 else
       begin
         memo2_message('Too high pedestal value!');
         warning_str:=warning_str+'Too high pedestal value!';
+        update_text(memox,'SQM     =',char(39)+'Error calculating SQM value! Too high pedestal value!'+char(39));
       end;
       beep;
       pedestal2:=0; {prevent errors}
     end;
 
-    sqmfloat:=head.mzero - ln((bck.backgr-pedestal2-head.pedestal)/sqr(head.cdelt2*3600){flux per arc sec})*2.5/ln(10) ;// +head.pedestal was the value added calibration calibration
+    headX.sqmfloat:=headx.mzero - ln((headX.backgr-pedestal2-headx.pedestal)/sqr(headx.cdelt2*3600){flux per arc sec})*2.5/ln(10) ;// +headx.pedestal was the value added calibration calibration
 
-    calculate_az_alt(1 {force calculation from ra, dec} ,head,{out}az,altitudefloat);
+    calculate_az_alt(1 {force calculation from ra, dec} ,headX,{out}az,altitudefloat);
 
-   // centalt:=inttostr(round(alt));{for reporting in menu sqm1}
+    if centalt=''  then //no old altitude
+    begin
+      centalt:=floattostr2(altitudefloat);
+      update_text(memox,'CENTALT =',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+      update_text(memox,'OBJCTALT=',#39+centalt+#39+'              / [deg] Nominal altitude of center of image    ');
+    end;
+
     if altitudefloat>0 then
     begin
       airm:=airmass_calc(altitudefloat);
       correction:= atmospheric_absorption(airm)- 0.28 {correction at zenith is defined as zero by subtracting 0.28};
-      sqmfloat:=sqmfloat+correction;
+      headX.sqmfloat:=headX.sqmfloat+correction;
       result:=true;
+
+      update_text(memox,'SQM     = ',floattostr2(headx.sqmfloat)+'               / Sky background [magn/arcsec^2]');//two decimals only for nice reporting
+      update_text(memox,'COMMENT SQM',' Used '+inttostr(pedestal2)+' as pedestal value. CALSTAT='+headx.calstat);
     end
     else
     begin
       memo2_message('Negative altitude calculated!');
       warning_str:=warning_str+'Negative altitude calculated!';
+      update_text(memox,'SQM     =',char(39)+'Error calculating SQM value! Negative altitude calculated!'+char(39));
     end;
-
   end
   else
   begin
     memo2_message('MZERO calibration failure!');
     warning_str:=warning_str+'MZERO calibration failure!';
-  end;
-  if backup_made then
-  begin
-    restore_img;
-    backup_made:=false;
+    update_text(memox,'SQM     =',char(39)+'Error calculating SQM value! MZERO calculating failure!'+char(39));
   end;
 end;
 
@@ -229,17 +235,14 @@ begin
       exit;
     end;
 
-    pedestal2:=pedestal;{protect pedestal setting}
+    pedestal2:=pedestal_m;{protect pedestal setting}
     if sqm_applydf1.checked then
     begin
       analyse_listview(stackmenu1.listview2,false {light},false {full fits},false{refresh});{analyse dark tab, by loading=false the loaded img will not be effected. Calstat will not be effected}
       analyse_listview(stackmenu1.listview3,false {light},false {full fits},false{refresh});{analyse flat tab, by loading=false the loaded img will not be effected}
 
       if  form_sqm1<>nil then   {see form_sqm1.FormClose action to make this working reliable}
-      begin
         backup_img;
-        backup_made:=true;//required in calculateSQM for 2x2 bining OSC
-      end;
       apply_dark_and_flat(img_loaded,head);{apply dark, flat if required, renew if different head.exposure or ccd temp}
 
       if pos('D',head.calstat)>0  then {status of dark application}
@@ -255,7 +258,7 @@ begin
     end;
 
     {calc}
-    if calculate_sqm(true {get backgr},update_hist{get histogr},{var} pedestal2)=false then {failure in calculating sqm value}
+    if calculate_sqm(img_loaded,head,mainwindow.memo1.lines,true {get backgr},update_hist{get histogr},{var} pedestal2)=false then {failure in calculating sqm value}
     begin
       if altitudefloat<1 then error_message1.caption:=warning_str;
       warning_str:=''; //clear error message
@@ -267,10 +270,10 @@ begin
     end;
 
     {report}
-    background1.caption:=inttostr(round(bck.backgr));
+    background1.caption:=inttostr(round(head.backgr));
     altitude1.caption:=inttostr(round(altitudefloat));
-    sqm1.caption:=floattostrF(sqmfloat,ffFixed,0,2);
-    bortle1.caption:=bortle(sqmfloat);
+    sqm1.caption:=floattostrF(head.sqmfloat,ffFixed,0,2);
+    bortle1.caption:=bortle(head.sqmfloat);
   end;
 end;
 
@@ -285,7 +288,7 @@ procedure Tform_sqm1.latitude1Change(Sender: TObject);{han.k}
 begin
 end;
 
-procedure Tform_sqm1.latitude1Exit(Sender: TObject);
+procedure Tform_sqm1.latitude1EditingDone(Sender: TObject);
 var
   errordecode:boolean;
 begin
@@ -296,11 +299,7 @@ begin
 end;
 
 
-procedure Tform_sqm1.longitude1Change(Sender: TObject);{han.k}
-begin
-end;
-
-procedure Tform_sqm1.longitude1Exit(Sender: TObject);
+procedure Tform_sqm1.longitude1EditingDone(Sender: TObject);
 var
     errordecode:boolean;
 begin
@@ -320,13 +319,14 @@ begin
   mainwindow.save_settings1Click(nil);{save pedestal value}
 end;
 
-procedure Tform_sqm1.pedestal1Exit(Sender: TObject);
+procedure Tform_sqm1.pedestal1EditingDone(Sender: TObject);
 begin
-  pedestal:=round(strtofloat2(pedestal1.Text));
+  pedestal_m:=round(strtofloat2(pedestal1.Text));
   display_sqm;
 end;
 
-procedure Tform_sqm1.sqm_applydf1Change(Sender: TObject);
+
+procedure Tform_sqm1.sqm_applydf1Click(Sender: TObject);
 begin
   pedestal1.enabled:=sqm_applydf1.checked=false;
   display_sqm;
@@ -358,13 +358,12 @@ begin {set form keypreview:=on}
   end;
 end;
 
-procedure Tform_sqm1.date_obs1Exit(Sender: TObject);
+
+procedure Tform_sqm1.date_obs1EditingDone(Sender: TObject);
 begin
   head.date_obs:=date_obs1.text;
-   display_sqm;
+  display_sqm;
 end;
-
-
 
 procedure Tform_sqm1.FormClose(Sender: TObject; var CloseAction: TCloseAction);
 begin
@@ -377,7 +376,6 @@ end;
 procedure Tform_sqm1.FormShow(Sender: TObject);{han.k}
 begin
   esc_pressed:=false;{reset from cancel}
-  backup_made:=false;
 
   sqm_applyDF1.checked:=sqm_applyDF;
   date_obs1.Text:=head.date_obs;
@@ -391,7 +389,7 @@ begin
 
   latitude1.Text:=trim(sitelat); {copy the string to tedit}
   longitude1.Text:=trim(sitelong);
-  pedestal1.Text:=inttostr(pedestal);
+  pedestal1.Text:=inttostr(pedestal_m);
 
   display_sqm;
 end;

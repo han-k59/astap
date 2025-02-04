@@ -9,7 +9,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 {$mode delphi}
 interface
 uses
-  Classes, SysUtils,forms, math, unit_stack, astap_main, unit_star_align;
+  Classes, SysUtils,forms, math, unit_stack, astap_main, unit_star_align,clipbrd;
 
 procedure stack_LRGB( var files_to_process : array of TfileToDo; out counter : integer );{stack LRGB mode}
 procedure stack_average(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer);{stack average}
@@ -19,15 +19,12 @@ procedure stack_mosaic(process_as_osc:integer; var files_to_process : array of T
 procedure stack_sigmaclip(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer); {stack using sigma clip average}
 procedure calibration_and_alignment(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer); {calibration_and_alignment only}
 
-{$inline on}  {!!! Set this off for debugging}
+{$inline off}  {!!! Set this off for debugging}
 procedure calc_newx_newy(vector_based : boolean; fitsXfloat,fitsYfloat: double); inline; {apply either vector or astrometric correction}
 procedure astrometric_to_vector; {convert astrometric solution to vector solution}
-procedure initialise_calc_sincos_dec0;{set variables correct}
 function test_bayer_matrix(img: image_array) :boolean;  {test statistical if image has a bayer matrix. Execution time about 1ms for 3040x2016 image}
 procedure stack_comet(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer); {stack using sigma clip average}
 
-var
-  pedestal_s : double;{target background value}
 
 var
   SIN_dec0,COS_dec0,x_new_float,y_new_float,SIN_dec_ref,COS_dec_ref : double;
@@ -105,7 +102,7 @@ end;{calc_newx_newy}
 procedure astrometric_to_vector;{convert astrometric solution to vector solution}
 var
   flipped,flipped_reference  : boolean;
-  centerX,centerY,scale_correctionX,scale_correctionY    : double;
+  centerX,centerY            : double;
 
 begin
   a_order:=0; {SIP correction should be zero by definition}
@@ -124,21 +121,6 @@ begin
   solution_vectorY[0]:=-(x_new_float- centerX);
   solution_vectorY[1]:=+(y_new_float- centerY);
 
- //Correction for image distortion. The solution was extracted by comparison the distorted image with a linear star database. The solution factors are then typical a tiny amount smaller then "one"
-  scale_correctionX:=sqrt(sqr(solution_vectorX[0])+sqr(solution_vectorX[1]));//for scale to "one"
-  scale_correctionX:=scale_correctionX*head_ref.cdelt1/head.cdelt1;//relative scale to reference image. Note a temperature change is followed by a focus correction and therefore a change in image scale.
-  solution_vectorX[0]:=solution_vectorX[0]/scale_correctionX;//apply correction
-  solution_vectorX[1]:=solution_vectorX[1]/scale_correctionX;
-
-  scale_correctionY:=sqrt(sqr(solution_vectorY[0])+sqr(solution_vectorY[1]));//for scale to "one"
-  scale_correctionY:=scale_correctionY*head_ref.cdelt2/head.cdelt2;//relative scale to reference image. Note a temperature change is followed by a focus correction and therefore a change in image scale.
-  solution_vectorY[0]:=solution_vectorY[0]/scale_correctionY;//apply correction
-  solution_vectorY[1]:=solution_vectorY[1]/scale_correctionY;
-
-
-  calc_newx_newy(false,(head.crpix1)*(1-scale_correctionX)+1, (head.crpix2)*(1-scale_correctionY)+1);
-  solution_vectorX[2]:=  x_new_float;//range 0..width-1
-  solution_vectorY[2]:=  Y_new_float;
 
   flipped:=head.cd1_1*head.cd2_2 - head.cd1_2*head.cd2_1>0; {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
   flipped_reference:=head_ref.cd1_1*head_ref.cd2_2 - head_ref.cd1_2*head_ref.cd2_1>0; {flipped reference image}
@@ -148,14 +130,20 @@ begin
     solution_vectorX[1]:=-solution_vectorX[1];
     solution_vectorY[0]:=-solution_vectorY[0];
   end;
+
+  //  centerX:=solution_vectorX[0]*crpix1 + solution_vectorX[1]*crpix2 + solution_vectorX[2] therefore ==>
+  //  solution_vectorX[2]:=centerX - solution_vectorX[0]*(crpix1-1) - solution_vectorX[1]*(crpix2-1)
+  solution_vectorX[2]:=centerX - solution_vectorX[0]*(head.crpix1-1) - solution_vectorX[1]*(head.crpix2-1);//in range 0..width-1
+  solution_vectorY[2]:=centerY - solution_vectorY[0]*(head.crpix1-1) - solution_vectorY[1]*(head.crpix2-1);
+
   if stackmenu1.solve_show_log1.checked then memo2_message('Astrometric vector solution '+solution_str)
 end;
 
 
-procedure initialise_calc_sincos_dec0;{set variables correct}
-begin
-  sincos(head.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
-end;
+//procedure initialise_calc_sincos_dec0;{set variables correct}
+//begin
+//  sincos(head.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
+//end;
 
 
 procedure calculate_manual_vector(c: integer); //calculate the vector drift for the image scale one and 0..h, 0..w range.
@@ -174,8 +162,6 @@ begin
   end
   else
   begin
-//    pixel_to_celestial(head,1,1,1 {formalism},  ra1,dec1 );
-
     sincos(head.dec0,SIN_dec0,COS_dec0);//intilialize SIN_dec0,COS_dec0
     astrometric_to_vector;{convert 1th order astrometric solution to a vector solution}
 
@@ -224,10 +210,10 @@ begin
   with stackmenu1 do
   begin
 
-    {move often uses setting to booleans. Great speed improved if use in a loop and read many times}
+    {move often used setting to booleans. Great speed improved if use in a loop and read many times}
     use_manual_align:=stackmenu1.use_manual_alignment1.checked;
     use_ephemeris_alignment:=stackmenu1.use_ephemeris_alignment1.checked;
-    use_astrometry_internal:=use_astrometry_alignment1.checked;
+    use_astrometry_internal:=use_astrometric_alignment1.checked;
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
     max_stars:=strtoint2(stackmenu1.max_stars1.text,500);{maximum star to process, if so filter out brightest stars later}
     use_sip:=stackmenu1.add_sip1.checked;
@@ -302,8 +288,7 @@ begin
             if init=false then
             begin
               head_ref:=head;{backup solution}
-              initialise_calc_sincos_dec0;{set variables correct, do this before apply dark}
-             // initialise_var2;{set variables correct}
+              sincos(head_ref.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
             end;
 
             if use_sip=false then a_order:=0; //stop using SIP from the header in astrometric mode
@@ -311,29 +296,29 @@ begin
 
             if c=1 then
             begin
-               get_background(0,img_loaded,true,false, {out} bck);{unknown, do not calculate noise_level}
-               background_r:=bck.backgr;
+               get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
+               background_r:=head.backgr;
                //cblack:=round( background_r);
                counterR:=head.light_count ;counterRdark:=head.dark_count; counterRflat:=head.flat_count; counterRbias:=head.flatdark_count; exposureR:=round(head.exposure);temperatureR:=head.set_temperature;{for historical reasons}
             end;
             if c=2 then
             begin
-              get_background(0,img_loaded,true,false, {out} bck);{unknown, do not calculate noise_level}
-              background_g:=bck.backgr;
+              get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
+              background_g:=head.backgr;
               //cblack:=round( background_g);
               counterG:=head.light_count;counterGdark:=head.dark_count; counterGflat:=head.flat_count; counterGbias:=head.flatdark_count; exposureG:=round(head.exposure);temperatureG:=head.set_temperature;
             end;
             if c=3 then
             begin
-              get_background(0,img_loaded,true,false, {out} bck);{unknown, do not calculate noise_level}
-              background_b:=bck.backgr;
+              get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
+              background_b:=head.backgr;
               //cblack:=round( background_b);
               counterB:=head.light_count; counterBdark:=head.dark_count; counterBflat:=head.flat_count; counterBbias:=head.flatdark_count; exposureB:=round(head.exposure);temperatureB:=head.set_temperature;
             end;
             if c=4 then
             begin
-              get_background(0,img_loaded,true,false, {out} bck);{unknown, do not calculate noise_level}
-              background_r:=bck.backgr;
+              get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
+              background_r:=head.backgr;
 
               //cblack:=round( background_r);
               background_g:=background_r;
@@ -342,8 +327,8 @@ begin
             end;
             if c=5 then {Luminance}
             begin
-              get_background(0,img_loaded,true,false, {out} bck);{unknown, do not calculate noise_level}
-              background_L:=bck.backgr;
+              get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
+              background_L:=head.backgr;
               //cblack:=round( background_L);
               counterL:=head.light_count; counterLdark:=head.dark_count; counterLflat:=head.flat_count; counterLbias:=head.flatdark_count; exposureL:=round(head.exposure);temperatureL:=head.set_temperature;
             end;
@@ -365,7 +350,7 @@ begin
               else
               begin
                 binning:=report_binning(head.height);{select binning based on the height of the light}
-                bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+                bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
                 find_quads(starlist1,quad_star_distances1);{find quads for reference image/database}
               end;
             end;
@@ -399,7 +384,7 @@ begin
                 end
                 else
                 begin{internal alignment}
-                  bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+                  bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
 
                   find_quads(starlist2,quad_star_distances2);{find star quads for new image}
                   if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
@@ -422,6 +407,7 @@ begin
             if ((c<>0) and (solution)) then  {do not add reference channel c=0, in most case luminance file.}
             begin
               inc(counter);{count number of colour files involved}
+              //Julian days are  -- NOT ---  calculated in apply_dark_and_flat as in the other routines
               date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert head.date_obs string and head.exposure time to global variables jd_start (julian day start head.exposure) and jd_mid (julian day middle of the head.exposure)}
               jd_start_first:=min(jd_start,jd_start_first);{find the begin date}
               jd_end_last:=max(jd_end,jd_end_last);{find latest end time}
@@ -523,6 +509,7 @@ begin
                 end;
               end;
             end;
+
             progress_indicator(94+c,' LRGB');{show progress, 95..99}
             except
               beep;
@@ -611,12 +598,33 @@ begin
   end;
 end;
 
+procedure compensate_solar_drift(head : theader; var cc, ff : double);//compendate movement solar objects
+var
+  ra_movement,dec_movement,posX,posY : double;
+begin
+  ra_movement:=(jd_mid-jd_mid_reference)*strtofloat2(stackmenu1.solar_drift_ra1.text {arcsec/hour})*(pi/180)*24/3600;//ra movement in radians
+  ra_movement:=ra_movement/COS_dec_ref;//convert angular distance to ra distance
+  dec_movement:=(jd_mid-jd_mid_reference)*strtofloat2(stackmenu1.solar_drift_dec1.text {arcsec/hour})*(pi/180)*24/3600;//dec movement in radians
+
+  celestial_to_pixel(head,head.ra0 + ra_movement,head.dec0 + dec_movement, posX,posY); //calculate drift of center of image by asteroid
+  if sign(head_ref.cd1_1)<>sign(head.cd1_1) then
+     cc:=cc-(head.crpix1-posX)//correct for asteroid movement
+  else
+     cc:=cc+(head.crpix1-posX);//correct for asteroid movement
+
+  if sign(head_ref.cd2_2)<>sign(head.cd2_2) then
+    ff:=ff-(head.crpix2-posY) //correct for asteroid movement
+  else
+    ff:=ff+(head.crpix2-posY);//correct for asteroid movement
+end;
+
 
 procedure stack_average(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer);{stack average}
 var
     fitsX,fitsY,c,width_max, height_max,old_width, old_height,x_new,y_new,col,binning,max_stars,old_naxis3                     : integer;
-    background_correction, weightF,hfd_min,aa,bb,cc,dd,ee,ff                                                                   : double;
-    init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip                                   : boolean;
+    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal                                                                     : double;
+    init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,solar_drift_compensation,
+    use_star_alignment                                                                                                         : boolean;
     tempval                                                                                                                    : single;
     warning             : string;
     starlist1,starlist2 : star_list;
@@ -626,11 +634,13 @@ begin
   begin
     use_manual_align:=stackmenu1.use_manual_alignment1.checked;
     use_ephemeris_alignment:=stackmenu1.use_ephemeris_alignment1.checked;
-    use_astrometry_internal:=use_astrometry_alignment1.checked;
+    use_astrometry_internal:=use_astrometric_alignment1.checked;
+    use_star_alignment:=use_star_alignment1.checked;
 
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
     max_stars:=strtoint2(stackmenu1.max_stars1.text,500);{maximum star to process, if so filter out brightest stars later}
     use_sip:=stackmenu1.add_sip1.checked;
+    solar_drift_compensation:=((solar_drift_compensation1.checked) and (use_astrometry_internal));
 
     counter:=0;
     sum_exp:=0;
@@ -641,7 +651,6 @@ begin
 
     init:=false;
 
-    background_correction:=0;
     {simple average}
     begin
       for c:=0 to length(files_to_process)-1 do
@@ -667,8 +676,8 @@ begin
 
             add_text(mainwindow.memo1.lines,'COMMENT 9', '  Reference file was ' + filename2);
             head_ref:=head;{backup solution}
-            initialise_calc_sincos_dec0;{set variables correct. Do this before apply dark}
-            //initialise_var2;{set variables correct}
+            sincos(head_ref.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
+
             if ((bayerpat='') and (process_as_osc=2 {forced})) then
                if stackmenu1.bayer_pattern1.Text='auto' then memo2_message('█ █ █ █ █ █ Warning, Bayer colour pattern not in the header! Check colours and if wrong set Bayer pattern manually in tab "stack alignment". █ █ █ █ █ █')
                else
@@ -694,9 +703,11 @@ begin
               demosaic_bayer(img_loaded); {convert OSC image to colour}
           end;
 
-          if init=false then {init}
+          solution:=true;
+          if init=false then {init, first (reference) image}
           begin
-            jd_mid_reference:=jd_mid; //for ephemeris stacking
+            //Julian days are already calculated in apply_dark_and_flat
+            jd_mid_reference:=jd_mid; //for ephemeris stacking and astrometric option "compensate solar movement". Julian dates are calculated in apply_dark_and_flat
             height_max:=head.height;
             width_max:=head.width;
             binning:=report_binning(head.height);{select binning based on the height of the first light. Do this after demosaic since SuperPixel also bins}
@@ -711,72 +722,63 @@ begin
                 img_temp[0,fitsY,fitsX]:=0; {clear img_temp}
               end;
 
-            if ((use_manual_align) or (use_ephemeris_alignment)) then
+            if use_star_alignment then
             begin
-              referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
-              referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+              bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+              find_quads(starlist1, quad_star_distances1);{find quads for reference image}
             end
             else
-            if  use_astrometry_internal=false then
             begin
-              bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
-              find_quads(starlist1, quad_star_distances1);{find quads for reference image}
-              pedestal_s:=bck.backgr;{correct for difference in background, use cblack from first image as reference. Some images have very high background values up to 32000 with 6000 noise, so fixed pedestal_s of 1000 is not possible}
-              if pedestal_s<500 then
-                pedestal_s:=500;{prevent image noise could go below zero}
-              background_correction:=pedestal_s-bck.backgr;
-              head.datamax_org:=head.datamax_org+background_correction; if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
-              head.pedestal:=background_correction;
+              get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
+              if ((use_manual_align) or (use_ephemeris_alignment)) then   //equals use_astrometry_internal=false
+              begin
+                referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
+                referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+              end;
             end;
-          end;{init, c=0}
-
-          solution:=true;
-          if use_astrometry_internal then sincos(head.dec0,SIN_dec0,COS_dec0) {do this in advance since it is for each pixel the same}
+            reset_solution_vectors(1);{no influence on the first image}
+            pedestal:=max(500,head.backgr);{prevent image noise could go below zero. After applying dark the average value could be close to zero for dark sites}
+            head.datamax_org:=head.datamax_org+(pedestal-head.backgr); if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
+          end {init, c=0}
           else
-          begin {align using star match}
-            if init=true then {second image}
+          begin //init is true
+            if use_star_alignment then {internal alignment}
             begin
+              bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+              find_quads(starlist2, quad_star_distances2);{find star quads for new image}
+              if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
+                 memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
+              else
+              begin
+                memo2_message('Not enough quad matches <3 or inconsistent solution, skipping this image.');
+                files_to_process[c].name:=''; {remove file from list}
+                solution:=false;
+                ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
+                ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='no solution';{no stack result}
+              end;
+            end
+            else
+            begin
+              get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
               if ((use_manual_align) or (use_ephemeris_alignment)) then
               begin {manual alignment}
                 calculate_manual_vector(c);//includes memo2_message with solution vector
-              end
-              else
-              begin{internal alignment}
-                bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
-
-                background_correction:=pedestal_s-bck.backgr;
-                head.datamax_org:=head.datamax_org+background_correction; if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
-                head.pedestal:=background_correction;
-
-
-                find_quads(starlist2, quad_star_distances2);{find star quads for new image}
-                if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
-                   memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
-                else
-                begin
-                  memo2_message('Not enough quad matches <3 or inconsistent solution, skipping this image.');
-                  files_to_process[c].name:=''; {remove file from list}
-                  solution:=false;
-                  ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
-                  ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='no solution';{no stack result}
-                end;
-              end;{internal alignment}
+              end;
             end
-            else
-            reset_solution_vectors(1);{no influence on the first image}
-
           end;
+
           init:=true;{initialize for first image done}
 
           if solution then
           begin
+            if use_astrometry_internal then sincos(head.dec0,SIN_dec0,COS_dec0); {do this in advance since it is for each pixel the same}
             inc(counter);
             sum_exp:=sum_exp+head.exposure;
             sum_temp:=sum_temp+head.set_temperature;
 
             weightF:=calc_weightF;{calculate weighting factor for different exposure duration and gain}
 
-            date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert head.date_obs string and head.exposure time to global variables jd_start (julian day start head.exposure) and jd_mid (julian day middle of the head.exposure)}
+            //Julian days are already calculated in apply_dark_and_flat
             jd_start_first:=min(jd_start,jd_start_first);{find the begin date}
             jd_end_last:=max(jd_end,jd_end_last);{find latest end time}
             jd_sum:=jd_sum+jd_mid;{sum julian days of images at midpoint exposure}
@@ -785,6 +787,8 @@ begin
             if use_astrometry_internal then
               astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
+            background:=head.backgr;//calculated in bin_find_stars/get_background()
+
             aa:=solution_vectorX[0]; //move to local variables for some speed improvement
             bb:=solution_vectorX[1];
             cc:=solution_vectorX[2];
@@ -792,16 +796,19 @@ begin
             ee:=solution_vectorY[1];
             ff:=solution_vectorY[2];
 
+            if solar_drift_compensation then
+              compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+
             for fitsY:=0 to head.height-1 do {skip outside "bad" pixels if mosaic mode}
             for fitsX:=0 to head.width-1  do
             begin
-              x_new:=round(aa*(fitsx)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
-              y_new:=round(dd*(fitsx)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
+              x_new:=round(aa*(fitsX)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
+              y_new:=round(dd*(fitsX)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
 
               if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
               begin
                 for col:=0 to head.naxis3-1 do {all colors}
-                  img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ img_loaded[col,fitsY,fitsX]*weightf;{image loaded is already corrected with dark and flat}{NOTE: fits count from 1, image from zero}
+                  img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ (img_loaded[col,fitsY,fitsX]-background)*weightf;{Sum flux only. image loaded is already corrected with dark and flat}{NOTE: fits count from 1, image from zero}
 
                 img_temp[0,y_new,x_new]:=img_temp[0,y_new,x_new]+weightF{typical 1};{count the number of image pixels added=samples.}
               end;
@@ -816,10 +823,12 @@ begin
 
       if counter<>0 then
       begin
+
         head_ref.naxis3:= head.naxis3; {store colour info in reference header}
         head_ref.naxis:=  head.naxis;  {store colour info in reference header}
         head_ref.datamax_org:= head.datamax_org;  {for 8 bit files, they are now 500 minimum}
         head:=head_ref;{restore solution variable of reference image for annotation and mount pointer. Works only if not resized}
+        head.pedestal:=pedestal;
         head.height:=height_max;
         head.width:=width_max;
         setlength(img_loaded,head.naxis3,head.height,head.width);{new size}
@@ -830,12 +839,12 @@ begin
           tempval:=img_temp[0,fitsY,fitsX];
           for col:=0 to head.naxis3-1 do
           begin {colour loop}
-            if tempval<>0 then img_loaded[col,fitsY,fitsX]:=background_correction+img_average[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
+            if tempval<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_average[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
             else
             begin { black spot filter or missing value filter due to image rotation}
-              if ((fitsX>0) and (img_temp[0,fitsY,fitsX-1]<>0)) then img_loaded[col,fitsY,fitsX]:=background_correction+img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
+              if ((fitsX>0) and (img_temp[0,fitsY,fitsX-1]<>0)) then img_loaded[col,fitsY,fitsX]:=pedestal+img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
               else
-              if ((fitsY>0) and (img_temp[0,fitsY-1,fitsX]<>0)) then img_loaded[col,fitsY,fitsX]:=background_correction+img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
+              if ((fitsY>0) and (img_temp[0,fitsY-1,fitsX]<>0)) then img_loaded[col,fitsY,fitsX]:=pedestal+img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
               else
               img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
             end; {black spot}
@@ -844,6 +853,7 @@ begin
       end; {counter<>0}
     end;{simple average}
   end;{with stackmenu1}
+
   {arrays will be nilled later. This is done for early exits}
 end;
 
@@ -937,7 +947,7 @@ begin
     if abs(x_max-x_min)<1 then begin memo2_message('Abort. Failed to calculate mosaic dimensions!');exit;end;
 
 
-    {move often uses setting to booleans. Great speed improved if use in a loop and read many times}
+    {move often used setting to booleans. Great speed improved if use in a loop and read many times}
     merge_overlap:=merge_overlap1.checked;
     Equalise_background:=Equalise_background1.checked;
     counter:=0;
@@ -1058,7 +1068,7 @@ begin
             sum_exp:=sum_exp+head.exposure;
             sum_temp:=sum_temp+head.set_temperature;
 
-            date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert head.date_obs string and head.exposure time to global variables jd_start (julian day start head.exposure) and jd_mid (julian day middle of the head.exposure)}
+            //Julian days are already calculated in apply_dark_and_flat
             jd_start_first:=min(jd_start,jd_start_first);{find the begin date}
             jd_end_last:=max(jd_end,jd_end_last);{find latest end time}
             jd_sum:=jd_sum+jd_mid;{sum julian days of images at midpoint exposure}
@@ -1219,26 +1229,31 @@ type
    end;
 var
     solutions      : array of tsolution;
-    fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col ,binning,max_stars,old_naxis3      : integer;
-    variance_factor, value,weightF,hfd_min,aa,bb,cc,dd,ee,ff                                                      : double;
-    init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip                      : boolean;
-    tempval, sumpix, newpix,target_background,background_correction                                               : single;
+    fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col ,binning,max_stars,old_naxis3           : integer;
+    variance_factor, value,weightF,hfd_min,aa,bb,cc,dd,ee,ff                                                           : double;
+    init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip, solar_drift_compensation,
+    use_star_alignment                                                                                                 : boolean;
+    tempval, sumpix, newpix, background, pedestal                                                                      : single;
     warning     : string;
     starlist1,starlist2 : star_list;
     img_temp,img_average,img_final,img_variance : image_array;
 begin
   with stackmenu1 do
   begin
-    {move often uses setting to booleans. Great speed improved if use in a loop and read many times}
+    {move often used setting to booleans. Great speed improved if use in a loop and read many times}
     variance_factor:=sqr(strtofloat2(stackmenu1.sd_factor1.text));
 
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
     max_stars:=strtoint2(stackmenu1.max_stars1.text,500);{maximum star to process, if so filter out brightest stars later}
     use_sip:=stackmenu1.add_sip1.checked;
 
+
     use_manual_align:=stackmenu1.use_manual_alignment1.checked;
     use_ephemeris_alignment:=stackmenu1.use_ephemeris_alignment1.checked;
-    use_astrometry_internal:=use_astrometry_alignment1.checked;
+    use_astrometry_internal:=use_astrometric_alignment1.checked;
+    use_star_alignment:=use_star_alignment1.checked;
+
+    solar_drift_compensation:=((solar_drift_compensation1.checked) and (use_astrometry_internal));
 
     counter:=0;
     sum_exp:=0;
@@ -1247,9 +1262,6 @@ begin
     jd_start_first:=1E99;{begin observations in Julian day}
     jd_end_last:=0;{end observations in Julian day}
 
-
-    init:=false;
-    background_correction:=0;{required for astrometric alignment}
     {light average}
     begin
       setlength(solutions,length(files_to_process));
@@ -1275,8 +1287,8 @@ begin
           old_naxis3:=head.naxis3;
 
           head_ref:=head;{backup solution}
-          initialise_calc_sincos_dec0;{set variables correct}
-          //initialise_var2;{set variables correct}
+          sincos(head_ref.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
+
           if ((bayerpat='') and (process_as_osc=2 {forced})) then
              if stackmenu1.bayer_pattern1.Text='auto' then memo2_message('█ █ █ █ █ █ Warning, Bayer colour pattern not in the header! Check colours and if wrong set Bayer pattern manually in tab "stack alignment". █ █ █ █ █ █')
              else
@@ -1303,33 +1315,13 @@ begin
              demosaic_bayer(img_loaded); {convert OSC image to colour}
             {head.naxis3 is now 3}
         end;
-        if use_astrometry_internal then
-        begin //for making all background the same for better sigma clip function
-          get_background(0, img_loaded, True {update_hist}, False {calculate noise level}, {var} bck);
-          solutions[c].cblack:=bck.backgr;  //background after applying dark and flats!! Not the same as in listview1
-        end;
 
+        solution:=true;
         if init=false then
         begin
-          binning:=report_binning(head.height);{select binning based on the height of the first light. Do this after demosaic since SuperPixel also bins}
-
-          if  use_astrometry_internal=false then {first image and not astrometry_internal}
-          begin
-            if ((use_manual_align) or (use_ephemeris_alignment)) then
-            begin
-              referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
-              referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
-            end
-            else
-            begin
-              bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
-              find_quads(starlist1, quad_star_distances1);{find quads for reference image}
-            end;
-          end;
-
+          jd_mid_reference:=jd_mid; //for  "compensate solar movement". Julian dates are calculated in apply_dark_and_flat
           height_max:=head.height;
           width_max:=head.width;
-
           setlength(img_average,head.naxis3,height_max,width_max);
           setlength(img_temp,head.naxis3,height_max,width_max);
           for fitsY:=0 to height_max-1 do
@@ -1339,69 +1331,82 @@ begin
                 img_average[col,fitsY,fitsX]:=0; {clear img_average}
                 img_temp[col,fitsY,fitsX]:=0; {clear img_temp}
               end;
-             target_background:=max(500,bck.backgr); //target for all images. Background of reference image or when lower then 500 then 500.
-           memo2_message('Target background for all images is '+floattostrF(target_background,FFFixed,0,0));
-        end;{init, c=0}
 
-        solution:=true;
-        if use_astrometry_internal then sincos(head.dec0,SIN_dec0,COS_dec0) {do this in advance since it is for each pixel the same}
+          binning:=report_binning(head.height);{select binning based on the height of the first light. Do this after demosaic since SuperPixel also bins}
+
+          if use_star_alignment then
+          begin
+            bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+            find_quads(starlist1, quad_star_distances1);{find quads for reference image}
+          end
+          else
+          begin
+            get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
+            if ((use_manual_align) or (use_ephemeris_alignment)) then   //equals use_astrometry_internal=false
+            begin
+              referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
+              referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+            end;
+          end;
+          reset_solution_vectors(1);{no influence on the first image}
+          solutions[c].solution_vectorX:= solution_vectorX; {store solutions for later}
+          solutions[c].solution_vectorY:= solution_vectorY;
+          pedestal:=max(500,head.backgr);{prevent image noise could go below zero. After applying dark the average value could be close to zero for dark sites}
+          head.datamax_org:=head.datamax_org+(pedestal-head.backgr); if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
+        end {init, c=0}
         else
-        begin {align using star match}
-           if init=true then {second image}
-              begin
-                if ((use_manual_align) or (use_ephemeris_alignment)) then
-                begin {manual alignment}
-                  calculate_manual_vector(c);//includes memo2_message with solution vector
-                end
-                else
-                begin{internal alignment}
-                  bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
-                  find_quads(starlist2, quad_star_distances2);{find star quads for new image}
-                  if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
-                  begin
-                    memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str);
-                    solutions[c].solution_vectorX:= solution_vectorX;{store solutions}
-                    solutions[c].solution_vectorY:= solution_vectorY;
-                    solutions[c].cblack:=bck.backgr;
-                  end
-                    else
-                    begin
-                      memo2_message('Not enough quad matches <3 or inconsistent solution, skipping this image.');
-                      files_to_process[c].name:=''; {remove file from list}
-                      solution:=false;
-                      ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclamation}
-                      ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_result]:='no solution';{no stack result}
-                    end;
-                 end;{internal alignment}
-              end
-              else
-              begin {first image}
-                reset_solution_vectors(1);{no influence on the first image}
-                solutions[c].solution_vectorX:= solution_vectorX; {store solutions for later}
-                solutions[c].solution_vectorY:= solution_vectorY;
-                solutions[c].cblack:=bck.backgr;
-               end;
-
+        begin //second image
+          if use_star_alignment then {internal alignment}
+          begin{internal alignment}
+            bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+            find_quads(starlist2, quad_star_distances2);{find star quads for new image}
+            if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
+            begin
+              memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str);
+              solutions[c].solution_vectorX:= solution_vectorX;{store solutions}
+              solutions[c].solution_vectorY:= solution_vectorY;
+            end
+            else
+            begin
+              memo2_message('Not enough quad matches <3 or inconsistent solution, skipping this image.');
+              files_to_process[c].name:=''; {remove file from list}
+              solution:=false;
+              ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclamation}
+              ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_result]:='no solution';{no stack result}
+            end
+          end{internal alignment}
+          else
+          begin
+            get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
+            if ((use_manual_align) or (use_ephemeris_alignment)) then //<> use_astrometry_internal
+            begin {manual alignment}
+              calculate_manual_vector(c);//includes memo2_message with solution vector
+              solutions[c].solution_vectorX:= solution_vectorX;{store solutions}
+              solutions[c].solution_vectorY:= solution_vectorY;
+            end;
+          end;
         end;
+
         init:=true;{initialize for first image done}
 
         if solution then
         begin
+          if use_astrometry_internal then sincos(head.dec0,SIN_dec0,COS_dec0); {do this in advance since it is for each pixel the same}
+          solutions[c].cblack:=head.backgr;//store background
+
           inc(counter);
           sum_exp:=sum_exp+head.exposure;
           sum_temp:=sum_temp+head.set_temperature;
-
           weightF:=calc_weightF;{calculate weighting factor for different exposure duration and gain}
-          background_correction:=solutions[c].cblack - target_background;//for sigma clip. First try to get backgrounds equal for more effective sigma clip
-          head.datamax_org:=min($FFFF,head.datamax_org-background_correction);{note head.datamax_org is already corrected in apply dark}
           {1}
 
-          date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert head.date_obs string and head.exposure time to global variables jd_start (julian day start head.exposure) and jd_mid (julian day middle of the head.exposure)}
+          //Julian days are already calculated in apply_dark_and_flat
           jd_start_first:=min(jd_start,jd_start_first);{find the begin date}
           jd_end_last:=max(jd_end,jd_end_last);{find latest end time}
           jd_sum:=jd_sum+jd_mid;{sum julian days of images at midpoint exposure}
           airmass_sum:=airmass_sum+airmass;
 
+          background:=head.backgr;
 
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
@@ -1413,6 +1418,9 @@ begin
           ee:=solution_vectorY[1];
           ff:=solution_vectorY[2];
 
+          if solar_drift_compensation then
+            compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+
           for fitsY:=0 to head.height-1 do {average}
           for fitsX:=0 to head.width-1  do
           begin
@@ -1423,7 +1431,7 @@ begin
             begin
               for col:=0 to head.naxis3-1 do
               begin
-                img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ (img_loaded[col,fitsY,fitsX]- background_correction) *weightF;{Note fits count from 1, image from zero}
+                img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ (img_loaded[col,fitsY,fitsX]- background) *weightF;{Note fits count from 1, image from zero}
                 img_temp[col,y_new,x_new]:=img_temp[col,y_new,x_new]+weightF {norm 1};{count the number of image pixels added=samples}
               end;
             end;
@@ -1481,6 +1489,7 @@ begin
           end;
           if init=false then {init (2) for standard deviation step}
           begin
+            jd_mid_reference:=jd_mid; //for  "compensate solar movement". Julian dates are calculated in apply_dark_and_flat
             setlength(img_variance,head.naxis3,height_max,width_max);{mono}
             for fitsY:=0 to height_max-1 do
             for fitsX:=0 to width_max-1 do
@@ -1494,29 +1503,12 @@ begin
           if use_astrometry_internal then  sincos(head.dec0,SIN_dec0,COS_dec0) {do this in advance since it is for each pixel the same}
           else
           begin {align using star match, read saved solution vectors}
-            if ((use_manual_align) or (use_ephemeris_alignment)) then
-            begin
-              if init=false then
-              begin
-                reset_solution_vectors(1);{no influence on the first image}
-              end
-              else
-              begin
-                calculate_manual_vector(c);
-              end;
-            end
-            else
-            begin  {reuse solution from first step average}
-              solution_vectorX:=solutions[c].solution_vectorX; {restore solution}
-              solution_vectorY:=solutions[c].solution_vectorY;
-              bck.backgr:=solutions[c].cblack;
-            end;
+            solution_vectorX:=solutions[c].solution_vectorX; {restore solution}
+            solution_vectorY:=solutions[c].solution_vectorY;
           end;
           init:=true;{initialize for first image done}
-
+          background:=solutions[c].cblack;
           weightF:=calc_weightF;{calculate weighting factor for different exposure duration and gain}
-          background_correction:=solutions[c].cblack - target_background;//for sigma clip. First try to get backgrounds equal for more effective sigma clip
-          head.datamax_org:=min($FFFF,head.datamax_org-background_correction);{note head.datamax_org is already corrected in apply dark}
           {2}
 
           if use_astrometry_internal then
@@ -1529,6 +1521,9 @@ begin
           ee:=solution_vectorY[1];
           ff:=solution_vectorY[2];
 
+          if solar_drift_compensation then
+            compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+
 
           for fitsY:=0 to head.height-1 do {skip outside "bad" pixels if mosaic mode}
           for fitsX:=0 to head.width-1  do
@@ -1538,7 +1533,7 @@ begin
 
             if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
             begin
-              for col:=0 to head.naxis3-1 do img_variance[col,y_new,x_new]:=img_variance[col,y_new,x_new] +  sqr( (img_loaded[col,fitsY,fitsX]- background_correction)*weightF - img_average[col,y_new,x_new]); {Without flats, sd in sqr, work with sqr factors to avoid sqrt functions for speed}
+              for col:=0 to head.naxis3-1 do img_variance[col,y_new,x_new]:=img_variance[col,y_new,x_new] +  sqr( (img_loaded[col,fitsY,fitsX]- background)*weightF - img_average[col,y_new,x_new]); {Without flats, sd in sqr, work with sqr factors to avoid sqrt functions for speed}
             end;
           end;
 
@@ -1589,6 +1584,7 @@ begin
 
           if init=false then {init, (3) step throw outliers out}
           begin
+            jd_mid_reference:=jd_mid; //for  "compensate solar movement". Julian dates are calculated in apply_dark_and_flat
             setlength(img_temp,head.naxis3,height_max,width_max);
             setlength(img_final,head.naxis3,height_max,width_max);
             for fitsY:=0 to height_max-1 do
@@ -1607,29 +1603,12 @@ begin
           if use_astrometry_internal then  sincos(head.dec0,SIN_dec0,COS_dec0) {do this in advance since it is for each pixel the same}
           else
           begin {align using star match, read saved solution vectors}
-            if ((use_manual_align) or (use_ephemeris_alignment)) then
-            begin
-              if init=false then {3}
-              begin
-                reset_solution_vectors(1);{no influence on the first image}
-              end
-              else
-              begin
-                calculate_manual_vector(c);
-              end;
-            end
-            else
-            begin  {reuse solution from first step average}
-              solution_vectorX:=solutions[c].solution_vectorX; {restore solution}
-              solution_vectorY:=solutions[c].solution_vectorY;
-              bck.backgr:=solutions[c].cblack;
-            end;
+            solution_vectorX:=solutions[c].solution_vectorX; {restore solution}
+            solution_vectorY:=solutions[c].solution_vectorY;
           end;
           init:=true;{initialize for first image done}
-
+          background:=solutions[c].cblack;
           weightF:=calc_weightF;{calculate weighting factor for different exposure duration and gain}
-          background_correction:=solutions[c].cblack - target_background;//for sigma clip. First try to get backgrounds equal for more effective sigma clip
-          head.datamax_org:=min($FFFF,head.datamax_org-background_correction);
           {3}
 
           if use_astrometry_internal then
@@ -1642,6 +1621,9 @@ begin
           ee:=solution_vectorY[1];
           ff:=solution_vectorY[2];
 
+          if solar_drift_compensation then
+            compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+
            //phase 3
           for fitsY:=0 to head.height-1 do
           for fitsX:=0 to head.width-1  do
@@ -1653,7 +1635,7 @@ begin
             begin
               for col:=0 to head.naxis3-1 do {do all colors}
               begin
-                value:=(img_loaded[col,fitsY,fitsX]- background_correction)*weightF;
+                value:=(img_loaded[col,fitsY,fitsX]- background)*weightF;
                 if sqr (value - img_average[col,y_new,x_new])< variance_factor*{sd sqr}( img_variance[col,y_new,x_new])  then {not an outlier}
                 begin
                   img_final[col,y_new,x_new]:=img_final[col,y_new,x_new]+ value;{dark and flat, flat dark already applied}
@@ -1675,6 +1657,7 @@ begin
         head_ref.naxis:=  head.naxis;  {store colour info in reference header}
         head_ref.datamax_org:= head.datamax_org;  {for 8 bit files, they are now 500 minimum}
         head:=head_ref;{restore solution variable of reference image for annotation and mount pointer. Works only if not oversized}
+        head.pedestal:=pedestal;
         head.height:=height_max;
         head.width:=width_max;
         setlength(img_loaded,head.naxis3,head.height,head.width);{new size}
@@ -1684,7 +1667,7 @@ begin
             for fitsX:=0 to head.width-1 do
             begin
               tempval:=img_temp[col,fitsY,fitsX];
-              if tempval<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_final[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
+              if tempval<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_final[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
               else
               begin { black spot filter. Note for this version img_temp is counting for each color since they could be different}
                 if ((fitsX>0) and (fitsY>0)) then {black spot filter, fix black spots which show up if one image is rotated}
@@ -1730,13 +1713,13 @@ var
 begin
   with stackmenu1 do
   begin
-    {move often uses setting to booleans. Great speed improved if use in a loop and read many times}
+    {move often used setting to booleans. Great speed improved if use in a loop and read many times}
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
     use_sip:=stackmenu1.add_sip1.checked;
 
     use_manual_align:=stackmenu1.use_manual_alignment1.checked;
     use_ephemeris_alignment:=stackmenu1.use_ephemeris_alignment1.checked;
-    use_astrometry_internal:=use_astrometry_alignment1.checked;
+    use_astrometry_internal:=use_astrometric_alignment1.checked;
 
     counter:=0;
     sum_exp:=0;
@@ -1745,8 +1728,6 @@ begin
     jd_start_first:=1E99;{begin observations in Julian day}
     jd_end_last:=0;{end observations in Julian day}
 
-
-    init:=false;
     {find the JD moment when the pixel is at max value}
     begin
       setlength(solutions,length(files_to_process));
@@ -1772,8 +1753,8 @@ begin
           old_naxis3:=head.naxis3;
 
           head_ref:=head;{backup solution}
-          initialise_calc_sincos_dec0;{set variables correct}
-          //initialise_var2;{set variables correct}
+          sincos(head_ref.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
+
           if ((bayerpat='') and (process_as_osc=2 {forced})) then
              if stackmenu1.bayer_pattern1.Text='auto' then memo2_message('█ █ █ █ █ █ Warning, Bayer colour pattern not in the header! Check colours and if wrong set Bayer pattern manually in tab "stack alignment". █ █ █ █ █ █')
              else
@@ -1806,8 +1787,8 @@ begin
           memo2_message('Measuring background for all colours');
           for col:=0 to head.naxis3-1 do /// for all colours
           begin
-            get_background(col, img_loaded, True {update_hist}, False {calculate noise level}, {var} bck);
-            solutions[c].cblack[col]:=bck.backgr;
+            get_background(col, img_loaded,head, True {update_hist}, False {calculate noise level});
+            solutions[c].cblack[col]:=head.backgr;
           end;
 
         end;
@@ -1857,7 +1838,7 @@ begin
           head.datamax_org:=min($FFFF,head.datamax_org-background_correction[0]);{note head.datamax_org is already corrected in apply dark}
           {1}
 
-          date_to_jd(head.date_obs,head.date_avg,head.exposure);{convert head.date_obs string and head.exposure time to global variables jd_start (julian day start head.exposure) and jd_mid (julian day middle of the head.exposure)}
+          //Julian days are already calculated in apply_dark_and_flat
           jd_start_first:=min(jd_start,jd_start_first);{find the begin date}
           jd_end_last:=max(jd_end,jd_end_last);{find latest end time}
           jd_sum:=jd_sum+jd_mid;{sum julian days of images at midpoint exposure}
@@ -2068,15 +2049,15 @@ end;   {comet and stars sharp}
 procedure calibration_and_alignment(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer); {calibration_and_alignment only}
 var
     fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col, binning, max_stars,old_naxis3  : integer;
-    background_correction, hfd_min,aa,bb,cc,dd,ee,ff                                                           : double;
-    init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip                   : boolean;
+    background, hfd_min,aa,bb,cc,dd,ee,ff,pedestal                                                             : double;
+    init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,use_star_alignment: boolean;
     warning             : string;
     starlist1,starlist2 : star_list;
     img_temp,img_average : image_array;
 begin
   with stackmenu1 do
   begin
-    {move often uses setting to booleans. Great speed improved if use in a loop and read many times}
+    {move often used settings to booleans. Great speed improved if use in a loop and read many times}
     hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
     max_stars:=strtoint2(stackmenu1.max_stars1.text,500);{maximum star to process, if so filter out brightest stars later}
     use_sip:=stackmenu1.add_sip1.checked;
@@ -2084,10 +2065,9 @@ begin
 
     use_manual_align:=stackmenu1.use_manual_alignment1.checked;
     use_ephemeris_alignment:=stackmenu1.use_ephemeris_alignment1.checked;
-    use_astrometry_internal:=use_astrometry_alignment1.checked;
+    use_astrometry_internal:=use_astrometric_alignment1.checked;
+    use_star_alignment:=use_star_alignment1.checked;
 
-    init:=false;
-    background_correction:=0;{required for astrometric alignment}
     {light average}
     begin
       counter:=0;
@@ -2117,8 +2097,8 @@ begin
           old_naxis3:=head.naxis3;
 
           head_ref:=head;{backup solution}
-          initialise_calc_sincos_dec0;{set variables correct}
-          //initialise_var2;{set variables correct}
+          sincos(head_ref.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance to reduce calculations since  it is for each pixel the same. For blink header "head" is used instead of "head_ref"}
+
           if ((bayerpat='') and (process_as_osc=2 {forced})) then
              if stackmenu1.bayer_pattern1.Text='auto' then memo2_message('█ █ █ █ █ █ Warning, Bayer colour pattern not in the header! Check colours and if wrong set Bayer pattern manually in tab "stack alignment". █ █ █ █ █ █')
              else
@@ -2147,91 +2127,82 @@ begin
         else
         if bayerpat<>'' then memo2_message('█ █ █ █ █ █ Warning, alignment (shifting, rotating) will ruin Bayer pattern!! Select calibrate only for photometry or checkmark "Convert OSC image to colour" █ █ █ █ █ █');
 
-        if init=false then binning:=report_binning(head.height);{select binning based on the height of the first light. Do this after demosaic since SuperPixel also bins}
-        if ((init=false ) and (use_astrometry_internal=false)) then {first image and not astrometry_internal}
+
+        solution:=true;
+        if init=false then {init, first (reference) image}
         begin
-          if ((use_manual_align) or (use_ephemeris_alignment)) then
+          //Julian days are already calculated in apply_dark_and_flat
+          jd_mid_reference:=jd_mid; //for ephemeris stacking and astrometric option "compensate solar movement". Julian dates are calculated in apply_dark_and_flat
+          height_max:=head.height;
+          width_max:=head.width;
+          binning:=report_binning(head.height);{select binning based on the height of the first light. Do this after demosaic since SuperPixel also bins}
+
+          setlength(img_average,head.naxis3,height_max,width_max);
+          setlength(img_temp,1,height_max,width_max);
+          for fitsY:=0 to height_max-1 do
+            for fitsX:=0 to width_max-1 do
+            begin
+              for col:=0 to head.naxis3-1 do
+                img_average[col,fitsY,fitsX]:=0; {clear img_average}
+              img_temp[0,fitsY,fitsX]:=0; {clear img_temp}
+            end;
+
+          if use_star_alignment then
           begin
-            referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
-            referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+            bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+            find_quads(starlist1, quad_star_distances1);{find quads for reference image}
           end
           else
           begin
-            bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
-            find_quads(starlist1, quad_star_distances1);{find quads for reference image}
-            pedestal_s:=bck.backgr;{correct for difference in background, use cblack from first image as reference. Some images have very high background values up to 32000 with 6000 noise, so fixed pedestal_s of 1000 is not possible}
-            if pedestal_s<500 then
-              pedestal_s:=500;{prevent image noise could go below zero}
-            background_correction:=pedestal_s-bck.backgr;
-            head.datamax_org:=head.datamax_org+background_correction; if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
-            head.pedestal:=background_correction;
-          end;
-        end;
-
-        if init=false then {init}
-        begin
-          height_max:=head.height;
-          width_max:=head.width;
-
-          setlength(img_average,head.naxis3,height_max,width_max);
-          setlength(img_temp,head.naxis3,height_max,width_max);
-          {clearing image_average and img_temp is done for each image. See below}
-
-          if ((use_manual_align) or (use_ephemeris_alignment)) then
-          begin
-            referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
-            referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
-          end;
-        end;{init, c=0}
-
-        {clearing image_average and img_temp is done for each image}
-        for fitsY:=0 to height_max-1 do
-          for fitsX:=0 to width_max-1 do
-            for col:=0 to head.naxis3-1 do
+            get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
+            if ((use_manual_align) or (use_ephemeris_alignment)) then   //equals use_astrometry_internal=false
             begin
-              img_average[col,fitsY,fitsX]:=0; {clear img_average}
-              img_temp[col,fitsY,fitsX]:=0; {clear img_temp}
+              referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
+              referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
             end;
-
-        solution:=true;
-        if use_astrometry_internal then sincos(head.dec0,SIN_dec0,COS_dec0) {do this in advance since it is for each pixel the same}
+          end;
+          reset_solution_vectors(1);{no influence on the first image}
+          pedestal:=max(500,head.backgr);{prevent image noise could go below zero. After applying dark the average value could be close to zero for dark sites}
+          head.datamax_org:=head.datamax_org+(pedestal-head.backgr); if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
+        end {init, c=0}
         else
-        begin {align using star match}
-          if init=true then {second image}
+        begin //init is true
+          if use_star_alignment then {internal alignment}
           begin
+            bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+            find_quads(starlist2, quad_star_distances2);{find star quads for new image}
+            if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
+               memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
+            else
+            begin
+              memo2_message('Not enough quad matches <3 or inconsistent solution, skipping this image.');
+              files_to_process[c].name:=''; {remove file from list}
+              solution:=false;
+              ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
+              ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='no solution';{no stack result}
+            end;
+          end
+          else
+          begin
+            get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
             if ((use_manual_align) or (use_ephemeris_alignment)) then
             begin {manual alignment}
               calculate_manual_vector(c);//includes memo2_message with solution vector
-            end
-            else
-            begin{internal alignment}
-              bin_and_find_stars(img_loaded, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
-
-              background_correction:=pedestal_s-bck.backgr;
-              head.datamax_org:=head.datamax_org+background_correction; if head.datamax_org>$FFFF then  head.datamax_org:=$FFFF; {note head.datamax_org is already corrected in apply dark}
-              head.pedestal:=background_correction;
-
-              find_quads(starlist2, quad_star_distances2);{find star quads for new image}
-              if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
-                memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
-              else
-              begin
-                memo2_message('Not enough quad matches <3 or inconsistent solution, skipping this image.');
-                files_to_process[c].name:=''; {remove file from list}
-                solution:=false;
-                ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
-                ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='no solution';{no stack result}
-              end;
-            end;{internal alignment}
+            end;
           end
-          else
-          reset_solution_vectors(1);{no influence on the first image}
         end;
+
         init:=true;{initialize for first image done}
+
 
         if solution then
         begin
+          if use_astrometry_internal then
+            sincos(head.dec0,SIN_dec0,COS_dec0); {do this in advance since it is for each pixel the same}
+
           inc(counter);
+
+          background:=head.backgr;//calculated in bin_find_stars
 
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
@@ -2254,7 +2225,7 @@ begin
             begin
               for col:=0 to head.naxis3-1 do
               begin
-                img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ img_loaded[col,fitsY,fitsX]+background_correction;{Note fits count from 1, image from zero}
+                img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ (img_loaded[col,fitsY,fitsX]-background);{Sum flux only. Note fits count from 1, image from zero}
                 img_temp[col,y_new,x_new]:=img_temp[col,y_new,x_new]+1;{count the number of image pixels added=samples}
               end;
             end;
@@ -2270,7 +2241,7 @@ begin
           For fitsY:=0 to head.height-1 do
             for fitsX:=0 to head.width-1 do
             begin
-            if img_temp[col,fitsY,fitsX]<>0 then img_loaded[col,fitsY,fitsX]:=img_average[col,fitsY,fitsX]/img_temp[col,fitsY,fitsX] {scale to one image by diving by the number of pixels added}
+            if img_temp[col,fitsY,fitsX]<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_average[col,fitsY,fitsX]/img_temp[col,fitsY,fitsX] {scale to one image by diving by the number of pixels added}
             else
             begin { black spot filter. Note for this version img_temp is counting for each color since they could be different}
               if ((fitsX>0) and (fitsY>0)) then {black spot filter, fix black spots which show up if one image is rotated}
@@ -2289,19 +2260,21 @@ begin
 
         {save}
         filename2:=ChangeFileExt(Filename2,'_aligned.fit');{rename}
+        head.pedestal:=pedestal;
 
         mainwindow.Memo1.Lines.beginUpdate;
         if head.cd1_1<>0 then
         begin
           {quick and dirty method to roughly correct existing solutions}
-          head.crpix1:=solution_vectorX[0]*(head.crpix1-1)+solution_vectorX[1]*(head.crpix2-1)+solution_vectorX[2];{correct for marker_position at ra_dec position}
-          head.crpix2:=solution_vectorY[0]*(head.crpix1-1)+solution_vectorY[1]*(head.crpix2-1)+solution_vectorY[2];
+          head.crpix1:=1+solution_vectorX[0] * (head.crpix1 - 1) + solution_vectorX[1] * (head.crpix2 - 1) + solution_vectorX[2];// correct for marker_position at ra_dec position
+          head.crpix2:=1+solution_vectorY[0] * (head.crpix1 - 1) + solution_vectorY[1] * (head.crpix2 - 1) + solution_vectorY[2];
+
           update_float(mainwindow.memo1.lines,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);
           update_float(mainwindow.memo1.lines,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);
           update_text(mainwindow.memo1.lines,'COMMENT S','  After alignment only CRPIX1 & CRPIX2 existing solution corrected.');
         end;
         update_text(mainwindow.memo1.lines,'COMMENT 1','  Calibrated & aligned by ASTAP. www.hnsky.org');
-        update_float(mainwindow.memo1.lines,'PEDESTAL=',' / Value added during calibration or stacking     ',false ,head.pedestal);//pedestal value added during calibration or stacking
+        update_integer(mainwindow.memo1.lines,'PEDESTAL=',' / Value added during calibration or stacking     ',round(head.pedestal));//pedestal value added during calibration or stacking
         update_integer(mainwindow.memo1.lines,'DARK_CNT=',' / Darks used for luminance.               ' ,head.dark_count);{for interim lum,red,blue...files. Compatible with master darks}
         update_integer(mainwindow.memo1.lines,'FLAT_CNT=',' / Flats used for luminance.               ' ,head.flat_count);{for interim lum,red,blue...files. Compatible with master flats}
         update_integer(mainwindow.memo1.lines,'BIAS_CNT=',' / Flat-darks used for luminance.          ' ,head.flatdark_count);{for interim lum,red,blue...files. Compatible with master flats}
@@ -2320,7 +2293,7 @@ begin
           if save_fits(img_loaded,mainwindow.memo1.lines,filename2,-32,true)=false then exit;//exit if save error
         end;
          memo2_message('New aligned image created: '+filename2);
-        report_results(object_name,inttostr(round(head.exposure)),0,999 {color icon});{report result in tab result using modified filename2}
+        report_results(object_name,inttostr(round(head.exposure)),0,-1 {color icon}, 5 {stack icon});{report result in tab result using modified filename2}
         progress_indicator(10+round(90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),'Cal');{show progress}
         finally
         end;
@@ -2332,6 +2305,7 @@ begin
 
   {arrays will be nilled later. This is done for early exits}
 end;   {calibration and alignment}
+
 
 
 
