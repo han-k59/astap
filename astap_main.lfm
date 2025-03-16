@@ -1,8 +1,8 @@
 object mainwindow: Tmainwindow
-  Left = 593
+  Left = 235
   Height = 634
   Hint = ' '
-  Top = 185
+  Top = 228
   Width = 1333
   AllowDropFiles = True
   Caption = 'Astrometric Stacking Program and fits viewer (ASTAP)'
@@ -803,9 +803,9 @@ object mainwindow: Tmainwindow
         OnMouseWheelDown = Panel1MouseWheelDown
         OnMouseWheelUp = Panel1MouseWheelUp
         object Image1: TImage
-          Left = 122
+          Left = 137
           Height = 264
-          Top = -1
+          Top = 7
           Width = 608
           Anchors = []
           OnMouseDown = Image1MouseDown

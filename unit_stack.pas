@@ -60,6 +60,7 @@ type
     annotate_mode1: TComboBox;
     Annotations_visible2: TCheckBox;
     annulus_radius1: TComboBox;
+    analyse_quick1: TCheckBox;
     label_delta_ra1: TLabel;
     label_delta_dec1: TLabel;
     list_to_clipboard10: TMenuItem;
@@ -157,16 +158,16 @@ type
     Label72: TLabel;
     Label73: TLabel;
     Label75: TLabel;
-    lrgb_stars_smooth1: TCheckBox;
-    lrgb_smooth_diameter1: TComboBox;
+    star_colour_smooth1: TCheckBox;
+    lrgb_star_colour_smooth_diameter1: TComboBox;
     MenuItem14: TMenuItem;
     bin2x2_selectedP1: TMenuItem;
     bin_selectedB1: TMenuItem;
     measuring_method1: TComboBox;
     Separator7: TMenuItem;
-    smooth_stars1: TComboBox;
-    smooth_diameter1: TComboBox;
-    lrgb_smooth_stars1: TComboBox;
+    star_colour_smooth_nrstars1: TComboBox;
+    star_colour_smooth_diameter1: TComboBox;
+    lrgb_star_colour_smooth_nrstars1: TComboBox;
     solar_drift_dec1: TEdit;
     SpeedButton2: TSpeedButton;
     SpeedButton3: TSpeedButton;
@@ -411,10 +412,10 @@ type
     live_stacking_pause1: TButton;
     live_stacking_restart1: TButton;
     lrgb_auto_level1: TCheckBox;
-    lrgb_colour_smooth1: TCheckBox;
+    global_colour_smooth1: TCheckBox;
     lrgb_preserve_r_nebula1: TCheckBox;
-    lrgb_smart_colour_sd1: TComboBox;
-    lrgb_smart_smooth_width1: TComboBox;
+    lrgb_global_colour_smooth_sd1: TComboBox;
+    lrgb_global_colour_smooth_width1: TComboBox;
     luminance_filter1: TEdit;
     luminance_filter2: TEdit;
     make_osc_color1: TCheckBox;
@@ -534,9 +535,9 @@ type
     Separator6: TMenuItem;
     show_quads1: TBitBtn;
     sigma_decolour1: TComboBox;
-    smart_colour_sd1: TComboBox;
+    global_colour_smooth_sd1: TComboBox;
     smart_colour_smooth_button1: TButton;
-    smart_smooth_width1: TComboBox;
+    global_colour_smooth_width1: TComboBox;
     solve1: TButton;
     solve_show_log1: TCheckBox;
     SpeedButton1: TSpeedButton;
@@ -1097,12 +1098,12 @@ procedure memo2_message(s: string);{message to memo2}
 procedure update_tab_alignment;{update stackmenu1 menus}
 procedure box_blur(colors, range : integer; var img: Timage_array);{blur by combining values of pixels, ignore zeros}
 procedure check_pattern_filter(var img: Timage_array); {normalize bayer pattern. Colour shifts due to not using a white light source for the flat frames are avoided.}
-procedure black_spot_filter(var img: Timage_array); {remove black spots with value zero}{execution time about 0.4 sec}
+procedure black_spot_filter_for_aligned(var img: Timage_array); {remove black spots with value zero}{execution time about 0.4 sec}
 
 function update_solution_and_save(img: Timage_array;var hd: theader; memo:tstrings): boolean; {plate solving, image should be already loaded create internal solution using the internal solver}
 function apply_dark_and_flat(var img: Timage_array; var hd : theader): boolean;{apply dark and flat if required, renew if different head.exposure or ccd temp}
 
-procedure smart_colour_smooth(var img: Timage_array; wide, sd: double; preserve_r_nebula, measurehist: boolean);{Bright star colour smooth. Combine color values of wide x wide pixels, keep luminance intact}
+procedure global_colour_smooth(var img: Timage_array; wide, sd: double; preserve_r_nebula, measurehist: boolean);{Bright star colour smooth. Combine color values of wide x wide pixels, keep luminance intact}
 procedure green_purple_filter(var img: Timage_array);{Balances RGB to remove green and purple. For e.g. Hubble palette}
 procedure date_to_jd(date_obs,date_avg: string; exp: double); {convert date_obs string and exposure time to global variables jd_start (julian day start exposure) and jd_mid (julian day middle of the exposure)}
 function JdToDate(jd: double): string;{Returns Date from Julian Date}
@@ -1121,6 +1122,7 @@ procedure listviews_end_update;{speed up making stackmenu visible having a many 
 procedure analyse_listview(lv: tlistview; light, full, refresh: boolean);{analyse list of FITS files}
 function julian_calc(yyyy, mm: integer; dd, hours, minutes, seconds: double): double;{##### calculate julian day, revised 2017}
 function RemoveSpecialChars(const STR: string): string; {remove ['.','\','/','*','"',':','|','<','>']}
+function calc_saturation_level(head :theader) : double;//calculate saturation level image
 
 
 
@@ -1282,12 +1284,12 @@ uses
   unit_astrometric_solving, unit_stack_routines, unit_annotation, unit_hjd,
   unit_live_stacking, unit_monitoring, unit_hyperbola, unit_asteroid, unit_yuv4mpeg2,
   unit_avi, unit_aavso, unit_raster_rotate, unit_listbox, unit_aberration, unit_online_gaia, unit_disk,
-  unit_contour, unit_interpolate, unit_sqm;
+  unit_contour, unit_interpolate, unit_sqm, unit_threaded_calibration;
 
 type
   blink_solution = record
-    solution_vectorX: solution_vector {array[0..2] of double};
-    solution_vectorY: solution_vector;
+    solution_vectorX: Tsolution_vector {array[0..2] of double};
+    solution_vectorY: Tsolution_vector;
   end;
 
 var
@@ -2136,14 +2138,28 @@ begin
 end;
 
 
+//var
+//  detime: double;
+//function getseconds : double;
+//Var
+//  myDate: TDateTime;
+//  myYear, myMonth, myDay: Word;
+//  myHour, myMin, mySec, myMilli: Word;
+
+//begin
+//  myDate := Now;
+//  DecodeDateTime(myDate, myYear, myMonth, myDay, myHour, myMin, mySec, myMilli);
+//  result:=(myMilli/1000 + (mySec) + (myMin * 60 ) + (myHour * 60 * 60));
+//end;
+
 
 procedure analyse_tab_lights(analyse_level : integer);
 var
-  c,  i, counts                             : integer;
+  c,  i, counts,binning                     : integer;
   alt, az                                   : double;
   red, green, blue, planetary               : boolean;
   key, filename1, rawstr      : string;
-  img                         : Timage_array;
+  img,img_binned              : Timage_array;
   headx                       : theader;
 
 begin
@@ -2308,7 +2324,16 @@ begin
           begin {light frame}
 
             if ((planetary = False) and (analyse_level>0)) then
-              analyse_image(img, headx, 10 {snr_min}, 0) {find background, number of stars, median HFD}
+            begin
+              if analyse_quick1.Checked then
+              begin
+                bin_mono_and_crop(2, 1,img,img_binned); //{Make mono, bin and crop}
+                analyse_image(img_binned, headx, 10 {snr_min}, 0); {find background, number of stars, median HFD}
+                headx.hfd_median:=headx.hfd_median*2;
+              end
+              else
+                analyse_image(img, headx, 10 {snr_min}, 0); {find background, number of stars, median HFD}
+            end
             else
             begin
               headx.hfd_counter := 0;
@@ -2696,9 +2721,9 @@ procedure Tstackmenu1.show_quads1Click(Sender: TObject);
 var
   hfd_min: double;
   max_stars, binning,i: integer;
-  starlistquads: star_list;
+  starlistquads: Tstar_list;
   warning_downsample: string;
-  starlist1         : star_list;
+  starlist1         : Tstar_list;
 
 begin
   if head.naxis = 0 then application.messagebox(
@@ -3548,7 +3573,7 @@ var
   i, countxy,formalism     : integer;
   magnitude,raM,decM,v,b,r,sg,sr,si,g,bp,rp : double;
 
-  stars,xylist  : star_list;
+  stars,xylist  : Tstar_list;
   slope, intercept, sd : double;
 
 
@@ -3682,8 +3707,9 @@ begin
     Dec(index); {go to next file}
   end;
 
-  oldposition:=max(0,oldposition-count);
-  tl.Items[oldposition].Selected:=true;//go to old position
+  oldposition:=oldposition-count;
+  if oldposition>=0 then
+    tl.Items[oldposition].Selected:=true;//go to old position
 
   if count>0 then
   begin
@@ -4062,8 +4088,18 @@ end;
 
 
 procedure Tstackmenu1.listview1ColumnClick(Sender: TObject; Column: TListColumn);
+var
+  detag: integer;
 begin
   SortedColumn := Column.Index;
+
+//  detag:=column.tag;
+//  if column.tag<>0 then
+//  begin
+  //  variable_list[detag].ra
+  //  ffffff
+//    beep;
+//  end;
 end;
 
 
@@ -4946,7 +4982,7 @@ begin
 end;
 
 
-procedure black_spot_filter(var img: Timage_array);
+procedure black_spot_filter_for_aligned(var img: Timage_array);
 {remove black spots with value zero}{execution time about 0.4 sec}
 var
   fitsX, fitsY, k, x1, y1, col, w, h, i, j, counter, range, left, right, bottom, top: integer;
@@ -5640,7 +5676,7 @@ var
   cycle, step, ps, bottom, top, left, w, h, max_stars               : integer;
   reference_done, init, store_annotated, res                        : boolean;
   st                  : string;
-  starlist1,starlist2 : star_list;
+  starlist1,starlist2 : Tstar_list;
   img_temp : Timage_array;
 begin
   if listview6.items.Count <= 1 then exit; {no files}
@@ -7546,7 +7582,7 @@ begin
 
       {fix black holes}
       img_loaded := img_temp;
-      black_spot_filter(img_loaded);
+      black_spot_filter_for_aligned(img_loaded);
 
       if pos('_aligned.fit', filename2) = 0 then
         filename2 := ChangeFileExt(Filename2, '_aligned.fit');{rename only once}
@@ -7883,7 +7919,7 @@ procedure create_all_star_list; //collect any star in the variable_list
 var
    i,j, nrstars, formalism   :integer;
    hfd_min,ra2,dec2,sep      : double;
-   starlist                  : star_list;
+   starlist                  : Tstar_list;
    variable_listAAVSO: array of tvariable_list;
    found               : boolean;
 begin
@@ -7922,16 +7958,32 @@ end;
 
 
 
+function calc_saturation_level(head :theader) : double;//calculate saturation level image
+begin
+  if stackmenu1.ignore_saturation1.checked then
+    result:=64000
+  else
+  begin
+    if head.calstat = '' then result:= 64000
+    else
+      result:=60000; {could be dark subtracted changing the saturation level}
+
+    result:=min(head.datamax_org-1,result);
+  end;
+end;
+
+
 procedure Tstackmenu1.photometry_button1Click(Sender: TObject);
 var
   magn, hfd1, star_fwhm, snr, flux, xc, yc, madVar, madCheck, madThree, medianVar,
-  medianCheck, medianThree, apert, annul,aa,bb,cc,dd,ee,ff, xn, yn, adu_e,sep,az,alt : double;
+  medianCheck, medianThree, apert, annul,aa,bb,cc,dd,ee,ff, xn, yn, adu_e,sep,az,alt,
+  snr_min                                                                           : double;
   saturation_level:  single;
   c, i, x_new, y_new, fitsX, fitsY, col,{first_image,}size, starX, starY, countVar,
   countCheck, countThree, database_col,j,ww                                         : integer;
   flipvertical, fliphorizontal, refresh_solutions, analysedP, store_annotated,
   warned, success,new_object,listview_updating, reference_defined                   : boolean;
-  starlistx: star_list;
+  starlistx: Tstar_list;
   astr, filename1,totalnrstr,dummy             : string;
   oldra0 : double=0;
   olddec0: double=-pi/2;
@@ -7943,17 +7995,7 @@ var
               HFD(img_loaded, round(deX - 1), round(deY - 1), annulus_radius  {14, annulus radius}, head.mzero_radius, adu_e, hfd1, star_fwhm, snr, flux, xc, yc);  {star HFD and FWHM}
               if ((hfd1 < 50) and (hfd1 > 0) and (snr > 6)) then {star detected in img_loaded}
               begin
-                if
-                 ((img_loaded[0, round(yc)    , round(xc)] < saturation_level) and
-                  (img_loaded[0, round(yc - 1), round(xc)] < saturation_level) and
-                  (img_loaded[0, round(yc + 1), round(xc)] < saturation_level) and
-                  (img_loaded[0, round(yc)    , round(xc - 1)] < saturation_level) and
-                  (img_loaded[0, round(yc)    , round(xc + 1)] < saturation_level) and
-                  (img_loaded[0, round(yc - 1), round(xc - 1)] < saturation_level) and
-                  (img_loaded[0, round(yc - 1), round(xc + 1)] < saturation_level) and
-                  (img_loaded[0, round(yc + 1), round(xc - 1)] < saturation_level) and
-                  (img_loaded[0, round(yc + 1), round(xc + 1)] < saturation_level)) then
-                  {not saturated star}
+                if saturation(img_loaded,round(xc),round(yc),saturation_level)=false then {not saturated}
                 begin
                   magn:=head.mzero - ln(flux)*2.5/ln(10);
 
@@ -8256,12 +8298,14 @@ begin
       begin // do var star
         adu_e := retrieve_ADU_to_e_unbinned(head.egain);
 
-        if head.calstat = '' then saturation_level := 64000
-        else
-          saturation_level := 60000; {could be dark subtracted changing the saturation level}
-        saturation_level:=min(head.datamax_org-1,saturation_level);
+//        if head.calstat = '' then saturation_level := 64000
+//        else
+//          saturation_level := 60000; {could be dark subtracted changing the saturation level}
+//        saturation_level:=min(head.datamax_org-1,saturation_level);
 
-        if ignore_saturation1.checked then saturation_level:=64000;
+//        if ignore_saturation1.checked then saturation_level:=64000;
+
+        saturation_level:=calc_saturation_level(head);
 
         if stackmenu1.measuring_method1.itemindex=0 then // measure manual
         begin
@@ -8305,7 +8349,7 @@ begin
           begin
             variable_star_annotation(true {extract AAVSO database  to variable_list});
 
-            if stackmenu1.measuring_method1.itemindex=2 then //add none AAVSO stars
+            if stackmenu1.measuring_method1.itemindex=3 then //add none AAVSO stars
               create_all_star_list;//collect any star in the variable_list
 
             oldra0:=head.ra0;
@@ -8319,6 +8363,8 @@ begin
 
           end;
 
+          if stackmenu1.measuring_method1.itemindex=1 then snr_min:=30 else snr_min:=10; //onlt bright enough stars
+
           //measure all AAVSO stars using the position from the local database
           if variable_list_length>0 then
           begin
@@ -8328,7 +8374,7 @@ begin
               if ((xn>0) and (xn<head.width-1) and (yn>0) and (yn<head.height-1)) then {within image1}
               begin
                 astr := measure_star(xn, yn); //measure in the orginal image, not later when it is alligned/transformed to the reference image
-                if snr>0 then
+                if snr>=snr_min then
                 begin
                   new_object:=true;
                   for i:=p_nr_norm to p_nr-3 do
@@ -8354,7 +8400,7 @@ begin
                     listview7.Items.item[c].subitems.Strings[P_nr-3]:= astr;
                     listview7.Items.item[c].subitems.Strings[P_nr-2]:= IntToStr(round(snr));
                     listview7.Items.item[c].subitems.Strings[P_nr-1]:= IntToStr(round(flux));
-                    stackmenu1.listview7.column[P_nr-3].tag:=j; //store star position in the variable list
+                    stackmenu1.listview7.column[P_nr-3+1].tag:=j; //store star position in the variable list. Caption position is always one position higher then data
                   end;//new object
                 end;//enough snr
               end;
@@ -8650,7 +8696,7 @@ begin
 end;
 
 
-procedure smart_colour_smooth(var img: Timage_array; wide, sd: double;  preserve_r_nebula, measurehist: boolean);
+procedure global_colour_smooth(var img: Timage_array; wide, sd: double;  preserve_r_nebula, measurehist: boolean);
 {Bright star colour smooth. Combine color values of wide x wide pixels, keep luminance intact}
 var
   fitsX, fitsY, x, y, step, x2, y2, Count, width5, height5: integer;
@@ -8880,7 +8926,7 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
 
-  smart_colour_smooth(img_loaded, strtofloat2(smart_smooth_width1.Text), strtofloat2(smart_colour_sd1.Text), preserve_red_nebula1.Checked, False);
+  global_colour_smooth(img_loaded, strtofloat2(global_colour_smooth_width1.Text), strtofloat2(global_colour_smooth_sd1.Text), preserve_red_nebula1.Checked, False);
 
   plot_fits(mainwindow.image1, False);{plot real}
 
@@ -9342,7 +9388,7 @@ end;
 procedure Tstackmenu1.tab_photometry1Show(Sender: TObject);
 begin
   stackmenu1.flux_aperture1change(nil);{photometry, disable annulus_radius1 if mode max flux}
-  nr_stars_to_detect1.enabled:=measuring_method1.itemindex=2;//enabled only if method is measure all
+  nr_stars_to_detect1.enabled:=measuring_method1.itemindex=3;//enabled only if method is measure all
   hide_show_columns_listview7(true {tab8});
   stackmenu1.reference_database1.items[0]:='Local database '+ star_database1.text;
 end;
@@ -9425,7 +9471,7 @@ end;
 
 procedure apply_star_smooth(smooth_diameter, smooth_stars: string);
 var
-  starlist         : star_list;
+  starlist         : Tstar_list;
   i,nrstars,binning,nr_stars   : integer;
   hfd_min,hfd1,star_fwhm,snr,flux,xc,yc,rad,radius : double;
   warning : string;
@@ -9444,6 +9490,11 @@ begin
     if snr>3 then //should always be the case
     begin
       radius:=rad*hfd1;
+
+//      if abs(xc-2377)<10 then
+//        if abs(yc-2389)<10 then
+//        beep;
+
       local_color_smooth(round(xc-radius),round(xc+radius),round(yc-radius),round(yc+radius));
     end;
   end;
@@ -9456,7 +9507,7 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
 
-  apply_star_smooth(smooth_diameter1.Text, smooth_stars1.Text);
+  apply_star_smooth(star_colour_smooth_diameter1.Text, star_colour_smooth_nrstars1.Text);
 
   plot_fits(mainwindow.image1,false);
 
@@ -9734,7 +9785,7 @@ var
 begin
   clear_added_AAVSO_columns;
   hide_show_columns_listview7(true {tab8 photometry});
-  nr_stars_to_detect1.enabled:=measuring_method1.itemindex=2;
+  nr_stars_to_detect1.enabled:=measuring_method1.itemindex=3;
 end;
 
 
@@ -10094,6 +10145,8 @@ begin
 end;
 
 
+
+
 procedure Tstackmenu1.Refresh_astrometrical_solutions1Click(Sender: TObject);
 begin
   save_settings2;{Too many lost selected files, so first save settings.}
@@ -10448,7 +10501,6 @@ begin
   begin
     listview1.columns.Items[l_centaz + 1].Caption := centaz_key; {lv.items[l_sqm].caption:=sqm_key; doesn't work}
     listview1.columns.Items[l_sqm + 1].Caption := sqm_key;  {lv.items[l_sqm].caption:=sqm_key; doesn't work}
-    analyse_lights_extra1.left:=Analyse1.left+analyse1.width;//align button analyse_lights_extra1 to analyse1
   end;
 end;
 
@@ -10545,10 +10597,10 @@ var
   au: boolean;
 begin
   au := lrgb_auto_level1.Checked;
-  lrgb_colour_smooth1.Enabled := au;
+  global_colour_smooth1.Enabled := au;
   lrgb_preserve_r_nebula1.Enabled := au;
-  lrgb_smart_smooth_width1.Enabled := au;
-  lrgb_smart_colour_sd1.Enabled := au;
+  lrgb_global_colour_smooth_width1.Enabled := au;
+  lrgb_global_colour_smooth_sd1.Enabled := au;
 end;
 
 
@@ -11816,13 +11868,14 @@ begin
           dark_norm_value := dark_norm_value + img_dark[0, fitsY,fitsX];
       dark_norm_value := dark_norm_value /(16*16);  {scale factor to apply flat. The norm value will result in a factor one for the center.}
 
-      for fitsY := 0 to hd.Height - 1 do  {apply the dark}
-        for fitsX := 0 to hd.Width - 1 do
-        begin
-          Value := img_dark[0, fitsY, fitsX];{Darks are always made mono when making master dark}
-          for k := 0 to hd.naxis3 - 1 do {do all colors}
-            img[k, fitsY, fitsX] := img[k, fitsY, fitsX] - Value;
-        end;
+
+
+      //for fitsY := 0 to hd.Height - 1 do  {apply the dark}
+      //  for fitsX := 0 to hd.Width - 1 do
+      //    img[0, fitsY, fitsX] := img[0, fitsY, fitsX] - img_dark[0, fitsY, fitsX];//{Darks are always made mono when making master dark}
+
+      calibrate_image(img, img_dark, '-',0,0,0,0,0);//subtract dark in threads
+
 
       {for stacking}
       head_ref.calstat := 'D';
@@ -11885,42 +11938,47 @@ begin
         flatNorm21 :={flat_norm_value/} (flatNorm21 /(8*8));
         flatNorm22 :={flat_norm_value/} (flatNorm22 /(8*8));
 
-        for fitsY := 0 to hd.Height-1 do  {apply the OSC flat}
-          for fitsX := 0 to hd.Width-1 do
-          begin //thread the red, green and blue pixels seperately
-            //bias is already combined in flat in combine_flat
-            if odd(fitsX) then
-            begin
-              if odd(fitsY) then
-                flat_factor :=  flatNorm11 / (img_flat[0, fitsY , fitsX] + 0.001)  //normalise flat for colour 11
-              else
-                flat_factor :=  flatNorm12 / (img_flat[0, fitsY , fitsX] + 0.001)  //normalise flat for colour 12
-            end
-            else
-            begin
-              if odd(fitsY) then
-                flat_factor :=  flatNorm21 / (img_flat[0, fitsY , fitsX] + 0.001) //normalise flat for colour 21
-              else
-                flat_factor :=  flatNorm22 / (img_flat[0, fitsY , fitsX] + 0.001) //normalise flat for colour 22
-            end;
+        //for fitsY := 0 to hd.Height-1 do  {apply the OSC flat}
+        //  for fitsX := 0 to hd.Width-1 do
+        //  begin //thread the red, green and blue pixels seperately
+        //    //bias is already combined in flat in combine_flat
+        //    if odd(fitsX) then
+        //    begin
+        //     if odd(fitsY) then
+        //      flat_factor :=  flatNorm11 / (img_flat[0, fitsY , fitsX] + 0.001)  //normalise flat for colour 11
+        //    else
+        //      flat_factor :=  flatNorm12 / (img_flat[0, fitsY , fitsX] + 0.001)  //normalise flat for colour 12
+        //  end
+        //  else
+        //  begin
+        //    if odd(fitsY) then
+        //      flat_factor :=  flatNorm21 / (img_flat[0, fitsY , fitsX] + 0.001) //normalise flat for colour 21
+        //    else
+        //      flat_factor :=  flatNorm22 / (img_flat[0, fitsY , fitsX] + 0.001) //normalise flat for colour 22
+        //  end;
 
-            flat_factor:=min(4,max(flat_factor,-4)); {un-used sensor area? Prevent huge gain of areas only containing noise and no flat-light value resulting in very strong disturbing noise or high value if dark is missing. Typical problem for converted RAW's by Libraw}
+        //  flat_factor:=min(4,max(flat_factor,-4)); {un-used sensor area? Prevent huge gain of areas only containing noise and no flat-light value resulting in very strong disturbing noise or high value if dark is missing. Typical problem for converted RAW's by Libraw}
 
-            img[0, fitsY, fitsX] := img[0, fitsY, fitsX] * flat_factor;
-          end;
+        //  img[0, fitsY, fitsX] := img[0, fitsY, fitsX] * flat_factor;
+        //end;
+        calibrate_image(img, img_flat, 'O',flat_norm_value,flatNorm11,flatNorm12,flatNorm21,flatNorm22);//apply flat in threads
       end
       else //monochrome images (or weird images already in colour)
       begin
-        for k := 0 to hd.naxis3 - 1 do {do all colors}
-        for fitsY := 0 to hd.Height-1 do  {apply the flat}
-          for fitsX := 0 to hd.Width-1 do
-          begin
-            flat_factor := flat_norm_value / (img_flat[0, fitsY, fitsX] + 0.001);  {bias is already combined in flat in combine_flat}
-            flat_factor:=min(4,max(flat_factor,-4)); {un-used sensor area? Prevent huge gain of areas only containing noise and no flat-light value resulting in very strong disturbing noise or high value if dark is missing. Typical problem for converted RAW's by Libraw}
+       // for k := 0 to hd.naxis3 - 1 do {do all colors}
+       //   for fitsY := 0 to hd.Height-1 do  {apply the flat}
+       //     for fitsX := 0 to hd.Width-1 do
+       //     begin
+       //       flat_factor := flat_norm_value / (img_flat[0, fitsY, fitsX] + 0.001);  {bias is already combined in flat in combine_flat}
+       //       flat_factor:=min(4,max(flat_factor,-4)); {un-used sensor area? Prevent huge gain of areas only containing noise and no flat-light value resulting in very strong disturbing noise or high value if dark is missing. Typical problem for converted RAW's by Libraw}
+       //       img[k, fitsY, fitsX] := img[k, fitsY, fitsX] * flat_factor;
+       //     end;
 
-            img[k, fitsY, fitsX] := img[k, fitsY, fitsX] * flat_factor;
-          end;
+        calibrate_image(img, img_flat, '/',flat_norm_value,0,0,0,0);//apply flat in threads
+
       end;
+
+
       {for stacking}
       head_ref.calstat := head_ref.calstat + 'F' + head_flat.calstat{B from flat}; {mark that flat and bias have been applied. Store in the header of the reference file since it is not modified while stacking}
       head_ref.flat_count := head_flat.flat_count;
@@ -12216,9 +12274,16 @@ begin
   begin
     memo2_message('Analysing lights.');
 
-    if calibration_mode then analyse_level:=0 // almost none
+
+//    if calibration_mode then analyse_level:=0 // almost none
+//    else
+//    analyse_level:=1; //medium
+
+    if uncheck_outliers1.checked then
+      analyse_level:=1 //medium
     else
-    analyse_level:=1; //medium
+      analyse_level:=0; //almost none
+
 
     analyse_tab_lights(analyse_level); {analyse any image not done yet. For calibration mode skip hfd and background measurements}
     if esc_pressed then exit;
@@ -12877,15 +12942,15 @@ begin
 
             use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
-            if stackmenu1.lrgb_colour_smooth1.Checked then
+            if stackmenu1.global_colour_smooth1.Checked then
             begin
               memo2_message('Applying colour-smoothing filter image as set in tab "stack method"');
-              smart_colour_smooth(img_loaded, strtofloat2(lrgb_smart_smooth_width1.Text), strtofloat2(lrgb_smart_colour_sd1.Text),  lrgb_preserve_r_nebula1.Checked, False {get  hist});{histogram doesn't needs an update}
+              global_colour_smooth(img_loaded, strtofloat2(lrgb_global_colour_smooth_width1.Text), strtofloat2(lrgb_global_colour_smooth_sd1.Text),  lrgb_preserve_r_nebula1.Checked, False {get  hist});{histogram doesn't needs an update}
             end;
-            if stackmenu1.lrgb_stars_smooth1.Checked then
+            if stackmenu1.star_colour_smooth1.Checked then
             begin
               memo2_message('Applying star-smoothing filter image as set in tab "stack method"');
-              apply_star_smooth(stackmenu1.lrgb_smooth_diameter1.Text, stackmenu1.lrgb_smooth_stars1.Text);
+              apply_star_smooth(stackmenu1.lrgb_star_colour_smooth_diameter1.Text, stackmenu1.lrgb_star_colour_smooth_nrstars1.Text);
             end;
 
             if stackmenu1.green_purple_filter1.Checked then
@@ -12916,7 +12981,7 @@ begin
               if stackmenu1.osc_colour_smooth1.Checked then
               begin
                 memo2_message( 'Applying colour-smoothing filter image as set in tab "stack method".');
-                smart_colour_smooth(img_loaded, strtofloat2(osc_smart_smooth_width1.Text), strtofloat2(osc_smart_colour_sd1.Text), osc_preserve_r_nebula1.Checked, False {get  hist});{histogram doesn't needs an update}
+                global_colour_smooth(img_loaded, strtofloat2(osc_smart_smooth_width1.Text), strtofloat2(osc_smart_colour_sd1.Text), osc_preserve_r_nebula1.Checked, False {get  hist});{histogram doesn't needs an update}
               end;
             end
             else

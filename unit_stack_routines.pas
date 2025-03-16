@@ -32,7 +32,7 @@ var
 
 implementation
 
-uses unit_astrometric_solving, unit_contour;
+uses unit_astrometric_solving, unit_contour,unit_threaded_stacking_step1,unit_threaded_stacking_step2,unit_threaded_stacking_step3,unit_threaded_black_spot_filter;
 
 
 procedure  calc_newx_newy(vector_based : boolean; fitsXfloat,fitsYfloat: double); inline; {apply either vector or astrometric correction. Fits in 1..width, out range 0..width-1}
@@ -204,7 +204,7 @@ var
   saturated_level,hfd_min,tempval,aa,bb,cc,dd,ee,ff                                        : double;
   init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip : boolean;
   warning             : string;
-  starlist1,starlist2 : star_list;
+  starlist1,starlist2 : Tstar_list;
   img_temp,img_average : Timage_array;
 begin
   with stackmenu1 do
@@ -266,7 +266,7 @@ begin
              img_average[col,fitsY,fitsX]:=0;//This will set all colours of a single pixel to zero if one of the colour is saturated and marked by image_temp[]:=-9;
           end;
           memo2_message('Applying black spot filter on interim RGB image.');
-          black_spot_filter(img_average); //Black spot filter and add bias. Note for 99,99% zero means black spot but it could also be coincidence
+          black_spot_filter_for_aligned(img_average); //Black spot filter and add bias. Note for 99,99% zero means black spot but it could also be coincidence
         end;{c=5, all colour files added}
 
         if length(files_to_process[c].name)>0 then
@@ -598,7 +598,7 @@ begin
   end;
 end;
 
-procedure compensate_solar_drift(head : theader; var cc, ff : double);//compendate movement solar objects
+procedure compensate_solar_drift(head : theader; var solution_vectorX,solution_vectorY : Tsolution_vector);//compendate movement solar objects
 var
   ra_movement,dec_movement,posX,posY : double;
 begin
@@ -608,27 +608,28 @@ begin
 
   celestial_to_pixel(head,head.ra0 + ra_movement,head.dec0 + dec_movement,true, posX,posY); //calculate drift of center of image by asteroid
   if sign(head_ref.cd1_1)<>sign(head.cd1_1) then
-     cc:=cc-(head.crpix1-posX)//correct for asteroid movement
+     solution_vectorX[2]:=solution_vectorX[2]-(head.crpix1-posX)//correct for asteroid movement
   else
-     cc:=cc+(head.crpix1-posX);//correct for asteroid movement
+     solution_vectorX[2]:=solution_vectorX[2]+(head.crpix1-posX);//correct for asteroid movement
 
   if sign(head_ref.cd2_2)<>sign(head.cd2_2) then
-    ff:=ff-(head.crpix2-posY) //correct for asteroid movement
+    solution_vectorY[2]:=solution_vectorY[2]-(head.crpix2-posY) //correct for asteroid movement
   else
-    ff:=ff+(head.crpix2-posY);//correct for asteroid movement
+    solution_vectorY[2]:=solution_vectorY[2]+(head.crpix2-posY);//correct for asteroid movement
 end;
 
 
 procedure stack_average(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer);{stack average}
 var
-    fitsX,fitsY,c,width_max, height_max,old_width, old_height,x_new,y_new,col,binning,max_stars,old_naxis3                     : integer;
-    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal                                                                     : double;
+    fitsX,fitsY,c,width_max, height_max,old_width, old_height,x_new,y_new,col,binning,max_stars,old_naxis3,mm                     : integer;
+    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal,dummy                                                                  : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,solar_drift_compensation,
     use_star_alignment                                                                                                         : boolean;
     tempval                                                                                                                    : single;
     warning             : string;
-    starlist1,starlist2 : star_list;
-    img_temp,img_average : Timage_array;
+    starlist1,starlist2 : Tstar_list;
+    img_temp,img_average,img_early,dummy_img : Timage_array;
+
 begin
   with stackmenu1 do
   begin
@@ -668,6 +669,7 @@ begin
           {load image}
           if esc_pressed then begin memo2_message('ESC pressed.');exit;end;
           if load_fits(filename2,true {light},true,init=false {update memo only for first ref img},0,mainwindow.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
           if init=false then
           begin {init is false, first image}
             old_width:=head.width;
@@ -789,32 +791,12 @@ begin
 
             background:=head.backgr;//calculated in bin_find_stars/get_background()
 
-            aa:=solution_vectorX[0]; //move to local variables for some speed improvement
-            bb:=solution_vectorX[1];
-            cc:=solution_vectorX[2];
-            dd:=solution_vectorY[0];
-            ee:=solution_vectorY[1];
-            ff:=solution_vectorY[2];
-
             if solar_drift_compensation then
-              compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+              compensate_solar_drift(head, {var} solution_vectorX,solution_vectorY);//compensate movement solar objects
 
-            for fitsY:=0 to head.height-1 do {skip outside "bad" pixels if mosaic mode}
-            for fitsX:=0 to head.width-1  do
-            begin
-              x_new:=round(aa*(fitsX)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
-              y_new:=round(dd*(fitsX)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
+            stack_arrays( img_average, img_loaded, img_temp, solution_vectorX,solution_vectorY, background, weightf);//add B to A
 
-              if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
-              begin
-                for col:=0 to head.naxis3-1 do {all colors}
-                  img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ (img_loaded[col,fitsY,fitsX]-background)*weightf;{Sum flux only. image loaded is already corrected with dark and flat}{NOTE: fits count from 1, image from zero}
-
-                img_temp[0,y_new,x_new]:=img_temp[0,y_new,x_new]+weightF{typical 1};{count the number of image pixels added=samples.}
-              end;
-            end;
-
-          end;
+          end; //end solution
 
           progress_indicator(10+89*counter/images_selected,' Stacking');{show progress}
           finally
@@ -823,7 +805,6 @@ begin
 
       if counter<>0 then
       begin
-
         head_ref.naxis3:= head.naxis3; {store colour info in reference header}
         head_ref.naxis:=  head.naxis;  {store colour info in reference header}
         head_ref.datamax_org:= head.datamax_org;  {for 8 bit files, they are now 500 minimum}
@@ -833,23 +814,26 @@ begin
         head.width:=width_max;
         setlength(img_loaded,head.naxis3,head.height,head.width);{new size}
 
-        for fitsY:=0 to head.height-1 do
-        for fitsX:=0 to head.width-1 do
-        begin {pixel loop}
-          tempval:=img_temp[0,fitsY,fitsX];
-          for col:=0 to head.naxis3-1 do
-          begin {colour loop}
-            if tempval<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_average[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
-            else
-            begin { black spot filter or missing value filter due to image rotation}
-              if ((fitsX>0) and (img_temp[0,fitsY,fitsX-1]<>0)) then img_loaded[col,fitsY,fitsX]:=pedestal+img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
-              else
-              if ((fitsY>0) and (img_temp[0,fitsY-1,fitsX]<>0)) then img_loaded[col,fitsY,fitsX]:=pedestal+img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
-              else
-              img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
-            end; {black spot}
-          end;{colour loop}
-        end;{pixel loop}
+//        for fitsY:=0 to head.height-1 do
+//        for fitsX:=0 to head.width-1 do
+//        begin {pixel loop}
+//          tempval:=img_temp[0,fitsY,fitsX];
+//          for col:=0 to head.naxis3-1 do
+//          begin {colour loop}
+//            if tempval<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_average[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
+//            else
+//            begin { black spot filter or missing value filter due to image rotation}
+//              if ((fitsX>0) and (img_temp[0,fitsY,fitsX-1]<>0)) then img_loaded[col,fitsY,fitsX]:=pedestal+img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
+//              else
+//              if ((fitsY>0) and (img_temp[0,fitsY-1,fitsX]<>0)) then img_loaded[col,fitsY,fitsX]:=pedestal+img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
+//              else
+//              img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
+//            end; {black spot}
+//          end;{colour loop}
+//        end;{pixel loop}
+
+      black_spot_filter(img_loaded, img_average, img_temp, pedestal);// correct black spots due to alignment. The pixel count is in arrayA
+
       end; {counter<>0}
     end;{simple average}
   end;{with stackmenu1}
@@ -910,7 +894,6 @@ var
     background_correction,background_correction_center,background    : array[0..2] of double;
     counter_overlap                                                  : array[0..2] of integer;
     bck                                                              : array[0..3] of double;
-    oldsip                                                           : boolean;
     img_temp,img_average : Timage_array;
 
 begin
@@ -932,6 +915,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
         if load_fits(files_to_process[c].name,true {light},false{load data},false {update memo} ,0,mainwindow.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
         if init=false then
         begin
           head_ref:=head;{backup solution}
@@ -1221,20 +1205,20 @@ end;
 procedure stack_sigmaclip(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer); {stack using sigma clip average}
 type
    tsolution  = record
-     solution_vectorX : solution_vector {array[0..2] of double};
-     solution_vectorY : solution_vector;
+     solution_vectorX : Tsolution_vector {array[0..2] of double};
+     solution_vectorY : Tsolution_vector;
      cblack : double;
    end;
 var
     solutions      : array of tsolution;
     fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col ,binning,max_stars,old_naxis3           : integer;
-    variance_factor, value,weightF,hfd_min,aa,bb,cc,dd,ee,ff                                                           : double;
+    variance_factor, value,weightF,hfd_min,dummy                                                                       : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip, solar_drift_compensation,
     use_star_alignment                                                                                                 : boolean;
-    tempval, sumpix, newpix, background, pedestal                                                                      : single;
+    tempval, sumpix, newpix, background, pedestal,val                                                                  : single;
     warning     : string;
-    starlist1,starlist2 : star_list;
-    img_temp,img_average,img_final,img_variance : Timage_array;
+    starlist1,starlist2 : Tstar_list;
+    img_temp,img_average,img_final,img_variance,img_early,dummy_img : Timage_array;
 begin
   with stackmenu1 do
   begin
@@ -1278,6 +1262,7 @@ begin
         Application.ProcessMessages;
         if esc_pressed then begin memo2_message('ESC pressed.');exit;end;
         if load_fits(filename2,true {light},true,init=false {update memo only for first ref img},0,mainwindow.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
         if init=false then {first image}
         begin
           old_width:=head.width;
@@ -1409,33 +1394,12 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable for minor faster processing
-          bb:=solution_vectorX[1];
-          cc:=solution_vectorX[2];
-          dd:=solution_vectorY[0];
-          ee:=solution_vectorY[1];
-          ff:=solution_vectorY[2];
-
           if solar_drift_compensation then
-            compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+            compensate_solar_drift(head, {var} solution_vectorX,solution_vectorY);//compensate movement solar objects
 
-          for fitsY:=0 to head.height-1 do {average}
-          for fitsX:=0 to head.width-1  do
-          begin
-            x_new:=round(aa*(fitsx)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
-            y_new:=round(dd*(fitsx)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
+          stack_arrays(img_average, img_loaded, img_temp, solution_vectorX,solution_vectorY, background, weightf);//add B to A
+        end;//solution
 
-            if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
-            begin
-              for col:=0 to head.naxis3-1 do
-              begin
-                img_average[col,y_new,x_new]:=img_average[col,y_new,x_new]+ (img_loaded[col,fitsY,fitsX]- background) *weightF;{Note fits count from 1, image from zero}
-                img_temp[col,y_new,x_new]:=img_temp[col,y_new,x_new]+weightF {norm 1};{count the number of image pixels added=samples}
-              end;
-            end;
-          end;
-
-        end;
         progress_indicator(10+round(0.3333*90*(counter)/images_selected),' ■□□');{show progress}
         finally
         end;
@@ -1443,9 +1407,12 @@ begin
       if counter<>0 then
       for fitsY:=0 to height_max-1 do
         for fitsX:=0 to width_max-1 do
-            for col:=0 to head.naxis3-1 do
-            if img_temp[col,fitsY,fitsX]<>0 then
-               img_average[col,fitsY,fitsX]:=img_average[col,fitsY,fitsX]/img_temp[col,fitsY,fitsX];{scale to one image by diving by the number of pixels added}
+        begin
+          val:=img_temp[0,fitsY,fitsX];
+          if val<>0 then
+          for col:=0 to head.naxis3-1 do
+             img_average[col,fitsY,fitsX]:=img_average[col,fitsY,fitsX]/val;{scale to one image by diving by the number of pixels added}
+        end;
     end;  {light average}
 
     {standard deviation of light images}  {stack using sigma clip average}
@@ -1467,6 +1434,7 @@ begin
           Application.ProcessMessages;
           if esc_pressed then begin memo2_message('ESC pressed.');exit;end;
           if load_fits(filename2,true {light},true,init=false {update memo only for first ref img},0,mainwindow.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
           if init=false then
           begin
             {not required. Done in first step}
@@ -1512,28 +1480,10 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable for minor faster processing
-          bb:=solution_vectorX[1];
-          cc:=solution_vectorX[2];
-          dd:=solution_vectorY[0];
-          ee:=solution_vectorY[1];
-          ff:=solution_vectorY[2];
-
           if solar_drift_compensation then
-            compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+            compensate_solar_drift(head, {var} solution_vectorX,solution_vectorY);//compensate movement solar objects
 
-
-          for fitsY:=0 to head.height-1 do {skip outside "bad" pixels if mosaic mode}
-          for fitsX:=0 to head.width-1  do
-          begin
-            x_new:=round(aa*(fitsx)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
-            y_new:=round(dd*(fitsx)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
-
-            if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
-            begin
-              for col:=0 to head.naxis3-1 do img_variance[col,y_new,x_new]:=img_variance[col,y_new,x_new] +  sqr( (img_loaded[col,fitsY,fitsX]- background)*weightF - img_average[col,y_new,x_new]); {Without flats, sd in sqr, work with sqr factors to avoid sqrt functions for speed}
-            end;
-          end;
+          variance_array(img_variance, img_loaded, img_average,img_temp, solution_vectorX,solution_vectorY, background, weightf);//add B to A
 
           progress_indicator(10+30+round(0.33333*90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),' ■■□');{show progress}
         finally
@@ -1542,9 +1492,12 @@ begin
       if counter<>0 then
         For fitsY:=0 to height_max-1 do
           for fitsX:=0 to width_max-1 do
+          begin
+            val:=img_temp[0,fitsY,fitsX];{re-use the img_temp from light average}
+            if val<>0 then
             for col:=0 to head.naxis3-1 do
-              if img_temp[col,fitsY,fitsX]<>0 then {reuse the img_temp from light average}
-                 img_variance[col,fitsY,fitsX]:=1+img_variance[col,fitsY,fitsX]/img_temp[col,fitsY,fitsX]; {the extra 1 is for saturated images giving a SD=0}{scale to one image by diving by the number of pixels tested}
+              img_variance[col,fitsY,fitsX]:=1+img_variance[col,fitsY,fitsX]/val; {the extra 1 is for saturated images giving a SD=0}{scale to one image by diving by the number of pixels tested}
+            end;
     end; {standard deviation of light images}
 
 
@@ -1566,6 +1519,7 @@ begin
           Application.ProcessMessages;
           if esc_pressed then begin memo2_message('ESC pressed.');exit;end;
           if load_fits(filename2,true {light},true,init=false {update memo only for first ref img},0,mainwindow.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
           apply_dark_and_flat(img_loaded,head);{apply dark, flat if required, renew if different head.exposure or ccd temp}
 
           memo2_message('Combining '+inttostr(counter+1)+'-'+nr_selected1.caption+' "'+filename2+'", ignoring outliers. Using '+inttostr(head.dark_count)+' dark(s), '+inttostr(head.flat_count)+' flat(s), '+inttostr(head.flatdark_count)+' flat-dark(s)') ;
@@ -1612,36 +1566,11 @@ begin
           if use_astrometry_internal then
              astrometric_to_vector;{convert 1th order astrometric solution to vector solution}
 
-          aa:=solution_vectorX[0];//move to local variable for minor faster processing
-          bb:=solution_vectorX[1];
-          cc:=solution_vectorX[2];
-          dd:=solution_vectorY[0];
-          ee:=solution_vectorY[1];
-          ff:=solution_vectorY[2];
-
           if solar_drift_compensation then
-            compensate_solar_drift(head, {var} cc, ff);//compendate movement solar objects
+            compensate_solar_drift(head, {var} solution_vectorX,solution_vectorY);//compensate movement solar objects
 
-           //phase 3
-          for fitsY:=0 to head.height-1 do
-          for fitsX:=0 to head.width-1  do
-          begin
-            x_new:=round(aa*(fitsx)+bb*(fitsY)+cc); {correction x:=aX+bY+c  x_new_float in image array range 0..head.width-1}
-            y_new:=round(dd*(fitsx)+ee*(fitsY)+ff); {correction y:=aX+bY+c}
-
-            if ((x_new>=0) and (x_new<=width_max-1) and (y_new>=0) and (y_new<=height_max-1)) then
-            begin
-              for col:=0 to head.naxis3-1 do {do all colors}
-              begin
-                value:=(img_loaded[col,fitsY,fitsX]- background)*weightF;
-                if sqr (value - img_average[col,y_new,x_new])< variance_factor*{sd sqr}( img_variance[col,y_new,x_new])  then {not an outlier}
-                begin
-                  img_final[col,y_new,x_new]:=img_final[col,y_new,x_new]+ value;{dark and flat, flat dark already applied}
-                  img_temp[col,y_new,x_new]:=img_temp[col,y_new,x_new]+weightF {norm 1};{count the number of image pixels added=samples}
-                end;
-              end;
-            end;
-          end;
+          //phase 3
+          finalise_array(img_final, img_loaded, img_average,img_variance,img_temp, solution_vectorX,solution_vectorY, background, weightf,variance_factor);//add B to A
 
           progress_indicator(10+60+round(0.33333*90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),' ■■■');{show progress}
           finally
@@ -1660,26 +1589,30 @@ begin
         head.width:=width_max;
         setlength(img_loaded,head.naxis3,head.height,head.width);{new size}
 
-        for col:=0 to head.naxis3-1 do {do one or three colors} {compensate for number of pixel values added per position}
-          For fitsY:=0 to head.height-1 do
-            for fitsX:=0 to head.width-1 do
-            begin
-              tempval:=img_temp[col,fitsY,fitsX];
-              if tempval<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_final[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
-              else
-              begin { black spot filter. Note for this version img_temp is counting for each color since they could be different}
-                if ((fitsX>0) and (fitsY>0)) then {black spot filter, fix black spots which show up if one image is rotated}
-                begin
-                  if img_temp[col,fitsY,fitsX-1]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
-                  else
-                  if img_temp[col,fitsY-1,fitsX]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
-                  else
-                  img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
-                end {fill black spots}
-                else
-                img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
-              end; {black spot filter}
-            end;
+//        for col:=0 to head.naxis3-1 do {do one or three colors} {compensate for number of pixel values added per position}
+//          For fitsY:=0 to head.height-1 do
+//            for fitsX:=0 to head.width-1 do
+//            begin
+//              tempval:=img_temp[col,fitsY,fitsX];
+//              if tempval<>0 then img_loaded[col,fitsY,fitsX]:=pedestal+img_final[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
+//              else
+//              begin { black spot filter. Note for this version img_temp is counting for each color since they could be different}
+//                if ((fitsX>0) and (fitsY>0)) then {black spot filter, fix black spots which show up if one image is rotated}
+//                begin
+//                  if img_temp[col,fitsY,fitsX-1]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
+//                  else
+//                  if img_temp[col,fitsY-1,fitsX]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
+//                  else
+//                  img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
+//                end {fill black spots}
+//                else
+//                img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
+//              end; {black spot filter}
+//            end;
+
+
+         black_spot_filter(img_loaded, img_final, img_temp, pedestal);// correct black spots due to alignment. The pixel count is in arrayA
+
       end;{counter<>0}
 
       //restore_solution(true);{restore solution variable of reference image for annotation and mount pointer}
@@ -1696,8 +1629,8 @@ end;   {stack using sigma clip average}
 procedure stack_comet(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer); {stack comets using ephemeris method. Comet is stacked aligned. Driting stars are surpressed except for first frame}
 type
    tsolution  = record
-     solution_vectorX : solution_vector {array[0..2] of double};
-     solution_vectorY : solution_vector;
+     solution_vectorX : Tsolution_vector {array[0..2] of double};
+     solution_vectorY : Tsolution_vector;
      cblack : array[0..2] of single;
    end;
 var
@@ -2015,26 +1948,28 @@ begin
         head.width:=width_max;
         setlength(img_loaded,head.naxis3,head.height,head.width);{new size}
 
-        for col:=0 to head.naxis3-1 do {do one or three colors} {compensate for number of pixel values added per position}
-          For fitsY:=0 to head.height-1 do
-            for fitsX:=0 to head.width-1 do
-            begin
-              tempval:=img_temp[0,fitsY,fitsX];
-              if tempval<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_final[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
-              else
-              begin { black spot filter. Note for this version img_temp is counting for each color since they could be different}
-                if ((fitsX>0) and (fitsY>0)) then {black spot filter, fix black spots which show up if one image is rotated}
-                begin
-                  if img_temp[0,fitsY,fitsX-1]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
-                  else
-                  if img_temp[0,fitsY-1,fitsX]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
-                  else
-                  img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
-                end {fill black spots}
-                else
-                img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
-              end; {black spot filter}
-            end;
+      //  for col:=0 to head.naxis3-1 do {do one or three colors} {compensate for number of pixel values added per position}
+        //  For fitsY:=0 to head.height-1 do
+//            for fitsX:=0 to head.width-1 do
+  //          begin
+    //          tempval:=img_temp[0,fitsY,fitsX];
+      //        if tempval<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_final[col,fitsY,fitsX]/tempval {scale to one image by diving by the number of pixels added}
+//              else
+  //            begin { black spot filter. Note for this version img_temp is counting for each color since they could be different}
+    //            if ((fitsX>0) and (fitsY>0)) then {black spot filter, fix black spots which show up if one image is rotated}
+      //          begin
+       //           if img_temp[0,fitsY,fitsX-1]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY,fitsX-1]{take nearest pixel x-1 as replacement}
+         //         else
+           //       if img_temp[0,fitsY-1,fitsX]<>0 then img_loaded[col,fitsY,fitsX]:={background_correction+}img_loaded[col,fitsY-1,fitsX]{take nearest pixel y-1 as replacement}
+             //     else
+//                  img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
+  //              end {fill black spots}
+    //            else
+      //          img_loaded[col,fitsY,fitsX]:=0;{clear img_loaded since it is resized}
+        //      end; {black spot filter}
+//            end;
+        black_spot_filter(img_loaded, img_final, img_temp, 0);// correct black spots due to alignment. The pixel count is in arrayA
+
       end;{counter<>0}
     end;// combine images but throw out the moments when a star is at the pixel. This moment is detected by the max value.
   end;{with stackmenu1}
@@ -2050,7 +1985,7 @@ var
     background, hfd_min,aa,bb,cc,dd,ee,ff,pedestal                                                             : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,use_star_alignment: boolean;
     warning             : string;
-    starlist1,starlist2 : star_list;
+    starlist1,starlist2 : Tstar_list;
     img_temp,img_average : Timage_array;
 begin
   with stackmenu1 do
@@ -2273,6 +2208,7 @@ begin
         end;
         update_text(mainwindow.memo1.lines,'COMMENT 1','  Calibrated & aligned by ASTAP. www.hnsky.org');
         update_integer(mainwindow.memo1.lines,'PEDESTAL=',' / Value added during calibration or stacking     ',round(head.pedestal));//pedestal value added during calibration or stacking
+        update_text(mainwindow.memo1.lines,'CALSTAT =', #39 + head.calstat+#39); {calibration status.}
         update_integer(mainwindow.memo1.lines,'DARK_CNT=',' / Darks used for luminance.               ' ,head.dark_count);{for interim lum,red,blue...files. Compatible with master darks}
         update_integer(mainwindow.memo1.lines,'FLAT_CNT=',' / Flats used for luminance.               ' ,head.flat_count);{for interim lum,red,blue...files. Compatible with master flats}
         update_integer(mainwindow.memo1.lines,'BIAS_CNT=',' / Flat-darks used for luminance.          ' ,head.flatdark_count);{for interim lum,red,blue...files. Compatible with master flats}

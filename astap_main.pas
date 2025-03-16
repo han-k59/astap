@@ -58,7 +58,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2025.2.17';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.03.16';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -539,8 +539,8 @@ var
   mainwindow: Tmainwindow;
 
 type
-  Timage_array = array of array of array of Single;// note fasted processing is achieved if both access loop and memory storage are organised in rows. So as array[nrcolours,height,width]
-  star_list   = array of array of double;
+  Timage_array = array of array of array of Single;// note fastest processing is achieved if both access loop and memory storage are organised in rows. So as array[nrcolours,height,width]
+  Tstar_list   = array of array of double;
 
   Theader =record    {contains the most important header info}
     width  : integer;{image width}
@@ -651,7 +651,7 @@ var
 
   settingstring : tstrings; {settings for save and loading}
   user_path    : string;{c:\users\name\appdata\local\astap   or ~/home/.config/astap}
-  distortion_data : star_list;
+  distortion_data : Tstar_list;
   filename2: string;
   nrbits,size_backup,index_backup    : integer;{number of backup images for ctrl-z, numbered 0,1,2,3}
   ra_mount,dec_mount,{telescope ra,dec}
@@ -845,7 +845,7 @@ function extract_temperature_from_filename(filename8: string): integer; {try to 
 function extract_objectname_from_filename(filename8: string): string; {try to extract exposure from filename}
 
 function test_star_spectrum(r,g,b: single) : single;{test star spectrum. Result of zero is perfect star spectrum}
-procedure measure_magnitudes(img : Timage_array; headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :star_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
+procedure measure_magnitudes(img : Timage_array; headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :Tstar_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
 
 function binX2X3_file(binfactor:integer) : boolean; {converts filename2 to binx2,binx3, binx4 version}
 procedure ra_text_to_radians(inp :string; out ra : double; out errorRA :boolean); {convert ra in text to double in radians}
@@ -896,6 +896,7 @@ procedure remove_solution(keep_wcs:boolean);//remove all solution key words effi
 procedure local_color_smooth(startX,stopX,startY,stopY: integer);//local color smooth img_loaded
 procedure variable_star_annotation(extract_visible: boolean {extract to variable_list});
 function annotate_unknown_stars(const memox:tstrings; img : Timage_array; headx : theader; out countN: integer) : boolean;//annotate stars missing from the online Gaia catalog or having too bright magnitudes
+function saturation(img : timage_array; x,y: integer;saturation_level: single): boolean;//is the star in the img saturated?
 
 
 const   bufwide=1024*120;{buffer size in bytes}
@@ -959,7 +960,8 @@ var
 implementation
 
 uses unit_dss, unit_stack, unit_tiff,unit_star_align, unit_astrometric_solving, unit_star_database, unit_annotation, unit_thumbnail, unit_xisf,unit_gaussian_blur,unit_inspector_plot,unit_asteroid,
-     unit_astrometry_net, unit_live_stacking, unit_hjd,unit_hyperbola, unit_aavso, unit_listbox, unit_sqm, unit_stars_wide_field,unit_constellations,unit_raster_rotate,unit_download,unit_ephemerides, unit_online_gaia,unit_contour;
+     unit_astrometry_net, unit_live_stacking, unit_hjd,unit_hyperbola, unit_aavso, unit_listbox, unit_sqm, unit_stars_wide_field,unit_constellations,unit_raster_rotate,unit_download,unit_ephemerides, unit_online_gaia,unit_contour,
+     unit_threaded_bilinear_interpolation,unit_threaded_demosaic_astroC_bilinear_interpolation,unit_threaded_demosaic_astrosimple,unit_threaded_demosaic_astroM_bilinear_interpolation;
 
 {$R astap_cursor.res}   {FOR CURSORS}
 
@@ -1661,7 +1663,14 @@ begin
           end; //MZERO
 
 
-
+          if header[i]='L' then   //maxim 7 or ASP
+          begin
+            if ((header[i+1]='A')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='O') and (header[i+5]='B'))  then  {LAT-OBS}
+              sitelat:=floattostr6(validate_double)
+            else
+            if ((header[i+1]='O')  and (header[i+2]='N') and (header[i+3]='G')  and (header[i+4]='-') and (header[i+5]='O'))  then  {LONG-OBS}
+               sitelong:=floattostr6(validate_double);
+          end;
           if header[i]='O' then
           begin
             if ((header[i+1]='B')  and (header[i+2]='S'))  then  {OBS    site latitude, longitude}
@@ -6715,7 +6724,7 @@ begin
 end;
 
 
-procedure demosaic_bilinear_interpolation(var img:Timage_array;pattern: integer);{make from sensor bayer pattern the three colors}
+procedure demosaic_bilinear_interpolationOLD(var img:Timage_array;pattern: integer);{make from sensor bayer pattern the three colors}
 var
     X,Y,offsetx, offsety: integer;
     red,green_odd,green_even,blue : boolean;
@@ -6734,8 +6743,7 @@ begin
   for y := 1 to head.height-2 do   {-2 = -1 -1}
   begin
     for x:=1 to head.width-2 do
-    begin
-     {http://cilab.knu.ac.kr/English/research/Color/Interpolation.htm ,  Bilinear interpolation}
+    begin  {http://cilab.knu.ac.kr/English/research/Color/Interpolation.htm ,  Bilinear interpolation}
 
       try
       green_even:= ( (odd(x+1+offsetX)) and (odd(y+1+offsetY)) );{even(i) function is odd(i+1), even is here for array position not fits position}
@@ -6857,75 +6865,6 @@ begin
 end;
 
 
-procedure demosaic_astrosimple(var img:Timage_array;pattern: integer);{Spread each colour pixel to 2x2. Works well for astro oversampled images. Idea by Han.k}
-var
-    X,Y,offsetx, offsety: integer;
-    red,green_odd,green_even,blue : boolean;
-    img_temp2 : Timage_array;
-    value     : single;
-begin
-  case pattern  of
-     0: begin offsetx:=0; offsety:=0; end;{'GRBG'}
-     1: begin offsetx:=0; offsety:=1; end;{'BGGR'}
-     2: begin offsetx:=1; offsety:=0; end;{'RGGB'}
-     3: begin offsetx:=1; offsety:=1; end;{'GBRG'}
-     else exit;
-  end;
-
-  setlength(img_temp2,3,head.height,head.width);{set length of image array color}
-
-  for y := 0 to head.height-2 do   {-2 = -1 -1}
-    for x:=0 to head.width-2 do
-  begin {clear green}
-      img_temp2[1,y,x]:=0;
-  end;
-
-  for y := 0 to head.height-2 do   {-2 = -1 -1}
-  begin
-    for x:=0 to head.width-2 do
-    begin
-      try
-      green_even:= ( (odd(x+1+offsetX)) and (odd(y+1+offsetY)) );{even(i) function is odd(i+1), even is here for array position not fits position}
-      green_odd := ( (odd(x+offsetX)) and  (odd(y+offsetY)) );
-      red :=( (odd(x+offsetX)) and (odd(y+1+offsetY)) );
-      blue:=( (odd(x+1+offsetX)) and (odd(y+offsetY)) );
-
-      value:=img[0,y,x];
-
-      if ((green_odd) or (green_even)) then
-      begin
-        value:=value/2;
-        img_temp2[1,y  ,x]  :=img_temp2[1,y  ,x]+value;
-        img_temp2[1,y+1,x]  :=img_temp2[1,y+1,x]+value;
-        img_temp2[1,y  ,x+1]:=img_temp2[1,y  ,x+1]+value;
-        img_temp2[1,y+1,x+1]:=img_temp2[1,y+1,x+1]+value;
-      end
-      else
-      if red then
-      begin
-        img_temp2[0,y  ,x]:=value;
-        img_temp2[0,y  ,x+1]:=value;
-        img_temp2[0,y+1,x]:=value;
-        img_temp2[0,y+1,x+1]:=value;
-      end
-      else
-      if blue then
-      begin
-        img_temp2[2,y  ,x]:=value;
-        img_temp2[2,y  ,x+1]:=value;
-        img_temp2[2,y+1,x]:=value;
-        img_temp2[2,y+1,x+1]:=value;
-      end;
-      except
-      end;
-
-    end;{x loop}
-  end;{y loop}
-  img:=img_temp2;
-  img_temp2:=nil;{free temp memory}
-  head.naxis3:=3;{now three colors. Header string will be updated by saving or calling procedure update_header_for_colour}
-  head.naxis:=3; {from 2 to 3 dimensions. Header string will be updated by saving or calling procedure update_header_for_colour}
-end;
 
 {not used}
 procedure demosaic_astrosimplebayercombined(var img:Timage_array;pattern: integer);{Spread each colour pixel to 2x2. Works well for astro oversampled images. Idea by Han.k}
@@ -7003,431 +6942,6 @@ begin
     end;{x loop}
   end;{y loop}
   img:=img_temp2;
-  img_temp2:=nil;{free temp memory}
-  head.naxis3:=3;{now three colors. Header string will be updated by saving or calling procedure update_header_for_colour}
-  head.naxis:=3; {from 2 to 3 dimensions. Header string will be updated by saving or calling procedure update_header_for_colour}
-end;
-
-
-procedure demosaic_astroM_bilinear_interpolation(var img:Timage_array;pattern: integer);{make from sensor bayer pattern the three colors}
-var
-    X,Y,offsetx, offsety, count: integer;
-    red,green_odd,green_even,blue : boolean;
-    img_temp2 : Timage_array;
-    a1,a2,a3,a4,a5,a6,a7,a8, average1,average2,average3,luminance,signal,signal2,bg : single;
-
-begin
-  case pattern  of
-     0: begin offsetx:=0; offsety:=0; end;
-     1: begin offsetx:=0; offsety:=1; end;
-     2: begin offsetx:=1; offsety:=0; end;
-     3: begin offsetx:=1; offsety:=1; end;
-     else exit;
-  end;
-  setlength(img_temp2,3,head.height,head.width);{set length of image array color}
-  {calculate mean background value}
-  count:=0;
-  bg:=0;
-  for y:= 10 to (head.height-10) div 100  do
-  for x:=10 to (head.width-10) div 100 do
-  begin
-    bg:=bg+img[0,y,x]+
-    img[0,y  ,x+1  ]+
-    img[0,y+1,x  ]+
-    img[0,y+1,x+1];
-    inc(count,4)
-  end;
-  bg:=bg/count;{average background value}
-
-  signal:=0.5*bg;     {2 values   140,100  average is 120, delta is 20/120 is 16.7%}
-  signal2:=signal/1.67; {4 values   140,100,100,100  average is 110, delta 30/110 is 27.2%, so factor 1.67 difference}
-
-  for y := 1 to head.height-2 do   {-2 = -1 -1}
-  begin
-    for x:=1 to head.width-2 do
-    begin
-
-      try
-      green_even:= ( (odd(x+1+offsetX)) and (odd(y+1+offsetY)) );{even(i) function is odd(i+1), even is here for array position not fits position. Place here otherwise stars get tail}
-      green_odd := ( (odd(x+offsetX)) and  (odd(y+offsetY)) );
-      red :=( (odd(x+offsetX)) and (odd(y+1+offsetY)) );
-      blue:=( (odd(x+1+offsetX)) and (odd(y+offsetY)) );
-
-      if green_odd then
-                 begin
-                   a1:=img[0,y-1,x  ];
-                   a2:=img[0,y+1,x  ];
-                   average1:=(a1+a2)/2;{red neighbor pixels };
-
-                   average2:=(img[0,  y  ,x] );
-
-                   a3:=img[0,y  ,x-1];
-                   a4:=img[0,y  ,x+1];
-                   average3:=(a3+a4)/2; {blue neighbor pixels }
-
-                   if ((a1>average1+signal) or (a2>average1+signal) or (a3>average2+signal) or (a4>average2+signal)) {severe magnitude_slope} then
-                   begin
-                     luminance:=(average1+average2+average3)/3;
-                     img_temp2[0,y,x]:=luminance;{remove color info, keep luminace}
-                     img_temp2[1,y,x]:=luminance;
-                     img_temp2[2,y,x]:=luminance;
-                   end
-                   else
-                   begin
-                     img_temp2[0,y,x]:=average1;
-                     img_temp2[1,y,x]:=average2;
-                     img_temp2[2,y,x]:=average3;
-
-                   end;
-                 end
-      else
-      if green_even then
-                    begin
-                      a1:=img[0,y  ,x-1];
-                      a2:=img[0,y  ,x+1];
-                      average1:=(a1+a2)/2;{red neighbor pixels };
-
-                      average2:=     (img[0,  y  ,x] );
-
-                      a3:=img[0,y-1,x  ];
-                      a4:=img[0,y+1,x  ];
-                      average3:=(a3+a4)/2; {blue neighbor pixels };
-
-                      if ((a1>average1+signal) or (a2>average1+signal) or (a3>average2+signal) or (a4>average2+signal)) {severe magnitude_slope} then
-                     begin
-                       luminance:=(average1+average2+average3)/3;
-                       img_temp2[0,y,x]:=luminance;{remove color info, keep luminace}
-                       img_temp2[1,y,x]:=luminance;
-                       img_temp2[2,y,x]:=luminance;
-                     end
-                     else
-                     begin
-                       img_temp2[0,y,x]:=average1;
-                       img_temp2[1,y,x]:=average2;
-                       img_temp2[2,y,x]:=average3;
-
-                     end;
-                   end
-      else
-      if red then begin
-                   average1:=(img[0,  y  ,x]);
-
-                   a1:= img[0,y  ,x-1];
-                   a2:= img[0,y  ,x+1];
-                   a3:= img[0,y-1,x  ];
-                   a4:= img[0,y+1,x  ];{green neighbours}
-                   average2:=(a1+a2+a3+a4)/4;
-
-
-                   a5:= img[0,y-1,x-1];
-                   a6:= img[0,y+1,x-1];
-                   a7:= img[0,y-1,x+1];
-                   a8:= img[0,y+1,x+1];{blue neighbours}
-                   average3:=(a5+a6+a7+a8)/4;
-
-                   if ((a1>average2+signal2) or (a2>average2+signal2) or (a3>average2+signal2) or (a4>average2+signal2) or
-                       (a5>average3+signal2) or (a6>average3+signal2) or (a7>average3+signal2) or (a8>average3+signal2) ) then {severe magnitude_slope}
-                   begin
-                     luminance:=(average1+average2+average3)/3;
-                     img_temp2[0,y,x]:=luminance;{remove color info, keep luminace}
-                     img_temp2[1,y,x]:=luminance;
-                     img_temp2[2,y,x]:=luminance;
-                   end
-                   else
-                   begin
-                     img_temp2[0,y,x]:=average1;
-                     img_temp2[1,y,x]:=average2;
-                     img_temp2[2,y,x]:=average3;
-                   end;
-
-      end
-
-      else
-      if blue then
-                 begin
-                   average1:=(img[0,  y  ,x]);
-
-                   a1:= img[0,y-1,x-1];
-                   a2:= img[0,y+1,x-1];
-                   a3:= img[0,y-1,x+1];
-                   a4:= img[0,y+1,x+1];{red neighbours}
-                   average1:=(a1+a2+a3+a4)/4;
-
-                   a5:= img[0,y  ,x-1];
-                   a6:= img[0,y  ,x+1];
-                   a7:= img[0,y-1,x  ];
-                   a8:= img[0,y+1,x  ];{green neighbours}
-                   average2:=(a5+a6+a7+a8)/4;
-
-                   average3:=img[0,  y  ,x];
-
-                   if ((a1>average1+signal2) or (a2>average1+signal2) or (a3>average1+signal2) or (a4>average1+signal2) or
-                       (a5>average2+signal2) or (a6>average2+signal2) or (a7>average2+signal2) or (a8>average2+signal2) ) then {severe magnitude_slope}
-                   begin
-                     luminance:=(average1+average2+average3)/3;
-                     img_temp2[0,y,x]:=luminance;{remove color info, keep luminace}
-                     img_temp2[1,y,x]:=luminance;
-                     img_temp2[2,y,x]:=luminance;
-                   end
-                   else
-                   begin
-                     img_temp2[0,y,x]:=average1;
-                     img_temp2[1,y,x]:=average2;
-                     img_temp2[2,y,x]:=average3;
-
-
-                   end;
-                 end;
-      except
-      end;
-    end;{x loop}
-  end;{y loop}
-
-  img:=img_temp2;
-  img_temp2:=nil;{free temp memory}
-  head.naxis3:=3;{now three colors. Header string will be updated by saving or calling procedure update_header_for_colour}
-  head.naxis:=3; {from 2 to 3 dimensions. Header string will be updated by saving or calling procedure update_header_for_colour}
-end;
-
-
-procedure demosaic_astroC_bilinear_interpolation(var img:Timage_array;saturation {saturation point}, pattern: integer);{make from sensor bayer pattern the three colors}
-var
-    X,Y,offsetx, offsety, counter,fitsX,fitsY,x2,y2,sat_counter: integer;
-    red,green_odd,green_even,blue : boolean;
-    img_temp2 : Timage_array;
-    a1,a2,a3,a4,a5,a6,a7,a8, average1,average2,average3,luminance, r,g,b,colred,colgreen,colblue,rgb,lowest: single;
-    bg, sqr_dist   :  double;
-const
-  step = 5;
-begin
-  case pattern  of
-     0: begin offsetx:=0; offsety:=0; end;
-     1: begin offsetx:=0; offsety:=1; end;
-     2: begin offsetx:=1; offsety:=0; end;
-     3: begin offsetx:=1; offsety:=1; end;
-     else exit;
-  end;
-
-  setlength(img_temp2,3,head.height,head.width);{set length of image array color}
-
-  bg:=0;
-  counter:=0;{prevent divide by zero for fully saturated images}
-
-  for y := 1 to head.height-2 do   {-2 = -1 -1}
-  begin
-    for x:=1 to head.width-2 do
-    begin
-
-      try
-      green_even:= ( (odd(x+1+offsetX)) and (odd(y+1+offsetY)) );{even(i) function is odd(i+1), even is here for array position not fits position}
-      green_odd := ( (odd(x+offsetX)) and  (odd(y+offsetY)) );
-      red :=( (odd(x+offsetX)) and (odd(y+1+offsetY)) );
-      blue:=( (odd(x+1+offsetX)) and (odd(y+offsetY)) );
-      if green_odd then
-                 begin
-                   a1:=img[0,y-1,x  ];
-                   a2:=img[0,y+1,x  ];
-                   average1:=(a1+a2)/2;{red neighbor pixels };
-
-                   average2:=(img[0,  y  ,x] );
-
-                   a3:=img[0,y  ,x-1];
-                   a4:=img[0,y  ,x+1];
-                   average3:=(a3+a4)/2; {blue neighbor pixels }
-
-                   if ((a1>saturation) or (a2>saturation) or (a3>saturation) or (a4>saturation)) {saturation} then
-                   begin
-                     img_temp2[0,y,x]:=(average1+average2+average3)/3;{store luminance}
-                     img_temp2[1,y,x]:=$FFFFFF;{marker pixel as saturated}
-                   end
-                   else
-                   begin
-                     img_temp2[0,y,x]:=average1;
-                     img_temp2[1,y,x]:=average2;
-                     img_temp2[2,y,x]:=average3;
-                   end;
-                 end
-      else
-      if green_even then
-                    begin
-                      a1:=img[0,y  ,x-1];
-                      a2:=img[0,y  ,x+1];
-                      average1:=(a1+a2)/2;{red neighbor pixels };
-
-                      average2:=     (img[0,  y  ,x] );
-
-                      a3:=img[0,y-1,x  ];
-                      a4:=img[0,y+1,x  ];
-                      average3:=(a3+a4)/2; {blue neighbor pixels };
-
-                     if ((a1>saturation) or (a2>saturation) or (a3>saturation) or (a4>saturation)) {saturation} then
-                     begin
-                       img_temp2[0,y,x]:=(average1+average2+average3)/3;{store luminance}
-                       img_temp2[1,y,x]:=$FFFFFF;{marker pixel as saturated}
-                     end
-                     else
-                     begin
-                       img_temp2[0,y,x]:=average1;
-                       img_temp2[1,y,x]:=average2;
-                       img_temp2[2,y,x]:=average3;
-
-                     end;
-                   end
-      else
-      if red then begin
-                   average1:=(img[0,  y  ,x]);
-
-                   a1:= img[0,y  ,x-1];
-                   a2:= img[0,y  ,x+1];
-                   a3:= img[0,y-1,x  ];
-                   a4:= img[0,y+1,x  ];{green neighbours}
-                   average2:=(a1+a2+a3+a4)/4;
-
-
-                   a5:= img[0,y-1,x-1];
-                   a6:= img[0,y+1,x-1];
-                   a7:= img[0,y-1,x+1];
-                   a8:= img[0,y+1,x+1];{blue neighbours}
-                   average3:=(a5+a6+a7+a8)/4;
-
-                   if ((a1>saturation) or (a2>saturation) or (a3>saturation) or (a4>saturation) or
-                       (a5>saturation) or (a6>saturation) or (a7>saturation) or (a8>saturation) ) then {saturation}
-                   begin
-                     img_temp2[0,y,x]:=(average1+average2+average3)/3;{store luminance}
-                     img_temp2[1,y,x]:=$FFFFFF;{marker pixel as saturated}
-
-                   end
-                   else
-                   begin
-                     img_temp2[0,y,x]:=average1;
-                     img_temp2[1,y,x]:=average2;
-                     img_temp2[2,y,x]:=average3;
-
-                     {calculate background}
-                     bg:=bg+average1+average2+average3;
-                     inc(counter,3); {added red, green, blue values}
-                   end;
-      end
-      else
-      if blue then
-                 begin
-                   average1:=(img[0,  y  ,x]);
-
-                   a1:= img[0,y-1,x-1];
-                   a2:= img[0,y+1,x-1];
-                   a3:= img[0,y-1,x+1];
-                   a4:= img[0,y+1,x+1];{red neighbours}
-                   average1:=(a1+a2+a3+a4)/4;
-
-                   a5:= img[0,y  ,x-1];
-                   a6:= img[0,y  ,x+1];
-                   a7:= img[0,y-1,x  ];
-                   a8:= img[0,y+1,x  ];{green neighbours}
-                   average2:=(a5+a6+a7+a8)/4;
-
-                   average3:=img[0,  y  ,x];
-
-                   if ((a1>saturation) or (a2>saturation) or (a3>saturation) or (a4>saturation) or
-                       (a5>saturation) or (a6>saturation) or (a7>saturation) or (a8>saturation) ) then {saturation}
-                   begin
-                     img_temp2[0,y,x]:=(average1+average2+average3)/3;{store luminance}
-                     img_temp2[1,y,x]:=$FFFFFF;{marker pixel as saturated}
-                   end
-                   else
-                   begin
-                     img_temp2[0,y,x]:=average1;
-                     img_temp2[1,y,x]:=average2;
-                     img_temp2[2,y,x]:=average3;
-
-                   end;
-                 end;
-      except
-      end;
-
-    end;{x loop}
-  end;{y loop}
-
-  img:=img_temp2;
-
-  if counter>0 then {not fully saturated image}
-  begin
-  {correct colour saturated pixels }
-
-    bg:=bg/counter; {background}
-    sat_counter:=0;
-    for fitsY:=0 to head.height-1 do
-    for fitsX:=0 to head.width-1 do
-    if img_temp2[1,fitsY,fitsX]=$FFFFFF {marker saturated} then
-    begin
-      colred:=0;
-      colgreen:=0;
-      colblue:=0;
-      counter:=0;
-      inc(sat_counter);
-      luminance:=img_temp2[0,fitsY,fitsX];
-      luminance:=luminance-bg;{luminance above background}
-      begin
-        for y:=-step to step do
-        for x:=-step to step do
-        begin
-           x2:=fitsX+x;
-           y2:=fitsY+y;
-
-
-           if ((x2>=0) and (x2<head.width) and (y2>=0) and (y2<head.height) ) then {within image}
-           begin
-             sqr_dist:=x*x+y*y;
-             if sqr_dist<=step*step then {circle only}
-             begin
-               g:= img_temp2[1,y2,x2];
-               if g<>$FFFFFF {not saturated pixel} then
-               begin
-                 r:= img_temp2[0,y2,x2];
-                 B:= img_temp2[2,y2,x2];
-
-                 if (r-bg)>0 {signal} then colred  :=colred+   (r-bg); {bg=average red and will be little above the background since stars are included in the average}
-                 if (g-bg)>0 then colgreen:=colgreen+ (g-bg);
-                 if (b-bg)>0 then colblue:= colblue + (b-bg);
-                 inc(counter);
-               end;
-             end;
-           end;
-         end;
-      end;
-
-      rgb:=0;
-      if counter>=1 then
-      begin
-        colred:=colred/counter;{scale using the number of data points=count}
-        colgreen:=colgreen/counter;
-        colblue:=colblue/counter;
-        if colred>colblue then lowest:=colblue else lowest:=colred;
-        if colgreen<lowest {purple} then colgreen:=lowest; {prevent purple stars, purple stars are physical not possible}
-        rgb:=(colred+colgreen+colblue+0.00001)/3; {0.00001, prevent dividing by zero}
-        img[0,  fitsY  ,fitsX  ]:=bg+ luminance*colred/rgb;
-        img[1,  fitsY  ,fitsX  ]:=bg+ luminance*colgreen/rgb;
-        img[2,  fitsY  ,fitsX  ]:=bg+ luminance*colblue/rgb;
-      end
-      else
-      begin
-       img[1,  fitsY  ,fitsX  ]:=img_temp2[0,  fitsY  ,fitsX  ];
-       img[2,  fitsY  ,fitsX  ]:=img_temp2[0,  fitsY  ,fitsX  ];
-
-      end;
-    end;
-  end{not full saturated}
-  else
-  begin {fully saturated image}
-    for fitsY:=0 to head.height-1 do
-    for fitsX:=0 to head.width-1 do
-    begin
-      img[0,  fitsY  ,fitsX  ]:=saturation;
-      img[1,  fitsY  ,fitsX  ]:=saturation;
-      img[2,  fitsY  ,fitsX  ]:=saturation;
-    end;
-  end;
-
-  if sat_counter/(head.width*head.height)>0.1 then memo2_message('█ █ █ █ █ █  More than 10% of the image is saturated and will give poor results!! Try demosaic method AstroSimple and exposure shorter next time. █ █ █ █ █ █ ');
   img_temp2:=nil;{free temp memory}
   head.naxis3:=3;{now three colors. Header string will be updated by saving or calling procedure update_header_for_colour}
   head.naxis:=3; {from 2 to 3 dimensions. Header string will be updated by saving or calling procedure update_header_for_colour}
@@ -7619,6 +7133,9 @@ begin
     if head.datamax_org>4096 then demosaic_astroC_bilinear_interpolation(img,16383 div 2,pattern){14 bit image. Make from sensor bayer pattern the three colors}
     else
     demosaic_astroC_bilinear_interpolation(img,4095 div 2,pattern){12 bit image. Make from sensor bayer pattern the three colors}
+
+
+
   end
   else
   if pos('Simple',stackmenu1.demosaic_method1.text)<>0  then {}
@@ -7630,7 +7147,11 @@ begin
   if pos('Super',stackmenu1.demosaic_method1.text)<>0  then {}
     demosaic_superpixel(img,pattern){make from sensor bayer pattern the three colors}
   else
-  demosaic_bilinear_interpolation(img,pattern);{use Bilinear interpolation. Make from sensor bayer pattern the three colors}
+   demosaic_bilinear_interpolation(img,pattern);{use Bilinear interpolation. Make from sensor bayer pattern the three colors}
+
+  // Update header
+  Head.naxis3 := 3;
+  Head.naxis := 3;
 end;
 
 
@@ -7649,7 +7170,7 @@ begin
   if stackmenu1.osc_colour_smooth1.checked then
   begin
     memo2_message('Applying colour-smoothing filter image as set in tab "stack method". Factors are set in tab "pixel math 1"');
-    smart_colour_smooth(img,strtofloat2(stackmenu1.osc_smart_smooth_width1.text),strtofloat2(stackmenu1.osc_smart_colour_sd1.text),stackmenu1.osc_preserve_r_nebula1.checked,false {get  hist});{histogram doesn't needs an update}
+    global_colour_smooth(img,strtofloat2(stackmenu1.osc_smart_smooth_width1.text),strtofloat2(stackmenu1.osc_smart_colour_sd1.text),stackmenu1.osc_preserve_r_nebula1.checked,false {get  hist});{histogram doesn't needs an update}
   end;
   end
   else
@@ -7728,6 +7249,7 @@ begin
   show_marker_shape(mainwindow.shape_manual_alignment1, 1 {circle, assume a good lock},20,20,10 {minimum size},X,Y);
 end;
 
+
 procedure plot_fits(img:timage; center_image: boolean);
 type
   PByteArray2 = ^TByteArray2;
@@ -7735,7 +7257,7 @@ type
 var
    i,j,col,col_r,col_g,col_b,linenr,columnr :integer;
    colrr,colgg,colbb,luminance, luminance_stretched,factor, largest, sat_factor,h,s,v: single;
-   Bitmap  : TBitmap;{for fast pixel routine}
+   Bitmap,bmp2  : TBitmap;{for fast pixel routine}
    xLine :  PByteArray2;{for fast pixel routine}
    flipv, fliph : boolean;
    ratio     : double;
@@ -7907,6 +7429,8 @@ begin
 
     update_menu(true);{2020-2-15 moved from load_fits to plot_image.  file loaded, update menu for fits}
   end;
+
+
 
   {do refresh at the end for smooth display, especially for blinking }
 //  img.refresh;{important, show update}
@@ -8507,24 +8031,24 @@ begin
       dum:=Sett.ReadString('stack','osc_cw','');if dum<>'' then   stackmenu1.osc_smart_smooth_width1.text:=dum;
       dum:=Sett.ReadString('stack','osc_sd','');  if dum<>'' then stackmenu1.osc_smart_colour_sd1.text:=dum;
 
-      dum:=Sett.ReadString('stack','smooth_dia','');if dum<>'' then   stackmenu1.smooth_diameter1.text:=dum;
-      dum:=Sett.ReadString('stack','smooth_stars','');  if dum<>'' then stackmenu1.smooth_stars1.text:=dum;
+      dum:=Sett.ReadString('stack','smooth_dia','');if dum<>'' then   stackmenu1.star_colour_smooth_diameter1.text:=dum;
+      dum:=Sett.ReadString('stack','smooth_stars','');  if dum<>'' then stackmenu1.star_colour_smooth_nrstars1.text:=dum;
 
       dum:=Sett.ReadString('stack','sqm_key',''); if dum<>'' then sqm_key:=copy(dum,1,8);{remove * character used for protection spaces}
       dum:=Sett.ReadString('stack','centaz_key',''); if dum<>'' then centaz_key:=copy(dum,1,8);{remove * character used for protection spaces}
 
       stackmenu1.lrgb_auto_level1.checked:=Sett.ReadBool('stack','lrgb_al',true);
       stackmenu1.green_purple_filter1.checked:=Sett.ReadBool('stack','green_fl',false);
-      stackmenu1.lrgb_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_cs',true);
+      stackmenu1.global_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_cs',true);
       stackmenu1.lrgb_preserve_r_nebula1.checked:=Sett.ReadBool('stack','lrgb_pr',true);
 
-      stackmenu1.lrgb_stars_smooth1.checked:=Sett.ReadBool('stack','lrgb_sm',true);
-      dum:=Sett.ReadString('stack','lrgb_smd','');if dum<>'' then   stackmenu1.lrgb_smooth_diameter1.text:=dum;
-      dum:=Sett.ReadString('stack','lrgb_sms','');  if dum<>'' then stackmenu1.lrgb_smooth_stars1.text:=dum;
+      stackmenu1.star_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_sm',true);
+      dum:=Sett.ReadString('stack','lrgb_smd','');if dum<>'' then   stackmenu1.lrgb_star_colour_smooth_diameter1.text:=dum;
+      dum:=Sett.ReadString('stack','lrgb_sms','');  if dum<>'' then stackmenu1.lrgb_star_colour_smooth_nrstars1.text:=dum;
 
 
-      dum:=Sett.ReadString('stack','lrgb_sw','');if dum<>'' then stackmenu1.lrgb_smart_smooth_width1.text:=dum;
-      dum:=Sett.ReadString('stack','lrgb_sd','');if dum<>'' then  stackmenu1.lrgb_smart_colour_sd1.text:=dum;
+      dum:=Sett.ReadString('stack','lrgb_sw','');if dum<>'' then stackmenu1.lrgb_global_colour_smooth_width1.text:=dum;
+      dum:=Sett.ReadString('stack','lrgb_sd','');if dum<>'' then  stackmenu1.lrgb_global_colour_smooth_sd1.text:=dum;
 
       stackmenu1.ignore_header_solution1.Checked:= Sett.ReadBool('stack','ignore_header_solution',true);
       stackmenu1.Equalise_background1.checked:= Sett.ReadBool('stack','equalise_background',true);{for mosaic mode}
@@ -8547,6 +8071,7 @@ begin
       stackmenu1.save_settings_image_path1.checked:= Sett.ReadBool('stack','copy_sett',false); {add time to resulting stack file name}
 
       stackmenu1.uncheck_outliers1.checked:= Sett.ReadBool('stack','uncheck_outliers',false);
+      stackmenu1.analyse_quick1.checked:= Sett.ReadBool('stack','analyse_quick',true);
 
       stackmenu1.blur_factor1.text:= Sett.ReadString('stack','blur_factor','');
 
@@ -8625,7 +8150,8 @@ begin
       dum:=Sett.ReadString('stack','multiply_G',''); if dum<>'' then stackmenu1.multiply_green1.text:=dum;
       dum:=Sett.ReadString('stack','multiply_B',''); if dum<>'' then stackmenu1.multiply_blue1.text:=dum;
 
-      dum:=Sett.ReadString('stack','smart_smooth_width',''); if dum<>'' then stackmenu1.smart_smooth_width1.text:=dum;
+      dum:=Sett.ReadString('stack','cs_width',''); if dum<>'' then stackmenu1.global_colour_smooth_width1.text:=dum;
+      dum:=Sett.ReadString('stack','cs_sd',''); if dum<>'' then stackmenu1.global_colour_smooth_sd1.text:=dum;
 
       dum:=Sett.ReadString('stack','star_level_colouring',''); if dum<>'' then stackmenu1.star_level_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','filter_artificial_colouring',''); if dum<>'' then stackmenu1.filter_artificial_colouring1.text:=dum;
@@ -8682,6 +8208,7 @@ begin
       aavso_filter_index:=Sett.ReadInteger('aavso','pfilter',0);
       magnitude_slope:=Sett.ReadFloat('aavso','slope',0);
       used_vsp_stars:=Sett.ReadString('aavso','vsp-stars','');
+      obstype:=Sett.Readinteger('aavso','obstype',0); {photometry}
 
       stackmenu1.live_stacking_path1.caption:=Sett.ReadString('live','live_stack_dir','');
       stackmenu1.monitoring_path1.caption:=Sett.ReadString('live','monitor_dir','');
@@ -8902,24 +8429,23 @@ begin
       sett.writeString('stack','osc_sw',stackmenu1.osc_smart_smooth_width1.text);
       sett.writestring('stack','osc_sd',stackmenu1.osc_smart_colour_sd1.text);
 
-      sett.writeString('stack','smooth_dia',stackmenu1.smooth_diameter1.text);
-      sett.writestring('stack','smooth_stars',stackmenu1.smooth_stars1.text);
+      sett.writeString('stack','smooth_dia',stackmenu1.star_colour_smooth_diameter1.text);
+      sett.writestring('stack','smooth_stars',stackmenu1.star_colour_smooth_nrstars1.text);
 
       sett.writestring('stack','sqm_key',sqm_key+'*' );{add a * to prevent the spaces are removed.Should be at least 8 char}
 
       sett.writeBool('stack','lrgb_al',stackmenu1.lrgb_auto_level1.checked);
       sett.writeBool('stack','green_fl',stackmenu1.green_purple_filter1.checked);
 
-      sett.writeBool('stack','lrgb_cs',stackmenu1.lrgb_colour_smooth1.checked);
+      sett.writeBool('stack','lrgb_cs',stackmenu1.global_colour_smooth1.checked);
       sett.writeBool('stack','lrgb_pr',stackmenu1.lrgb_preserve_r_nebula1.checked);
 
-      sett.writeBool('stack','lrgb_sm',stackmenu1.lrgb_stars_smooth1.checked);
-      sett.writeString('stack','lrgb_smd',stackmenu1.lrgb_smooth_diameter1.text);
-      sett.writestring('stack','lrgb_sms',stackmenu1.lrgb_smooth_stars1.text);
+      sett.writeBool('stack','lrgb_sm',stackmenu1.star_colour_smooth1.checked);
+      sett.writeString('stack','lrgb_smd',stackmenu1.lrgb_star_colour_smooth_diameter1.text);
+      sett.writestring('stack','lrgb_sms',stackmenu1.lrgb_star_colour_smooth_nrstars1.text);
 
-
-      sett.writestring('stack','lrgb_sw',stackmenu1.lrgb_smart_smooth_width1.text);
-      sett.writestring('stack','lrgb_sd',stackmenu1.lrgb_smart_colour_sd1.text);
+      sett.writestring('stack','lrgb_sw',stackmenu1.lrgb_global_colour_smooth_width1.text);
+      sett.writestring('stack','lrgb_sd',stackmenu1.lrgb_global_colour_smooth_sd1.text);
 
       sett.writeBool('stack','ignore_header_solution',stackmenu1.ignore_header_solution1.Checked);
       sett.writeBool('stack','equalise_background',stackmenu1.Equalise_background1.Checked);
@@ -8945,6 +8471,7 @@ begin
       sett.writeBool('stack','copy_sett',stackmenu1.save_settings_image_path1.Checked);
 
       sett.writeBool('stack','uncheck_outliers',stackmenu1.uncheck_outliers1.Checked);
+      sett.writeBool('stack','analyse_quick',stackmenu1.analyse_quick1.Checked);
 
       sett.writeBool('stack','write_log',stackmenu1.write_log1.checked);{write log to file}
 
@@ -9019,7 +8546,8 @@ begin
       sett.writestring('stack','multiply_G',stackmenu1.multiply_green1.text);
       sett.writestring('stack','multiply_B',stackmenu1.multiply_blue1.text);
 
-      sett.writestring('stack','smart_smooth_width',stackmenu1.smart_smooth_width1.text);
+      sett.writestring('stack','cs_width',stackmenu1.global_colour_smooth_width1.text);
+      sett.writestring('stack','cs_sd',stackmenu1.global_colour_smooth_sd1.text);
 
       sett.writestring('stack','star_level_colouring',stackmenu1.star_level_colouring1.text);
       sett.writestring('stack','filter_artificial_colouring',stackmenu1.filter_artificial_colouring1.text);
@@ -9074,6 +8602,7 @@ begin
       sett.writeInteger('aavso','pfilter',aavso_filter_index);
       sett.writeFloat('aavso','slope', magnitude_slope);
       sett.writestring('aavso','vsp-stars',used_vsp_stars);
+      sett.writeinteger('aavso','obstype',obstype);//CCD, DSLR, PEP
 
       sett.writestring('live','live_stack_dir',stackmenu1.live_stacking_path1.caption);{live stacking}
       sett.writestring('live','monitor_dir',stackmenu1.monitoring_path1.caption);
@@ -9364,7 +8893,6 @@ procedure Tmainwindow.batch_add_tilt1Click(Sender: TObject);
 var
   I: integer;
   err,success   : boolean;
-  dobackup : boolean;
   tilt     : double;
   headx : theader;
   img_temp: Timage_array;
@@ -11332,7 +10860,34 @@ begin
 end;
 
 
-procedure measure_magnitudes(img : Timage_array; headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :star_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
+function saturation(img : timage_array; x,y: integer;saturation_level: single): boolean;//is the star in the img saturated?
+begin
+//  if ((x>0) and (x<length(img[0,0])-1) and (y>0) and (y<length(img[0])-1)) then //within image
+    result:=((img[0,y  ,x]>=saturation_level) or
+             (img[0,y  ,x-1]>=saturation_level) or
+             (img[0,y  ,x+1]>=saturation_level) or
+             (img[0,y-1,x]>=saturation_level) or
+             (img[0,y+1,x]>=saturation_level) or
+             (img[0,y-1,x-1]>=saturation_level) or
+             (img[0,y+1,x-1]>=saturation_level) or
+             (img[0,y-1,x+1]>=saturation_level) or
+             (img[0,y+1,x+1]>=saturation_level))
+  //else
+ //   result:=true;//not reliable near edge image
+   ;
+end;
+
+procedure textout_at_fitscoordinates(s : string; fitsX,fitsY : integer);//text at fitsX, fitsY
+var
+   x,y :integer;
+begin
+  if mainwindow.flip_horizontal1.Checked then x:=round((head.width-1)-(fitsX-1)) else x:=round(fitsX-1);
+  if mainwindow.flip_vertical1.Checked=false then y:=round((head.height-1)-(fitsY-1)) else y:=round(fitsY-1);
+  mainwindow.image1.Canvas.textout(x,y,s);
+end;
+
+
+procedure measure_magnitudes(img : Timage_array; headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :Tstar_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
 var
   fitsX,fitsY,radius, i, j,nrstars,n,m,xci,yci,sqr_radius: integer;
   hfd1,star_fwhm,snr,flux,xc,yc,detection_level,hfd_min,adu_e  : double;
@@ -11358,6 +10913,7 @@ begin
   else
     saturation_level := 60000; {could be dark subtracted changing the saturation level}
   saturation_level:=min(headx.datamax_org-1,saturation_level);
+
 
   for fitsY:=0 to headx.height-1 do
     for fitsX:=0 to headx.width-1  do
@@ -11391,17 +10947,7 @@ begin
               if ((j>=0) and (i>=0) and (j<headx.height) and (i<headx.width) and (sqr(m)+sqr(n)<=sqr_radius)) then
                 img_sa[0,j,i]:=1;
             end;
-
-          if ((img[0,round(yc),round(xc)]<saturation_level) and
-              (img[0,round(yc),round(xc-1)]<saturation_level) and
-              (img[0,round(yc),round(xc+1)]<saturation_level) and
-              (img[0,round(yc-1),round(xc)]<saturation_level) and
-              (img[0,round(yc+1),round(xc)]<saturation_level) and
-
-              (img[0,round(yc-1),round(xc-1)]<saturation_level) and
-              (img[0,round(yc+1),round(xc-1)]<saturation_level) and
-              (img[0,round(yc-1),round(xc+1)]<saturation_level) and
-              (img[0,round(yc+1),round(xc+1)]<saturation_level)  ) then {not saturated}
+          if saturation(img,round(xc),round(yc),saturation_level)=false then {not saturated}
           begin
             {store values}
             inc(nrstars);
@@ -11429,7 +10975,6 @@ end;
 procedure calibrate_photometry(img : Timage_array; memo : tstrings; var head : Theader; update: boolean);
 var
   apert,annul         : double;
-  hfd_counter         : integer;
 begin
   if ((head.naxis=0) or (head.cd1_1=0)) then exit;
 
@@ -11528,20 +11073,11 @@ const
 
         xci:=round(xc);{star center as integer}
         yci:=round(yc);
-        if ((xci>0) and (xci<headx.width-1) and (yci>0) and (yci<headx.height-1)) then
-        saturated:=not ((img[0,yci,xci]<data_max) and
-                        (img[0,yci,xci-1]<data_max) and
-                        (img[0,yci,xci+1]<data_max) and
-                        (img[0,yci-1,xci]<data_max) and
-                        (img[0,yci+1,xci]<data_max) and
 
-                        (img[0,yci-1,xci-1]<data_max) and
-                        (img[0,yci+1,xci-1]<data_max) and
-                        (img[0,yci-1,xci+1]<data_max) and
-                        (img[0,yci+1,xci+1]<data_max)  )
-        else saturated:=false;
+//        saturated:=saturation(img,xci,yci,data_max);//star saturated?
+//        saturation(img,round(xc),round(yc),data_max)
 
-        if (((hfd1<headx.hfd_median*1.5) or (saturated){larger then normal}) and (hfd1>=headx.hfd_median*0.75) and (snr>10) and (img_sa[0,fitsY,fitsX]<=0) {prevent double detection due to spikes}) then {star detected in img}
+        if ((snr>10) and ((hfd1<headx.hfd_median*1.5) or (saturation(img,round(xc),round(yc),data_max)){larger then normal}) and (hfd1>=headx.hfd_median*0.75)) then {star detected in img}
         begin
                       {for testing}
               //      if flipvertical=false  then  starY:=round(headx.height-yc) else starY:=round(yc);
@@ -11644,7 +11180,7 @@ end;
 
 procedure Tmainwindow.annotate_unknown_stars1Click(Sender: TObject);
 var
-  countN,countO : integer;
+  countN : integer;
 begin
   mainwindow.Memo1.Lines.beginUpdate;
 
@@ -11729,7 +11265,7 @@ var
   Fliphorizontal, Flipvertical  : boolean;
   magnitude,raM,decM,v,b,r,sg,sr,si,g,bp,rp : double;
 
-  stars : star_list;
+  stars : Tstar_list;
   subframe : boolean;
   report,rastr,decstr : string;
 begin
@@ -13340,7 +12876,7 @@ begin
   end;
 end;
 
-//procedure write_astronomy_axy(stars: star_list;snr_list        : array of double );
+//procedure write_astronomy_axy(stars: Tstar_list;snr_list        : array of double );
 //var
 //  TheFile4 : tfilestream;
 //  I,j        : integer;
@@ -15191,7 +14727,7 @@ end;
 procedure Tmainwindow.Image1MouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 var
-  width5,height5, xf,yf,k, fx,fy, shapetype,c                  : integer;
+  width5,height5, xf,yf,k, fx,fy, shapetype,c,xint,yint        : integer;
   hfd2,fwhm_star2,snr,flux,xc,yc,xcf,ycf,center_x,center_y,a,b : double;
 begin
   if head.naxis=0 then exit;
@@ -15209,7 +14745,7 @@ begin
   hfd2:=2;{just a good value}
 
   {for manual alignment and photometry}
-  if  ((stackmenu1.pagecontrol1.tabindex=0) and (stackmenu1.use_manual_alignment1.checked) and (pos('S',head.calstat)=0 {ignore stacked images unless callled from listview1. See doubleclick listview1} )) then
+  if  ((stackmenu1.pagecontrol1.tabindex=0) and (stackmenu1.use_manual_alignment1.checked) and (pos('S',head.calstat)=0 {ignore stacked images unless called from listview1. See doubleclick listview1} )) then
   begin
     if find_reference_star(img_loaded) then
     begin
@@ -15224,7 +14760,7 @@ begin
             {$endif}
             break;
           end;
-      show_marker_shape(mainwindow.shape_manual_alignment1,shapetype,20,20,10{minimum},shape_var1_fitsX, shape_var1_fitsY);
+      show_marker_shape(mainwindow.shape_manual_alignment1,1 {shapetype},20,20,10{minimum},shape_var1_fitsX, shape_var1_fitsY);
     end;
   end
   else
@@ -15232,9 +14768,6 @@ begin
   begin
     {star alignment}
     HFD(img_loaded,startX,startY,14{annulus radius},99 {flux aperture restriction},0 {adu_e},hfd2,fwhm_star2,snr,flux,xc,yc); {auto center using HFD function}
-
-
-
 
     if hfd2<90 then {detected something}
     begin
@@ -15246,12 +14779,21 @@ begin
           pixel_to_celestial(head,xcf,ycf,0,shape_var1_ra,shape_var1_dec);{store shape position in ra,dec for positioning accurate at an other image}
           error_label1.visible:=false;
 
-          GenerateShapes(shape_nr,round(xcf),round(ycf),60,60,3 {penwidth},stEllipse, clLime,'?');
+          xint:=round(xcf);
+          yint:=round(ycf);
+
+          GenerateShapes(shape_nr,xint,yint,60,60,3 {penwidth},stEllipse, clLime,'?');
           fshapes[shape_nr].fitsX:=xcf;
           fshapes[shape_nr].fitsY:=ycf;
           pixel_to_celestial(head,xcf,ycf,1 {try sip if available},fshapes[shape_nr].ra,fshapes[shape_nr].dec);{store shape position in ra,dec for accurate positioning on an other image   fshapes[i].ra}
           fshapes[shape_nr].Shape.hint:=prepare_IAU_designation(fshapes[shape_nr].ra,fshapes[shape_nr].dec);//IAU designation till overriden by match with database
           show_marker_shape(FShapes[shape_nr].shape,9 {no change},20,20,10,FShapes[shape_nr].fitsX, FShapes[shape_nr].fitsY);
+
+          if saturation(img_loaded,xint,yint,calc_saturation_level(head)) then {saturated star}
+          begin
+             mainwindow.image1.Canvas.font.color:=clred;
+             textout_at_fitscoordinates('SATURATED',xint,yint+14);//text at fitsX, fitsY
+          end;
         end
         else
         begin
@@ -15774,6 +15316,7 @@ begin
     result:=result+' e-' // in electrons
 
 end;
+
 
 procedure Tmainwindow.Image1MouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
@@ -16753,9 +16296,10 @@ end;
 
 procedure local_color_smooth(startX,stopX,startY,stopY: integer);//local color smooth img_loaded
 var
-  fitsX,fitsY,dum,k,counter    : integer;
+  fitsX,fitsY,dum,k,counter            : integer;
   flux,center_x,center_y,a,b,rgb, lumr : single;
-  colour,mean : array[0..2] of single;
+  colour,median : array[0..2] of single;
+  bk  : array of double;
 begin
   if startX>stopX then begin dum:=stopX; stopX:=startX; startX:=dum; end;{swap}
   if startY>stopY then begin dum:=stopY; stopY:=startY; startY:=dum; end;
@@ -16769,31 +16313,28 @@ begin
   a:=(stopX-1-startx)/2;
   b:=(stopY-1-startY)/2;
 
+  for k:=0 to head.naxis3-1 do {do all colors}
+  begin
+    counter:=0;
+    bk:=nil;//free memory to prevent resize
+    setlength(bk,abs((stopx-startx)*(stopy-starty)));
+    for fitsY:=startY to stopY-1 do
+    for fitsX:=startX to stopX-1 do
+    begin
+      if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)>1 then // standard equation of the ellipse, out side ellipse
+      begin
+         bk[counter]:=img_loaded[k,fitsY,fitsX];
+         counter:=counter+1;
+      end;
+    end;
+    median[k]:=smedian(bk,counter);
+    if counter=0 then exit;
+  end;
 
+  //sum colour flux
   colour[0]:=0;
   colour[1]:=0;
   colour[2]:=0;
-  mean[0]:=0;
-  mean[1]:=0;
-  mean[2]:=0;
-
-  counter:=0;
-
-  //mean background
-  for fitsY:=startY to stopY-1 do
-  for fitsX:=startX to stopX-1 do
-  begin
-    if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)>1 then // standard equation of the ellipse, out side ellipse
-    begin
-      for k:=0 to head.naxis3-1 do {do all colors}
-       mean[k]:=mean[k]+img_loaded[k,fitsY,fitsX];
-       counter:=counter+1;
-    end;
-  end;
-  if counter=0 then exit;
-  for k:=0 to head.naxis3-1 do mean[k]:=mean[k]/counter;
-
-  //mean colour
   for fitsY:=startY to stopY-1 do
   for fitsX:=startX to stopX-1 do
   begin
@@ -16801,32 +16342,26 @@ begin
     begin
       for k:=0 to head.naxis3-1 do {do all colors}
       begin
-        colour[k]:=colour[k]+img_loaded[k,fitsY,fitsX]-mean[k];
+        colour[k]:=colour[k]+img_loaded[k,fitsY,fitsX]-median[k];//sum(red) or sum(green) or sum(blue)
       end;
     end;
   end;
 
-  rgb:=colour[0]+colour[1]+colour[2]+0.00001; {mean pixel flux. Factor 0.00001, prevent dividing by zero}
-
+  rgb:=colour[0]+colour[1]+colour[2]+0.00001; {sum pixel flux. Factor 0.00001, prevent dividing by zero}
   for fitsY:=startY to stopY-1 do
   for fitsX:=startX to stopX-1 do
   begin
     if sqr(fitsX-center_X)/sqr(a) +sqr(fitsY-center_Y)/sqr(b)<1 then // standard equation of the ellipse, within the ellipse
     begin
-      flux:=(img_loaded[0,fitsY,fitsX]-mean[0]
-            +img_loaded[1,fitsY,fitsX]-mean[1]
-            +img_loaded[2,fitsY,fitsX]-mean[2]);//flux of one pixel
-
-
-//        strongest_colour_local:=max(red,max(green,blue));
-//        top:=bg + strongest_colour_local*(flux/rgb);{calculate the highest colour value}
-//        if top>=65534.99 then flux:=flux-(top-65534.99)*rgb/strongest_colour_local;{prevent values above 65535}
+      flux:=(img_loaded[0,fitsY,fitsX]-median[0]
+            +img_loaded[1,fitsY,fitsX]-median[1]
+            +img_loaded[2,fitsY,fitsX]-median[2]);//flux of one pixel
 
       {apply average colour to pixel}
       lumr:=flux/rgb;
-      img_loaded[0,fitsY,fitsX]:={new_noise[k]}+ mean[0]+colour[0]*lumr;
-      img_loaded[1,fitsY,fitsX]:={new_noise[k]}+ mean[1]+colour[1]*lumr;
-      img_loaded[2,fitsY,fitsX]:={new_noise[k]}+ mean[2]+colour[2]*lumr;
+      img_loaded[0,fitsY,fitsX]:=median[0]+colour[0]*lumr;//sum(red)  * flux[x,y]/(sum(red)+sum(green)+sum(blue))
+      img_loaded[1,fitsY,fitsX]:=median[1]+colour[1]*lumr;//sum(green)* flux[x,y]/(sum(red)+sum(green)+sum(blue))
+      img_loaded[2,fitsY,fitsX]:=median[2]+colour[2]*lumr;//sum(blue) * flux[x,y]/(sum(red)+sum(green)+sum(blue))
 
     end;
   end;

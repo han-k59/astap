@@ -23,6 +23,7 @@ type
     baa_style1: TCheckBox;
     abrv_comp1: TCheckListBox;
     ensemble_database1: TCheckBox;
+    obstype1: TComboBox;
     sigma_mzero1: TLabel;
     Label7: TLabel;
     sigma_check2: TLabel;
@@ -33,7 +34,6 @@ type
     Image_photometry1: TImage;
     Label10: TLabel;
     Label11: TLabel;
-    measure_all_mode1: TLabel;
     Label9: TLabel;
     abbrv_variable1: TComboBox;
     name_variable2: TEdit;
@@ -46,11 +46,9 @@ type
     delimiter1: TComboBox;
     Label4: TLabel;
     Label5: TLabel;
-    Label6: TLabel;
     Label8: TLabel;
     obscode1: TEdit;
     Label1: TLabel;
-    Filter1: TComboBox;
     SaveDialog1: TSaveDialog;
     procedure abrv_comp1Change(Sender: TObject);
     procedure abbrv_comp1ItemClick(Sender: TObject; Index: integer);
@@ -94,6 +92,7 @@ var
   delta_bv : double=0;
   magnitude_slope    : double=0;
   ensemble_database : boolean=true;
+  obstype : integer=0;
 
 
 var
@@ -274,10 +273,10 @@ begin
     sort_alphabetically:=sort_alphabetically1.checked;
 
     hjd_date:=hjd1.checked;
-    aavso_filter_index:=filter1.itemindex;
     delta_bv:=strtofloat2(form_aavso1.delta_bv1.text);
     magnitude_slope:=strtofloat2(form_aavso1.magnitude_slope1.text);
     ensemble_database:=ensemble_database1.checked;
+    obstype:=obstype1.ItemIndex;
   end;
 end;
 
@@ -308,7 +307,7 @@ begin
     source:=0 //mode manual star selection. Extract magnitude from from annotation text
   else
   begin
-    theindex:=stackmenu1.listview7.column[columnr].tag;
+    theindex:=stackmenu1.listview7.column[columnr+1].tag; //Caption position is always one position higher then data
     source:=variable_list[theindex].source;//local, vsp,vsx
   end;
 
@@ -468,7 +467,7 @@ begin
 
       if documented_comp_magn=-99 then
       begin //COMP magnitude unknown.
-        warning:='Warning could not retrieve documented COMP magnitude for this filter. For Red and Sloans filters select AAVSO annotation online. For CV select in Gaia comp stars the local D50 or D80 or online Gaia BP.';
+        warning:=warning+'Warning could not retrieve documented COMP magnitude for this filter. For Red and Sloans filters select AAVSO annotation online. For CV select in Gaia comp stars the local D50 or D80 or online Gaia BP.';
       end
       else
       begin //COMP magnitude known
@@ -485,7 +484,9 @@ begin
         fluxes[count]:=flux_documented;//for standard deviation calculation
         inc(count);
       end;
-    end;
+    end
+    else
+    warning:=warning+'Ignored invalid '+copy(abbrv_c,1,11)+'. ';
   end;//for loop
   if sum_all_fluxes<>0 then
   begin
@@ -687,6 +688,7 @@ begin
     date_column:=P_jd_mid;
   end;
 
+
   if stackmenu1.reference_database1.ItemIndex=0 then settings:=stackmenu1.reference_database1.text
   else
     settings:=stackmenu1.reference_database1.text;
@@ -703,7 +705,7 @@ begin
                  '#SOFTWARE=ASTAP, v'+astap_version+#13+#10+
                  '#DELIM='+delimiter1.text+#13+#10+
                  '#DATE='+date_format+#13+#10+
-                 '#OBSTYPE=CCD'+#13+#10+
+                 '#OBSTYPE='+obstype1.text+#13+#10+
                  '#COMMENTS='+comments+#13+#10+
                   baa_extra+
                  '#'+#13+#10+
@@ -731,10 +733,7 @@ begin
 
          if snr_str<>'' then
          begin
-           if filter1.itemindex=0 then
-             filter_used:=listview7.Items.item[c].subitems.Strings[P_filter] //take from header
-           else
-             filter_used:=copy(filter1.text,1,2);//manual input
+           filter_used:=listview7.Items.item[c].subitems.Strings[P_filter]; //take from header
 
            comp_magn_info:='';//clear summation of messages;
 
@@ -772,7 +771,7 @@ begin
 
                    if length(column_comps)>1 then //ensemble, else single comp star
                    begin
-                     comp_magn_info:='Ensemble: '+ abbrv_comp_clean;
+                     comp_magn_info:=comp_magn_info+'Ensemble: '+ abbrv_comp_clean;
                      abbrv_comp_clean_report:='ENSEMBLE';
                      comp_magn_str:='na';
                    end
@@ -997,7 +996,7 @@ begin
     setlength(starinfo,p_nr-p_nr_norm);
     count:=0;
 
-    measure_any:=stackmenu1.measuring_method1.itemindex=2;
+    measure_any:=stackmenu1.measuring_method1.itemindex=3;
 
 
     for i:=p_nr_norm to p_nr-1 do
@@ -1034,9 +1033,8 @@ end;
 
 procedure Tform_aavso1.abbrv_variable1Change(Sender: TObject);
 begin
-   if stackmenu1.measuring_method1.itemindex>0  then
-     retrieve_vsp_stars(clean_abbreviation(abbrv_variable1.text));
-   plot_graph;
+  retrieve_vsp_stars(clean_abbreviation(abbrv_variable1.text));
+  plot_graph;
 end;
 
 
@@ -1063,15 +1061,6 @@ begin
       abrv:=stackmenu1.listview7.Column[i+1].Caption;
       if copy(abrv,1,4)<>'000-' then //Not a check star
       begin
-        {$ifdef mswindows}
-        {begin adjust width automatically}
-        if (Canvas.TextWidth(abrv)> ItemWidth) then
-        ItemWidth:=2*Canvas.TextWidth((abrv));{adjust dropdown with if required}
-        Perform(352{windows,CB_SETDROPPEDWIDTH}, ItemWidth, 0);
-        {end adjust width automatically}
-        {$else} {unix}
-        ItemWidth:=form_aavso1.Canvas.TextWidth((abrv));{works only second time};
-        {$endif}
         starinfo[count].str:=abrv;//store in an array
         starinfo[count].x:=find_sd_star(i);
         inc(count);
@@ -1085,9 +1074,24 @@ begin
         QuickSort_records(starinfo,0,count-1) ;{ Fast quick sort. Sorts elements in the array A containing records with indices between lo and hi}
         //memo2_message('Variables are sorted on standard deviation in descending order. The standard deviation is added to the variable abbreviation');
       end;
-      for i:= count-1 downto 0 do  //display in decending order
-        if starinfo[i].x<>0 then items.add(starinfo[i].str+ ', σ='+floattostrF(starinfo[i].x,ffFixed,5,3));//add including standard deviation
 
+
+      for i:= count-1 downto 0 do  //display in decending order
+        if starinfo[i].x<>0 then
+        begin
+          abrv:=starinfo[i].str+ ', σ='+floattostrF(starinfo[i].x,ffFixed,5,3);
+          items.add(abrv);//add including standard deviation
+          {$ifdef mswindows}
+          {begin adjust width automatically}
+          if (Canvas.TextWidth(abrv)> ItemWidth) then
+          begin
+             ItemWidth:=10+Canvas.TextWidth(abrv);{adjust dropdown with if required}
+             Perform(352{windows,CB_SETDROPPEDWIDTH}, ItemWidth, 0);
+           end; {end adjust width automatically}
+          {$else} {unix}
+          ItemWidth:=form_aavso1.Canvas.TextWidth((abrv));{works only second time};
+          {$endif}
+        end;
     end;
   end;
 end;
@@ -1142,8 +1146,6 @@ end;
 
 procedure Tform_aavso1.FormCreate(Sender: TObject);
 begin
-  measure_all_mode1.visible:=p_nr>p_nr_norm;
-
   {$IFDEF linux}
   abbrv_variable1.autoDropDown:=false;//then only autocomplete works with more then one character  https://forum.lazarus.freepascal.org/index.php?topic=68250.new;topicseen#new
   abrv_check1.autoDropDown:=false;//then only autocomplete works with more then one character
@@ -1160,10 +1162,10 @@ var
   theindex : integer;
 begin
   try
-    theindex:=stackmenu1.listview7.column[columnr].tag;
+    theindex:=stackmenu1.listview7.column[columnr+1].tag;//Caption position is always one position higher then data
     ra:=variable_list[theindex].ra;
     dec:=variable_list[theindex].dec;
-    //memo2_message('column:  '+inttostr(columnr)+',    index:  '+inttostr(theindex)+',    '+ floattostr(ra*180/pi)+',    '+floattostr(dec*180/pi));//testing
+    memo2_message('column:  '+inttostr(columnr)+',    index:  '+inttostr(theindex)+',    '+ floattostr(ra*180/pi)+',    '+floattostr(dec*180/pi)+',  '+ stackmenu1.listview7.column[columnr+1].caption);//testing
   except;
   end;
 end;
@@ -1501,12 +1503,6 @@ end;
 
 procedure Tform_aavso1.FormShow(Sender: TObject);
 begin
-  if p_nr=p_nr_norm then
-  begin
-     report_error1.visible:=true;
-     exit;
-  end;
-
   obscode1.text:=obscode;
   ensemble_database1.checked:=ensemble_database;
   abrv_comp1.enabled:=ensemble_database=false;
@@ -1521,13 +1517,20 @@ begin
   sort_alphabetically1.checked:=sort_alphabetically;//if true this will trigger a change and set the combobox.sorted
 
   hjd1.checked:=hjd_date;
-  filter1.itemindex:=aavso_filter_index;
   form_aavso1.delta_bv1.text:=floattostrF(delta_bv,ffFixed,5,3);
   form_aavso1.magnitude_slope1.text:=floattostrF(magnitude_slope,ffFixed,5,3);
+  obstype1.ItemIndex:=obstype;
 
   aavso_report:='';
 
   form_aavso1.height:=report_to_clipboard1.top+report_to_clipboard1.height+5;//autosize in height. note form_aavso1.autosize:=true doesn't work welll for the timage
+
+  if p_nr=p_nr_norm then
+  begin
+     report_error1.visible:=true;
+     exit;
+  end;
+
   plot_graph;
 end;
 

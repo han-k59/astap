@@ -1,11 +1,13 @@
 program astap;
 
-{$MODE Delphi}
-
+{$mode objfpc}{$H+}
 uses
-  Forms, Interfaces,
+  {$ifdef unix}
+  cthreads, // https://wiki.lazarus.freepascal.org/Multithreaded_Application_Tutorial
+  {$endif}
+  forms, Interfaces,
   astap_main in 'astap_main.pas', {mainwindow}
-  unit_stack in 'unit_stack.pas'; {stackmenu1}
+  unit_stack; {stackmenu1}
   {other units are linked to this two units}
 
 {mainwindow}
@@ -17,4 +19,4 @@ begin
   Application.CreateForm(Tmainwindow, mainwindow);
   Application.CreateForm(Tstackmenu1, stackmenu1);
   Application.Run;
- end.
+end.
