@@ -58,7 +58,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2025.03.16';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.05.17';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -409,6 +409,7 @@ type
     procedure dust_spot_removal1Click(Sender: TObject);
     procedure batch_add_tilt1Click(Sender: TObject);
     procedure mpcreport1Click(Sender: TObject);
+    procedure Panel1Click(Sender: TObject);
     procedure simbad_annotation_deepsky_filtered1Click(Sender: TObject);
     procedure move_images1Click(Sender: TObject);
     procedure Panel1MouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -773,7 +774,7 @@ procedure ang_sep(ra1,dec1,ra2,dec2 : double;out sep: double);
 function load_fits(filen:string;light {load as light or dark/flat},load_data,update_memo: boolean;get_ext: integer;const memo : tstrings; out head: Theader; out img_loaded2: Timage_array): boolean;{load a fits or Astro-TIFF file}
 procedure plot_fits(img: timage;center_image:boolean);
 procedure use_histogram(img: Timage_array; update_hist: boolean);{get histogram}
-procedure HFD(img: Timage_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
+procedure HFD(img: Timage_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr, flux,xc,yc:double);
 procedure backup_img;
 procedure restore_img;
 function load_image(filename2: string; out img: Timage_array; out head: theader; memo: tstrings; re_center,plot: boolean): boolean; {load fits or PNG, BMP, TIF}
@@ -3054,6 +3055,11 @@ begin
   {find peak in histogram which should be the average background}
   pixels:=0;
   max_range:=his_mean[colour]; {mean value from histogram}
+  if max_range=0 then //mean value
+  begin //empthy colour
+    head.backgr:=0;
+  end
+  else
   for i := 1 to max_range do {find peak, ignore value 0 from oversize}
     if histogram[colour,i]>pixels then {find colour peak}
     begin
@@ -3081,7 +3087,7 @@ begin
     iterations:=0;
     repeat  {repeat until sd is stable or 7 iterations}
       fitsX:=15;
-      counter:=1; {never divide by zero}
+      counter:=0;
       sd_old:=sd;
       while fitsX<=width5-1-15 do
       begin
@@ -3101,7 +3107,10 @@ begin
         end;
         inc(fitsX,stepsize);{skip pixels for speed}
       end;
-      sd:=sqrt(sd/counter); {standard deviation}
+      if counter<>0 then
+        sd:=sqrt(sd/counter) {standard deviation}
+      else
+        sd:=0;
       inc(iterations);
     until (((sd_old-sd)<0.05*sd) or (iterations>=7));{repeat until sd is stable or 7 iterations}
     head.noise_level:= sd;   {this noise level could be too high if no flat is applied. So for images where center is brighter then the corners.}
@@ -3678,34 +3687,37 @@ begin
 end;
 
 
+
 procedure Tmainwindow.About1Click(Sender: TObject);
 var
-    about_message, about_message4, about_message5 : string;
+  about_message, about_message5, arch : string;
 var {################# initialised variables #########################}
   {$IfDef Darwin}// {MacOS}
-    about_title  : string= 'About ASTAP for MacOS:';
+  about_title : string= 'About ASTAP for MacOS:';
   {$ELSE}
-     {$IFDEF unix}
-        about_title  : string= 'About ASTAP for Linux:';
-     {$ELSE}
-       about_title  : string= 'About ASTAP for Windows:';
-     {$ENDIF}
+  {$IFDEF unix}
+  about_title : string= 'About ASTAP for Linux:';
+  {$ELSE}
+  about_title : string= 'About ASTAP for Windows:';
   {$ENDIF}
+  {$ENDIF}
+  const
+  TargetOS = {$I %FPCTARGETOS%};
+  TargetCPU = {$I %FPCTARGETCPU%};
 begin
-  if sizeof(IntPtr) = 8 then
-  about_message4:='64 bit'
-  else
-  about_message4:='32 bit';
-
- {$IFDEF fpc}
- {$MACRO ON} {required for FPC_fullversion info}
+  {$IFDEF fpc}
+  {$MACRO ON} {required for FPC_fullversion info}
+  if TargetCPU='aarch64' then arch:= 'ARM 64 bit';
+  if TargetCPU='arm' then arch:= 'ARM 32 bit';
+  if TargetCPU='i386' then arch:= 'Intel 32 bit';
+  if TargetCPU='x86_64' then arch:= 'Intel 64 bit';
   about_message5:='Build using Free Pascal compiler '+inttoStr(FPC_version)+'.'+inttoStr(FPC_RELEASE)+'.'+inttoStr(FPC_patch)+', Lazarus IDE '+lcl_version+', LCL widgetset '+ LCLPlatformDisplayNames[WidgetSet.LCLPlatform]+'.'+
   #13+#10+
   #13+#10+
   'Application path '+application_path;
- {$ELSE} {delphi}
+  {$ELSE} {delphi}
   about_message5:='';
- {$ENDIF}
+  {$ENDIF}
   if ord(database2[0])<>0 then
     about_message5:=about_message5+
     #13+#10+
@@ -3713,8 +3725,7 @@ begin
     'Active star database:'+copy(database2,1,108)+ {primary star database. Do not display last byte (110) used for record type. Byte 109 is used for maximum magnitude}
     #13+#10;
 
-  about_message:=
-  'ASTAP version '+astap_version+', '+about_message4+
+  about_message:= 'ASTAP version '+astap_version+', '+arch {about_message4}+
   #13+#10+
   #13+#10+
   #13+#10+
@@ -3728,8 +3739,7 @@ begin
   #13+#10+'Send an e-mail if you like this free program. Feel free to distribute!'+
   #13+#10+
   #13+#10+'© 2018, 2025 by Han Kleijn. License MPL 2.0, Webpage: www.hnsky.org';
-
-   application.messagebox(pchar(about_message), pchar(about_title),MB_OK);
+  application.messagebox(pchar(about_message), pchar(about_title),MB_OK);
 end;
 
 
@@ -7170,7 +7180,7 @@ begin
   if stackmenu1.osc_colour_smooth1.checked then
   begin
     memo2_message('Applying colour-smoothing filter image as set in tab "stack method". Factors are set in tab "pixel math 1"');
-    global_colour_smooth(img,strtofloat2(stackmenu1.osc_smart_smooth_width1.text),strtofloat2(stackmenu1.osc_smart_colour_sd1.text),stackmenu1.osc_preserve_r_nebula1.checked,false {get  hist});{histogram doesn't needs an update}
+    global_colour_smooth(img,strtofloat2(stackmenu1.osc_smart_smooth_width1.text), strtofloat2(stackmenu1.luminance_slope1.text),false {get  hist});{histogram doesn't needs an update}
   end;
   end
   else
@@ -7472,7 +7482,7 @@ begin
   begin
     for j:=0+offsetW to width5-1-offsetW do
     begin
-      col:=round(img[colour,i,j]);{red}
+      col:=round(img[colour,i,j]);{pixel value for this colour}
       if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
       begin
         inc(histogram[colour,col],1);{calculate histogram}
@@ -8040,15 +8050,12 @@ begin
       stackmenu1.lrgb_auto_level1.checked:=Sett.ReadBool('stack','lrgb_al',true);
       stackmenu1.green_purple_filter1.checked:=Sett.ReadBool('stack','green_fl',false);
       stackmenu1.global_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_cs',true);
-      stackmenu1.lrgb_preserve_r_nebula1.checked:=Sett.ReadBool('stack','lrgb_pr',true);
+      dum:=Sett.ReadString('stack','lrgb_slope','');if dum<>'' then stackmenu1.luminance_slope1.text:=dum;
 
       stackmenu1.star_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_sm',true);
       dum:=Sett.ReadString('stack','lrgb_smd','');if dum<>'' then   stackmenu1.lrgb_star_colour_smooth_diameter1.text:=dum;
       dum:=Sett.ReadString('stack','lrgb_sms','');  if dum<>'' then stackmenu1.lrgb_star_colour_smooth_nrstars1.text:=dum;
-
-
       dum:=Sett.ReadString('stack','lrgb_sw','');if dum<>'' then stackmenu1.lrgb_global_colour_smooth_width1.text:=dum;
-      dum:=Sett.ReadString('stack','lrgb_sd','');if dum<>'' then  stackmenu1.lrgb_global_colour_smooth_sd1.text:=dum;
 
       stackmenu1.ignore_header_solution1.Checked:= Sett.ReadBool('stack','ignore_header_solution',true);
       stackmenu1.Equalise_background1.checked:= Sett.ReadBool('stack','equalise_background',true);{for mosaic mode}
@@ -8129,17 +8136,25 @@ begin
       dum:=Sett.ReadString('stack','rg_factor',''); if dum<>'' then stackmenu1.rg1.text:=dum;
       dum:=Sett.ReadString('stack','rb_factor',''); if dum<>'' then stackmenu1.rb1.text:=dum;
 
-      dum:=Sett.ReadString('stack','gr_factor',''); if dum<>'' then stackmenu1.gr1.text:=dum;
-      dum:=Sett.ReadString('stack','gg_factor',''); if dum<>'' then stackmenu1.gg1.text:=dum;
-      dum:=Sett.ReadString('stack','gb_factor',''); if dum<>'' then stackmenu1.gb1.text:=dum;
+      dum:=Sett.ReadString('stack','gr_fact1',''); if dum<>'' then stackmenu1.gr1.text:=dum;
+      dum:=Sett.ReadString('stack','gg_fact1',''); if dum<>'' then stackmenu1.gg1.text:=dum;
+      dum:=Sett.ReadString('stack','gb_fact1',''); if dum<>'' then stackmenu1.gb1.text:=dum;
 
-      dum:=Sett.ReadString('stack','br_factor',''); if dum<>'' then stackmenu1.br1.text:=dum;
-      dum:=Sett.ReadString('stack','bg_factor',''); if dum<>'' then stackmenu1.bg1.text:=dum;
-      dum:=Sett.ReadString('stack','bb_factor',''); if dum<>'' then stackmenu1.bb1.text:=dum;
+      dum:=Sett.ReadString('stack','br_fact1',''); if dum<>'' then stackmenu1.br1.text:=dum;
+      dum:=Sett.ReadString('stack','bg_fact1',''); if dum<>'' then stackmenu1.bg1.text:=dum;
+      dum:=Sett.ReadString('stack','bb_fact1',''); if dum<>'' then stackmenu1.bb1.text:=dum;
 
-      dum:=Sett.ReadString('stack','red_filter_add',''); if dum<>'' then stackmenu1.red_filter_add1.text:=dum;
-      dum:=Sett.ReadString('stack','green_filter_add',''); if dum<>'' then stackmenu1.green_filter_add1.text:=dum;
-      dum:=Sett.ReadString('stack','blue_filter_add',''); if dum<>'' then stackmenu1.blue_filter_add1.text:=dum;
+      dum:=Sett.ReadString('stack','rr_fact2',''); if dum<>'' then stackmenu1.rr2.text:=dum;
+      dum:=Sett.ReadString('stack','rg_fact2',''); if dum<>'' then stackmenu1.rg2.text:=dum;
+      dum:=Sett.ReadString('stack','rb_fact2',''); if dum<>'' then stackmenu1.rb2.text:=dum;
+
+      dum:=Sett.ReadString('stack','gr_fact2',''); if dum<>'' then stackmenu1.gr2.text:=dum;
+      dum:=Sett.ReadString('stack','gg_fact2',''); if dum<>'' then stackmenu1.gg2.text:=dum;
+      dum:=Sett.ReadString('stack','gb_fact2',''); if dum<>'' then stackmenu1.gb2.text:=dum;
+
+      dum:=Sett.ReadString('stack','br_fact2',''); if dum<>'' then stackmenu1.br2.text:=dum;
+      dum:=Sett.ReadString('stack','bg_fact2',''); if dum<>'' then stackmenu1.bg2.text:=dum;
+      dum:=Sett.ReadString('stack','bb_fact2',''); if dum<>'' then stackmenu1.bb2.text:=dum;
 
 
      {Six colour correction factors}
@@ -8438,14 +8453,13 @@ begin
       sett.writeBool('stack','green_fl',stackmenu1.green_purple_filter1.checked);
 
       sett.writeBool('stack','lrgb_cs',stackmenu1.global_colour_smooth1.checked);
-      sett.writeBool('stack','lrgb_pr',stackmenu1.lrgb_preserve_r_nebula1.checked);
+      sett.writestring('stack','lrgb_slope',stackmenu1.luminance_slope1.text);
 
       sett.writeBool('stack','lrgb_sm',stackmenu1.star_colour_smooth1.checked);
       sett.writeString('stack','lrgb_smd',stackmenu1.lrgb_star_colour_smooth_diameter1.text);
       sett.writestring('stack','lrgb_sms',stackmenu1.lrgb_star_colour_smooth_nrstars1.text);
 
       sett.writestring('stack','lrgb_sw',stackmenu1.lrgb_global_colour_smooth_width1.text);
-      sett.writestring('stack','lrgb_sd',stackmenu1.lrgb_global_colour_smooth_sd1.text);
 
       sett.writeBool('stack','ignore_header_solution',stackmenu1.ignore_header_solution1.Checked);
       sett.writeBool('stack','equalise_background',stackmenu1.Equalise_background1.Checked);
@@ -8522,21 +8536,30 @@ begin
       sett.writestring('stack','luminance_filter1',stackmenu1.luminance_filter1.text);
       sett.writestring('stack','luminance_filter2',stackmenu1.luminance_filter2.text);
 
-      sett.writestring('stack','rr_factor',stackmenu1.rr1.text);
-      sett.writestring('stack','rg_factor',stackmenu1.rg1.text);
-      sett.writestring('stack','rb_factor',stackmenu1.rb1.text);
+      sett.writestring('stack','rr_fact1',stackmenu1.rr1.text);
+      sett.writestring('stack','rg_fact1',stackmenu1.rg1.text);
+      sett.writestring('stack','rb_fact1',stackmenu1.rb1.text);
 
-      sett.writestring('stack','gr_factor',stackmenu1.gr1.text);
-      sett.writestring('stack','gg_factor',stackmenu1.gg1.text);
-      sett.writestring('stack','gb_factor',stackmenu1.gb1.text);
+      sett.writestring('stack','gr_fact1',stackmenu1.gr1.text);
+      sett.writestring('stack','gg_fact1',stackmenu1.gg1.text);
+      sett.writestring('stack','gb_fact1',stackmenu1.gb1.text);
 
-      sett.writestring('stack','br_factor',stackmenu1.br1.text);
-      sett.writestring('stack','bg_factor',stackmenu1.bg1.text);
-      sett.writestring('stack','bb_factor',stackmenu1.bb1.text);
+      sett.writestring('stack','br_fact1',stackmenu1.br1.text);
+      sett.writestring('stack','bg_fact1',stackmenu1.bg1.text);
+      sett.writestring('stack','bb_fact1',stackmenu1.bb1.text);
 
-      sett.writestring('stack','red_filter_add',stackmenu1.red_filter_add1.text);
-      sett.writestring('stack','green_filter_add',stackmenu1.green_filter_add1.text);
-      sett.writestring('stack','blue_filter_add',stackmenu1.blue_filter_add1.text);
+      sett.writestring('stack','rr_fact2',stackmenu1.rr2.text);
+      sett.writestring('stack','rg_fact2',stackmenu1.rg2.text);
+      sett.writestring('stack','rb_fact2',stackmenu1.rb2.text);
+
+      sett.writestring('stack','gr_fact2',stackmenu1.gr2.text);
+      sett.writestring('stack','gg_fact2',stackmenu1.gg2.text);
+      sett.writestring('stack','gb_fact2',stackmenu1.gb2.text);
+
+      sett.writestring('stack','br_fact2',stackmenu1.br2.text);
+      sett.writestring('stack','bg_fact2',stackmenu1.bg2.text);
+      sett.writestring('stack','bb_fact2',stackmenu1.bb2.text);
+
 
       {Colour correction factors}
       sett.writestring('stack','add_value_R',stackmenu1.add_valueR1.text);
@@ -9075,6 +9098,11 @@ begin
   end;
 
 //  InputBox('This line to clipboard?','Format 24 00 00.0, 90 00 00.0   or   24 00, 90 00',line);
+end;
+
+procedure Tmainwindow.Panel1Click(Sender: TObject);
+begin
+
 end;
 
 
@@ -9835,8 +9863,13 @@ begin
     limiting_mag:=min(limiting_mag,12); ////Required by AAVSO
   end;
 
-  //https://www.aavso.org/apps/vsp/api/chart/?format=json&ra=173.475392&dec=-0.032945&fov=42&maglimit=13.0000
-  url:='https://www.aavso.org/apps/vsp/api/chart/?format=json&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&fov='+inttostr(fov)+'&maglimit='+floattostr4(limiting_mag);{+'&special=std_field'}
+  //old  https://www.aavso.org/apps/vsp/api/chart/?format=json&ra=173.475392&dec=-0.032945&fov=42&maglimit=13.0000
+  //new  https://apps.aavso.org/vsp/api/chart/?format=json&ra=173.475392&dec=-0.032945&fov=42&maglimit=13.0000
+
+  url:='https://apps.aavso.org/vsp/api/chart/?format=json&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&fov='+inttostr(fov)+'&maglimit='+floattostr4(limiting_mag);{+'&special=std_field'}
+
+  if stackmenu1.annotate_mode1.itemindex>11 then
+           url:=url+'&special=std_field';//standard field for specific purpose of calibrating their equipment
   s:=get_http(url);{get webpage}
   if length(s)=0 then begin beep; exit end;;
   if length(s)<256 then exit; //no data for this field
@@ -9988,8 +10021,9 @@ begin
   period_filter:=stackmenu1.annotate_mode1.itemindex <8;
 
 
-  //https://www.aavso.org/vsx/index.php?view=api.list&ra=173.478667&dec=-0.033698&radius=0.350582&tomag=13.0000&format=json
-  url:='https://www.aavso.org/vsx/index.php?view=api.list&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&radius='+floattostr6(radius)+'&tomag='+floattostr4(limiting_mag)+'&format=json';
+  //old https://www.aavso.org/vsx/index.php?view=api.list&ra=173.478667&dec=-0.033698&radius=0.350582&tomag=13.0000&format=json
+  //new https://vsx.aavso.org/index.php?view=api.list&ra=173.478667&dec=-0.033698&radius=0.350582&tomag=13.0000&format=json
+  url:='https://vsx.aavso.org/index.php?view=api.list&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&radius='+floattostr6(radius)+'&tomag='+floattostr4(limiting_mag)+'&format=json';
   s:=get_http(url);
   if length(s)=0 then begin beep; exit end;//network error
   if length(s)<25 then begin exit end;//no stars in this field
@@ -11080,7 +11114,7 @@ const
         if ((snr>10) and ((hfd1<headx.hfd_median*1.5) or (saturation(img,round(xc),round(yc),data_max)){larger then normal}) and (hfd1>=headx.hfd_median*0.75)) then {star detected in img}
         begin
                       {for testing}
-              //      if flipvertical=false  then  starY:=round(headx.height-yc) else starY:=round(yc);
+              //      if flipvertical=false  then starY:=round(headx.height-yc) else starY:=round(yc);
               //      if fliphorizontal=true then starX:=round(headx.width-xc)  else starX:=round(xc);
               //      size:=round(5*hfd1);
               //      mainwindow.image1.Canvas.Rectangle(starX-size,starY-size, starX+size, starY+size);{indicate hfd with rectangle}
@@ -11155,14 +11189,10 @@ const
                  inc(countN);
                end
                else
-               begin
                  add_text(memox,'ANNOTATE=',#39+copy(floattostrF(xc+5,FFFixed,0,0)+';'+floattostrF(yc+5,FFFixed,0,0)+';'+floattostrF(xc+10,fffixed,0,0)+';'+floattostrF(yc+10,FFFixed,0,0)+';1;\u2601;;',1,68)+#39); {store in FITS coordinates 1..}
-               // add_text(memox,'ANNOTATE=',#39+copy(floattostrF(xc+5,FFFixed,0,0)+';'+floattostrF(yc+5,FFFixed,0,0)+';'+floattostrF(xc+10,fffixed,0,0)+';'+floattostrF(yc+10,FFFixed,0,0)+';1;\u2601'+' '+floattostrF(ratio,FFFixed,0,2)+';;',1,68)+#39); {store in FITS coordinates 1..}
-               end;
 
 
                annotated:=true;{header contains annotations}
-
 
                //memo2_message(floattostrF(ratio_sum/ratio_counter,FFFixed,0,2));
 
@@ -11196,8 +11226,8 @@ begin
 
   mainwindow.Memo1.Lines.endUpdate;
 
-  mainwindow.image1.Canvas.textout(30,head.height-20,inttostr(countN)+' Nova candidates.' );
-
+  mainwindow.image1.Canvas.textout(30,head.height-20,inttostr(countN)+' nova candidates.' );
+  memo2_message(inttostr(countN)+' nova candidates stored in the header as annotations.');
   plot_annotations(false {use solution vectors},false);
 end;
 
@@ -11277,12 +11307,12 @@ begin
 
   calibrate_photometry(img_loaded,mainwindow.Memo1.lines,head,true);
 
-  if head.mzero=0 then
-  begin
-    beep;
-    Screen.Cursor:=crDefault;
-    exit;
-  end;
+//if head.mzero=0 then
+//  begin
+//    beep;
+//    Screen.Cursor:=crDefault;
+//    exit;
+//  end;
 
   Flipvertical:=mainwindow.flip_vertical1.Checked;
   Fliphorizontal:=mainwindow.Flip_horizontal1.Checked;
@@ -11308,6 +11338,7 @@ begin
       if read_stars_online(head.ra0,head.dec0,(pi/180)*min(180,max(head.height,head.width)*abs(head.cdelt2)), head.magn_limit+1.0 {max_magnitude, one magnitude extra})= false then
        begin
          memo2_message('Error. failure accessing Vizier for Gaia star database!');
+          Clipboard.AsText:='Error. failure accessing Vizier for Gaia star database!';
          Screen.Cursor:=crDefault;
          exit;
        end;
@@ -11346,9 +11377,12 @@ begin
       mainwindow.image1.Canvas.moveto(starX-2*size,starY);
       mainwindow.image1.Canvas.lineto(starX-size,starY);
 
-      magnitude:=(head.mzero - ln(stars[3,i]{flux})*2.5/ln(10));//flux to magnitude
-      magn:=round(10*magnitude);
-      image1.Canvas.textout(starX,starY-text_height,inttostr(magn) );{add magnitude as text}
+      if  head.mzero<>0 then
+      begin
+        magnitude:=(head.mzero - ln(stars[3,i]{flux})*2.5/ln(10));//flux to magnitude
+        magn:=round(10*magnitude);
+        image1.Canvas.textout(starX,starY-text_height,inttostr(magn) );{add magnitude as text}
+      end;
 
       if subframe then //report
       begin
@@ -11365,7 +11399,10 @@ begin
     end;
   end
   else
-  memo2_message('No stars found!');
+  begin
+    memo2_message('No stars found!');
+     Clipboard.AsText:='No stars found!';
+  end;
 
 
 
@@ -12155,7 +12192,7 @@ end;
 
 procedure plot_annotations(use_solution_vectors,fill_combo : boolean); {plot annotations stored in fits header. Offsets are for blink routine}
 var
-  count1,x1,y1,x2,y2,pos1,pos2,charnr,i : integer;
+  count1,x1,y1,x2,y2,pos1,charnr,i : integer;
   typ     : double;
   List: TStrings;
   annotation,magn,dummy : string;
@@ -13567,6 +13604,8 @@ begin
        memo2_message(inttostr(nrsolved)+' images solved, '+inttostr(nrfailed)+' no solution. Duration '+floattostr(round((GetTickCount64 - startTick)/100)/10)+ ' sec. For re-solve set option "overwrite solutions".')
     else
       memo2_message(inttostr(nrsolved)+' images solved, '+inttostr(nrskipped)+' existing solutions, '+inttostr(nrfailed)+' no solution. Duration '+floattostr(round((GetTickCount64 - startTick)/100)/10)+ ' sec.');
+    if fov_specified=true then memo2_message('Note that FOV was forced by setting FOV in tab alignment. Undo by program restart') ;
+
   end;
 end;
 
@@ -14662,9 +14701,9 @@ begin
     dec8:=prepare_dec(object_decM,' '); {radialen to text, format 90d 00 00}
 
     if dec8[1]='+' then dec_degrees:=copy(dec8,2,2) else dec_degrees:=copy(dec8,1,3);
-    url:='https://app.aavso.org/vsp/chart/?ra='+copy(ra8,1,2)+'%3A'+copy(ra8,4,2)+'%3A'+copy(ra8,7,99)+'&dec='+dec_degrees+'%3A'+copy(dec8,5,2)+'%3A'+copy(dec8,8,99)+'&scale=C&orientation=visual&type=chart&fov='+inttostr(round( (ang_w+ang_w)/(60*2)))+'&maglimit='+trim(annotation_magn)+'&resolution=150&north=up&east=left'
+    url:='https://apps.aavso.org/vsp/chart/?ra='+copy(ra8,1,2)+'%3A'+copy(ra8,4,2)+'%3A'+copy(ra8,7,99)+'&dec='+dec_degrees+'%3A'+copy(dec8,5,2)+'%3A'+copy(dec8,8,99)+'&scale=C&orientation=visual&type=chart&fov='+inttostr(round( (ang_w+ang_w)/(60*2)))+'&maglimit='+trim(annotation_magn)+'&resolution=150&north=up&east=left'
 
-    //  https://app.aavso.org/vsp/chart/?ra=08%3A40%3A29.63&dec=40%3A07%3A24.4&scale=C&orientation=visual&type=chart&fov=120.0&maglimit=12.0&resolution=150&north=up&east=left
+    //  https://apps.aavso.org/vsp/chart/?ra=08%3A40%3A29.63&dec=40%3A07%3A24.4&scale=C&orientation=visual&type=chart&fov=120.0&maglimit=12.0&resolution=150&north=up&east=left
   end;
   openurl(url);
   Screen.Cursor:=crDefault;
@@ -14862,18 +14901,17 @@ begin
 end;
 
 
-
 {calculates star HFD and FWHM, SNR, xc and yc are center of gravity, rs is the boxsize, aperture for the flux measurement. All x,y coordinates in array[0..] positions}
 {aperture_small is used for photometry of stars. Set at 99 for normal full flux mode}
 {Procedure uses two global accessible variables:  r_aperture and sd_bg }
-procedure HFD(img: Timage_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
+procedure HFD(img: Timage_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr, flux,xc,yc:double);
 const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
   samplepoints=5; // for photometry. emperical gives about 10% to 20 % improvment
 
 var
-  width5,height5,i,j,r1_square,r2_square,r2, distance,distance_top_value,illuminated_pixels,signal_counter,counter,annulus_width :integer;
-  SumVal,Sumval_small, SumValX,SumValY,SumValR, Xg,Yg, r, val,pixel_counter,valmax,mad_bg,radius,dx,dy    : double;
+  width5,height5,i,j,r1_square,r2_square,r2, distance,distance_top_value,illuminated_pixels,signal_counter,counter,annulus_width : integer;
+  SumVal,Sumval_small, SumValX,SumValY,SumValR, Xg,Yg, r, val,pixel_counter,valmax,mad_bg,radius,dx,dy,flux_e,sd_bg_e            : double;
   HistStart,boxed : boolean;
   distance_histogram : array [0..max_ri] of integer;
   background : array [0..1000] of double; {size =3*(2*PI()*(50+3)) assuming rs<=50}
@@ -15072,20 +15110,26 @@ begin
     hfd1:=2*SumValR/max(SumVal,0.00001);//divide by the all flux of the star
   end; //photometry mode
 
-  hfd1:=max(0.7,hfd1);
+  hfd1:=max(0.8,hfd1);
   star_fwhm:=2*sqrt(pixel_counter/pi);{calculate from surface (by counting pixels above half max) the diameter equals FWHM }
 
-  if adu_e<>0 then
+
+  if adu_e=0 then
+  begin //no adu to e correction
+    flux_e:=flux;
+    sd_bg_e:=sd_bg;
+  end
+  else
   begin //adu to e- correction
-    flux:=flux*adu_e*sqr(head.xbinning);// if an image is binned the adu's are averaged. So bin2x2 result in four times less adu. Star flux should be independend of binning
-    sd_bg:=sd_bg*adu_e*head.xbinning;//noise is sqrt of signal. So electron noise reduces linear with binning value
+    flux_e:=flux*adu_e*sqr(head.xbinning);// if an image is binned the adu's are averaged. So bin2x2 result in four times less adu.
+    sd_bg_e:=sd_bg*adu_e*head.xbinning;//noise is sqrt of signal. So electron noise reduces linear with binning value
   end;
 
-  //noise calculation
   if flux>=1 then
-    snr:=flux /sqrt(flux +sqr(radius)*pi*sqr(sd_bg))
+    snr:=flux_e /sqrt(flux_e +sqr(radius)*pi*sqr(sd_bg_e))
   else
     snr:=0;//rare but happens. Prevent runtime errors  by /flux
+
   {For both bright stars (shot-noise limited) or skybackground limited situations
     snr := signal/noise
     snr := star_signal/sqrt(total_signal)
@@ -15294,6 +15338,7 @@ begin
   result:=0;// zero is calculate snr using ADU's
 end;
 
+
 function noise_to_electrons(adu_e, sd : double): string;
 begin
 //  CMOS camera/software binning. Sky noise dominant. Software binning is sum pixels divide by four.
@@ -15314,7 +15359,6 @@ begin
 
   if adu_e<>0 then
     result:=result+' e-' // in electrons
-
 end;
 
 
@@ -16035,7 +16079,6 @@ var
   I: integer;
   fileDate    : Integer;
   err,written   : boolean;
-  dobackup : boolean;
   img_temp :Timage_array;
   headx : theader;
 begin
