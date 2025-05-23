@@ -544,6 +544,7 @@ begin
   end
   else
   form_aavso1.sigma_mzero1.caption:='';
+
   if go_boolean=false then exit;
 
 
@@ -744,8 +745,7 @@ begin
 
            if ensemble_database1.checked=false then //Mode magnitude relative to comp star
            begin
-             if length(column_comps)<0 then exit;
-             //comp_magn_str:=stackmenu1.listview7.Items.item[c].subitems.Strings[column_comps[0]];//measured comp magnitude
+             if length(column_comps)=0 then exit;
 
              invalid_comp:=process_comp_stars(c,ratio,sd_comp,comp_magn,warning);//Magnitude_measured:= 21- ln(ratio*flux_measured)*2.5/log(10)
              comp_magn_info:=comp_magn_info+warning;
@@ -861,7 +861,7 @@ begin
   save_settings2; {for aavso settings}
 
   form_aavso1.close;   {transfer variables. Normally this form is not loaded}
-  mainwindow.setfocus;
+  mainform1.setfocus;
 end;
 
 
@@ -959,11 +959,11 @@ begin
     begin
       varfound:=false;
       checkfound:=false;
-      for i:=0 to high(mainwindow.Fshapes) do
+      for i:=0 to high(mainform1.Fshapes) do
       begin
-        if mainwindow.Fshapes[i].shape<> nil then
+        if mainform1.Fshapes[i].shape<> nil then
         begin
-          abrv:=mainwindow.Fshapes[i].shape.HINT;
+          abrv:=mainform1.Fshapes[i].shape.HINT;
           if pos('000-',abrv)>0 then // labeled with an AUID
           begin
              abrv_check1.text:=abrv;
@@ -1140,6 +1140,8 @@ begin
   sigma_check1.enabled:=ensemble_database;
   sigma_check2.enabled:=ensemble_database=false;
   sigma_mzero1.enabled:=ensemble_database=false;
+
+  plot_graph;
 end;
 
 
@@ -1165,7 +1167,7 @@ begin
     theindex:=stackmenu1.listview7.column[columnr+1].tag;//Caption position is always one position higher then data
     ra:=variable_list[theindex].ra;
     dec:=variable_list[theindex].dec;
-    memo2_message('column:  '+inttostr(columnr)+',    index:  '+inttostr(theindex)+',    '+ floattostr(ra*180/pi)+',    '+floattostr(dec*180/pi)+',  '+ stackmenu1.listview7.column[columnr+1].caption);//testing
+   // memo2_message('column:  '+inttostr(columnr)+',    index:  '+inttostr(theindex)+',    '+ floattostr(ra*180/pi)+',    '+floattostr(dec*180/pi)+',  '+ stackmenu1.listview7.column[columnr+1].caption);//testing
   except;
   end;
 end;
@@ -1177,7 +1179,7 @@ begin
   if head.cd1_1=0 then exit;
 
   indx:=0;
-  with mainwindow do
+  with mainform1 do
   begin
     for i:=high(fshapes) downto 0 do //remove markers
         freeandnil(fshapes[i]);//essential
@@ -1186,7 +1188,7 @@ begin
     try
     if columnV>0 then //valid
     begin
-      mainwindow.GenerateShapes(indx,100,100,100,100,3 {penwidth},stEllipse, clLime,'Var');
+      mainform1.GenerateShapes(indx,100,100,100,100,3 {penwidth},stEllipse, clLime,'Var');
       inc(indx);
       retrieve_ra_dec(columnV,fshapes[high(fshapes)].ra,fshapes[high(fshapes)].dec);
       celestial_to_pixel(head, fshapes[high(fshapes)].ra,fshapes[high(fshapes)].dec,true, fshapes[high(fshapes)].fitsX,fshapes[high(fshapes)].fitsY); {ra,dec to shape.fitsX,shape.fitsY}
@@ -1194,7 +1196,7 @@ begin
 
     if columnCheck>0 then //valid
     begin
-      mainwindow.GenerateShapes(indx,100,100,100,100,3 {penwidth},stSquare, clLime,'Check');
+      mainform1.GenerateShapes(indx,100,100,100,100,3 {penwidth},stSquare, clLime,'Check');
       inc(indx);
       retrieve_ra_dec(columnCheck,fshapes[high(fshapes)].ra,fshapes[high(fshapes)].dec);
       celestial_to_pixel(head, fshapes[high(fshapes)].ra,fshapes[high(fshapes)].dec,true, fshapes[high(fshapes)].fitsX,fshapes[high(fshapes)].fitsY); {ra,dec to shape.fitsX,shape.fitsY}
@@ -1205,7 +1207,7 @@ begin
       for i:=0 to length(column_Comps)-1 do
       begin
         //memo2_message(stackmenu1.listview7.Column[column_comps[i]+1].Caption);  //testing
-        mainwindow.GenerateShapes(indx+i,100,100,100,100,3 {penwidth},stDiamond, clLime,'Comp'+inttostr(i));
+        mainform1.GenerateShapes(indx+i,100,100,100,100,3 {penwidth},stDiamond, clLime,'Comp'+inttostr(i));
         retrieve_ra_dec(column_Comps[i],fshapes[high(fshapes)].ra,fshapes[high(fshapes)].dec);
         celestial_to_pixel(head, fshapes[high(fshapes)].ra,fshapes[high(fshapes)].dec,true, fshapes[high(fshapes)].fitsX,fshapes[high(fshapes)].fitsY); {ra,dec to shape.fitsX,shape.fitsY}
       end;
@@ -1223,13 +1225,14 @@ end;
 
 procedure plot_graph; {plot curve}
 var
-  x1,y1,c,textp1,textp2,textp3,textp4, nrmarkX, nrmarkY,date_column,count,k : integer;
-  scale,range, mean     : double;
-  text1,text2, date_format,firstfilter  : string;
+  x1,y1,c,textp1,textp2,textp3,textp4, nrmarkX, nrmarkY,date_column,count,k,invalid_comp : integer;
+  scale,range, mean,ratio,sd_comp,comp_magn                : double;
+  text1,text2, date_format,firstfilter,magn_gaia,warning   : string;
   bmp: TBitmap;
   dum:string;
   data : array of array of double;
   listcheck : array of double;
+  gaia_based  : boolean;
 const
   len=3;
 
@@ -1277,8 +1280,8 @@ begin
 
   w:=max(form_aavso1.Image_photometry1.width,(len*2)*stackmenu1.listview7.items.count);{make graph large enough for all points}
   h:=max(100,form_aavso1.Image_photometry1.height);
-  bspace:=3*mainwindow.image1.Canvas.textheight('T');{{border space graph. Also for 4k with "make everything bigger"}
-  wtext:=mainwindow.image1.Canvas.textwidth('12.3456');
+  bspace:=3*mainform1.image1.Canvas.textheight('T');{{border space graph. Also for 4k with "make everything bigger"}
+  wtext:=mainform1.image1.Canvas.textwidth('12.3456');
 
   column_var:=find_correct_var_column;
   column_check:=find_correct_check_column;
@@ -1286,7 +1289,7 @@ begin
 
   report_sigma_and_mean_of_check;
 
-  if ((column_var<0) and (column_check<0)) then exit;//no var or check star specified
+//  if ((column_var<0) and (column_check<0)) then exit;//no var or check star specified
 
 
   if ((stackmenu1.measuring_method1.itemindex>0) and (length(column_comps)>0))  then //<> manual mode
@@ -1297,60 +1300,133 @@ begin
   setlength(listcheck,length(data[0]));//list with magnitudes check star
   count:=0;
   firstFilter:='';
+
   with stackmenu1 do
-  for c:=0 to listview7.items.count-1 do {retrieve data from listview}
+  if ((form_aavso1.ensemble_database1.Checked) or (length(column_comps)=0))  then
   begin
-    if listview7.Items.item[c].checked then
+    gaia_based:=true;
+    for c:=0 to listview7.items.count-1 do {retrieve data from listview}
     begin
-      dum:=(listview7.Items.item[c].subitems.Strings[date_column]);
-      if dum<>'' then  data[0,c]:=strtofloat(dum) else data[0,c]:=0;
-      if data[0,c]<>0 then
+      if listview7.Items.item[c].checked then
       begin
-        jd_max:=max(jd_max,data[0,c]);
-        jd_min:=min(jd_min,data[0,c]);
-      end;
-
-      if  column_var>0 then
-      begin
-        dum:=listview7.Items.item[c].subitems.Strings[column_var];{var star}
-        if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then  data[1,c]:=strtofloat(dum) else data[1,c]:=0;
-        if data[1,c]<>0 then
+        dum:=(listview7.Items.item[c].subitems.Strings[date_column]);
+        if dum<>'' then  data[0,c]:=strtofloat(dum) else data[0,c]:=0;
+        if data[0,c]<>0 then
         begin
-          magn_max:=max(magn_max,data[1,c]);
-          magn_min:=min(magn_min,data[1,c]);
+          jd_max:=max(jd_max,data[0,c]);
+          jd_min:=min(jd_min,data[0,c]);
         end;
-      end;
 
-      if column_check>0 then
-      begin
-        dum:=(listview7.Items.item[c].subitems.Strings[column_check]);{chk star}
-        if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then data[2,c]:=strtofloat(dum) else data[2,c]:=0;
-        if data[2,c]<>0 then
+        if  column_var>0 then
         begin
-          magn_max:=max(magn_max,data[2,c]);
-          magn_min:=min(magn_min,data[2,c]);
-          if firstfilter='' then firstfilter:=listview7.Items.item[c].subitems.Strings[P_filter];
-          if firstfilter=listview7.Items.item[c].subitems.Strings[P_filter] then //calculate standard deviation for one colour only. Otherwise big jump spoils the measurement
+          dum:=listview7.Items.item[c].subitems.Strings[column_var];{var star}
+          if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then  data[1,c]:=strtofloat(dum) else data[1,c]:=0;
+          if data[1,c]<>0 then
           begin
-            listcheck[count]:= data[2,c];
-            inc(count);
+            magn_max:=max(magn_max,data[1,c]);
+            magn_min:=min(magn_min,data[1,c]);
+          end;
+        end;
+
+        if column_check>0 then
+        begin
+          dum:=(listview7.Items.item[c].subitems.Strings[column_check]);{chk star}
+          if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then data[2,c]:=strtofloat(dum) else data[2,c]:=0;
+          if data[2,c]<>0 then
+          begin
+            magn_max:=max(magn_max,data[2,c]);
+            magn_min:=min(magn_min,data[2,c]);
+            if firstfilter='' then firstfilter:=listview7.Items.item[c].subitems.Strings[P_filter];
+            if firstfilter=listview7.Items.item[c].subitems.Strings[P_filter] then //calculate standard deviation for one colour only. Otherwise big jump spoils the measurement
+            begin
+              listcheck[count]:= data[2,c];
+              inc(count);
+            end;
+          end;
+        end;
+
+        for k:=0 to length(column_comps)-1 do //add comp star(s)
+        begin
+          dum:=(listview7.Items.item[c].subitems.Strings[column_comps[k]]);{comparison star}
+          if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then data[3+k,c]:=strtofloat(dum) else data[3+k,c]:=0;
+          if data[3+k,c]<>0 then
+          begin
+            magn_max:=max(magn_max,data[3+k,c]);
+            magn_min:=min(magn_min,data[3+k,c]);
           end;
         end;
       end;
-
-      for k:=0 to length(column_comps)-1 do //add comp star(s)
+    end;
+  end
+  else
+  begin //use comp stars, and convert flux to magnitudes
+    gaia_based:=false;
+    for c:=0 to listview7.items.count-1 do {retrieve data from listview}
+    begin
+      if listview7.Items.item[c].checked then
       begin
-        dum:=(listview7.Items.item[c].subitems.Strings[column_comps[k]]);{comparison star}
-        if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then data[3+k,c]:=strtofloat(dum) else data[3+k,c]:=0;
-        if data[3+k,c]<>0 then
+        invalid_comp:=process_comp_stars(c,ratio,sd_comp,comp_magn,warning);//Magnitude_measured:= 21- ln(ratio*flux_measured)*2.5/log(10)
+     //   comp_magn_info:=comp_magn_info+warning;
+        if invalid_comp=0 then //valid comp star(s)
         begin
-          magn_max:=max(magn_max,data[3+k,c]);
-          magn_min:=min(magn_min,data[3+k,c]);
-        end;
+          dum:=(listview7.Items.item[c].subitems.Strings[date_column]);
+          if dum<>'' then  data[0,c]:=strtofloat(dum) else data[0,c]:=0;
+          if data[0,c]<>0 then
+          begin
+            jd_max:=max(jd_max,data[0,c]);
+            jd_min:=min(jd_min,data[0,c]);
+          end;
+
+          if  column_var>0 then
+          begin
+            magn_gaia:=listview7.Items.item[c].subitems.Strings[column_var];{Gaia based magnitude}
+            dum:=listview7.Items.item[c].subitems.Strings[column_var+2];{var star flux}
+
+            if ((length(magn_gaia)>1 {not a ?}) and (magn_gaia[1]<>'S'{saturated})) then  data[1,c]:=strtofloat(dum) else data[1,c]:=0;
+            if data[1,c]<>0 then //valid conversion string to float
+            begin
+              data[1,c]:= 21- ln(ratio*data[1,c])*2.5/ln(10); //convert flux to magnitude
+              magn_max:=max(magn_max,data[1,c]);
+              magn_min:=min(magn_min,data[1,c]);
+            end;
+          end;
+
+          if column_check>0 then
+          begin
+            magn_gaia:=listview7.Items.item[c].subitems.Strings[column_check];{Gaia based magnitude}
+            dum:=(listview7.Items.item[c].subitems.Strings[column_check+2]);{chk star flux}
+            if ((length(magn_gaia)>1 {not a ?}) and (magn_gaia[1]<>'S'{saturated})) then data[2,c]:=strtofloat(dum) else data[2,c]:=0;
+            if data[2,c]<>0 then
+            begin
+              data[2,c]:= 21- ln(ratio*data[2,c])*2.5/ln(10); //convert flux to magnitude
+              magn_max:=max(magn_max,data[2,c]);
+              magn_min:=min(magn_min,data[2,c]);
+              if firstfilter='' then firstfilter:=listview7.Items.item[c].subitems.Strings[P_filter];
+              if firstfilter=listview7.Items.item[c].subitems.Strings[P_filter] then //calculate standard deviation for one colour only. Otherwise big jump spoils the measurement
+              begin
+                listcheck[count]:= data[2,c];
+                inc(count);
+              end;
+            end;
+          end;
+
+          for k:=0 to length(column_comps)-1 do //add comp star(s)
+          begin
+            magn_gaia:=listview7.Items.item[c].subitems.Strings[column_comps[k]];{Gaia based magnitude}
+            dum:=(listview7.Items.item[c].subitems.Strings[column_comps[k]+2]);{comparison star}
+            if ((length(magn_gaia)>1 {not a ?}) and (magn_gaia[1]<>'S'{saturated})) then data[3+k,c]:=strtofloat(dum) else data[3+k,c]:=0;
+            if data[3+k,c]<>0 then
+            begin
+              data[3+k,c]:= 21- ln(ratio*data[3+k,c])*2.5/ln(10); //convert flux to magnitude
+              magn_max:=max(magn_max,data[3+k,c]);
+              magn_min:=min(magn_min,data[3+k,c]);
+            end;
+          end;
+
+        end;//valid comp star(s)
       end;
     end;
-
-  end;
+  end; //use comp stars, and convert flux to magnitudes
 
   if count>0 then
   begin
@@ -1424,7 +1500,10 @@ begin
     else
       bmp.canvas.textout(textp4,len*3,ExtractFilePath(filename2));
 
-    bmp.canvas.textout(textp4,len*8,'Graph values are based on Gaia ensemble');
+    if gaia_based then
+      bmp.canvas.textout(textp4,len*8,'Graph values are based on Gaia ensemble')
+    else
+      bmp.canvas.textout(textp4,len*8,'Graph values are based on COMP star(s)');
 
     nrmarkX:=trunc(w*5/1000);
     if nrmarkX>0 then
@@ -1495,8 +1574,8 @@ begin
 
   closeaction:=caFree; {delete form}
   form_aavso1:=nil;
-  mainwindow.shape_marker3.visible:=false;
-  mainwindow.shape_marker4.visible:=false;
+  mainform1.shape_marker3.visible:=false;
+  mainform1.shape_marker4.visible:=false;
 
 end;
 

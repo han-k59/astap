@@ -37,7 +37,7 @@ procedure CallLocalProc(AProc, Frame: Pointer; Param1: PtrInt;
 implementation
 
 {$IFDEF Linux}
-const _SC_NPROCESSORS_ONLN = 83;
+const _SC_NPROCESSORS_ONLN = 84; //2025.05.23 was wrongly 83. See https://gitlab.com/freepascal.org/fpc/source/-/issues/41265
 function sysconf(i: cint): clong; cdecl; external name 'sysconf';
 {$ENDIF}
 
@@ -87,7 +87,6 @@ end;
   begin
     Result:=sysconf(_SC_NPROCESSORS_ONLN);
   end;
-
 {$ELSE}
   begin
     Result:=1;
