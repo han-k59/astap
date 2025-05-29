@@ -198,7 +198,7 @@ var
   fitsX,fitsY,c,width_max, height_max, x_new,y_new, binning,max_stars,col  : integer;
   background_r, background_g, background_b, background_l,
   background_r2,background_g2,background_b2,
-  rgbsum,red_f,green_f,blue_f, value ,colr, colg,colb,
+  rgbsum,red_f,green_f,blue_f, value ,colr, colg,colb, mean_hfd,
   rr_factor_1, rg_factor_1, rb_factor_1,
   gr_factor_1, gg_factor_1, gb_factor_1,
   br_factor_1, bg_factor_1, bb_factor_1,
@@ -258,11 +258,17 @@ begin
       bg_factor_2:=strtofloat2(bg2.text);
       bb_factor_2:=strtofloat2(bb2.text);
 
-
       background_r:=0;
       background_g:=0;
       background_b:=0;
       background_l:=0;
+
+      counterR:=0;
+      counterR2:=0;
+      counterG:=0;
+      counterG2:=0;
+      counterB:=0;
+      counterB2:=0;
 
 
       for c:=0 to length(files_to_process)-1 do  {should contain reference,r,g,b,r2,g2,b2,gb,l}
@@ -270,12 +276,9 @@ begin
         if c=7 then {all colour files added, correct for the number of pixel values added at one pixel. This can also happen if one colour has an angle and two pixel fit in one!!}
         begin {fix RGB stack}
           memo2_message('Correcting the number of pixels added together.');
-
-
-
           for col:=0 to 5 do  //do 2 x 3colours
           begin
-            if length(files_to_process[col+1].name)>0 then //there is data
+            if ((img_temp[col,height_max div 2 ,width_max div 2]>0) or (img_temp[col,(height_max div 2)+2,(width_max div 2) +2]>0) ) then //quick shortcut there is data
             begin
               for fitsY:=0 to height_max-1 do
               for fitsX:=0 to width_max-1 do
@@ -289,11 +292,15 @@ begin
             end;
           end;
           memo2_message('Applying black spot filter on the interim RRGGBB image.');
-          black_spot_filter_for_aligned(img_average); //Black spot filter and add bias. Note for 99,99% zero means black spot but it could also be coincidence
+          black_spot_filter_for_aligned(img_average); //Black spot filter for 6 colour, 2 rgb
 
           //combine the 2 x RGB
           for col:=0 to 2 do
-            if ((length(files_to_process[col+1].name)>0) and (length(files_to_process[col+1+3].name)>0)) then //there is twice RGB data
+            if
+            (
+            ((img_temp[col  ,height_max div 2 ,width_max div 2]>0) or (img_temp[col  ,(height_max div 2)+2,(width_max div 2)+2]>0)) and
+            ((img_temp[col+3,height_max div 2 ,width_max div 2]>0) or (img_temp[col+3,(height_max div 2)  ,(width_max div 2)+2]>0)) //check at two places to avoid black spot
+             ) then //there is twice RGB data
             begin
               for fitsY:=0 to height_max-1 do
                 for fitsX:=0 to width_max-1 do
@@ -306,16 +313,16 @@ begin
             end
             else
             begin
-            if ((length(files_to_process[col+1].name)=0) and (length(files_to_process[col+1+3].name)>0)) then //only second RGB data
-            for fitsY:=0 to height_max-1 do
-              for fitsX:=0 to width_max-1 do
-                img_average[col,fitsY,fitsX]:= img_average[col+3,fitsY,fitsX];
+              if ((img_temp[col,height_max div 2 ,width_max div 2]=0) and (img_temp[col+3,height_max div 2 ,width_max div 2]>0)) then //only second RGB data
+              for fitsY:=0 to height_max-1 do
+                for fitsX:=0 to width_max-1 do
+                  img_average[col,fitsY,fitsX]:= img_average[col+3,fitsY,fitsX];
             end;
             //else nothing to do  only first contains RGB data
             setlength(img_average,3,height_max,width_max);{throw away second RGB storage space}
         end;{c=7, all colour files added}
 
-        if length(files_to_process[c].name)>0 then //file available?
+        if length(files_to_process[c].name)>0 then // file available
         begin
           try { Do some lengthy operation }
             filename2:=files_to_process[c].name;
@@ -410,7 +417,7 @@ begin
               else
               begin
                 binning:=report_binning(head.height);{select binning based on the height of the light}
-                bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+                bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
                 find_quads(starlist1,quad_star_distances1);{find quads for reference image/database}
               end;
             end;
@@ -444,7 +451,7 @@ begin
                 end
                 else
                 begin{internal alignment}
-                  bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+                  bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
 
                   find_quads(starlist2,quad_star_distances2);{find star quads for new image}
                   if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
@@ -727,8 +734,8 @@ end;
 
 procedure stack_average(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer);{stack average}
 var
-    fitsX,fitsY,c,width_max, height_max,old_width, old_height,x_new,y_new,col,binning,max_stars,old_naxis3,mm                     : integer;
-    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal,dummy                                                                  : double;
+    fitsX,fitsY,c,width_max, height_max,old_width, old_height,x_new,y_new,col,binning,max_stars,old_naxis3,mm                  : integer;
+    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal,dummy,mean_hfd                                                      : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,solar_drift_compensation,
     use_star_alignment                                                                                                         : boolean;
     tempval                                                                                                                    : single;
@@ -832,7 +839,7 @@ begin
 
             if use_star_alignment then
             begin
-              bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+              bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
               find_quads(starlist1, quad_star_distances1);{find quads for reference image}
             end
             else
@@ -852,7 +859,7 @@ begin
           begin //init is true
             if use_star_alignment then {internal alignment}
             begin
-              bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+              bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
               find_quads(starlist2, quad_star_distances2);{find star quads for new image}
               if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
                  memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
@@ -1299,7 +1306,7 @@ type
 var
     solutions      : array of tsolution;
     fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col ,binning,max_stars,old_naxis3           : integer;
-    variance_factor, value,weightF,hfd_min,dummy                                                                       : double;
+    variance_factor, value,weightF,hfd_min,dummy,mean_hfd                                                              : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip, solar_drift_compensation,
     use_star_alignment                                                                                                 : boolean;
     tempval, sumpix, newpix, background, pedestal,val                                                                  : single;
@@ -1406,7 +1413,7 @@ begin
 
           if use_star_alignment then
           begin
-            bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+            bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
             find_quads(starlist1, quad_star_distances1);{find quads for reference image}
           end
           else
@@ -1428,7 +1435,7 @@ begin
         begin //second image
           if use_star_alignment then {internal alignment}
           begin{internal alignment}
-            bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+            bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
             find_quads(starlist2, quad_star_distances2);{find star quads for new image}
             if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
             begin
@@ -2023,7 +2030,7 @@ end;   {comet and stars sharp}
 procedure calibration_and_alignment(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer); {calibration_and_alignment only}
 var
     fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col, binning, max_stars,old_naxis3  : integer;
-    background, hfd_min,aa,bb,cc,dd,ee,ff,pedestal                                                             : double;
+    background, hfd_min,aa,bb,cc,dd,ee,ff,pedestal,mean_hfd                                                    : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,use_star_alignment: boolean;
     warning             : string;
     starlist1,starlist2 : Tstar_list;
@@ -2123,7 +2130,7 @@ begin
 
           if use_star_alignment then
           begin
-            bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,warning);{bin, measure background, find stars}
+            bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
             find_quads(starlist1, quad_star_distances1);{find quads for reference image}
           end
           else
@@ -2143,7 +2150,7 @@ begin
         begin //init is true
           if use_star_alignment then {internal alignment}
           begin
-            bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,warning);{bin, measure background, find stars}
+            bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
             find_quads(starlist2, quad_star_distances2);{find star quads for new image}
             if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then {find difference between ref image and new image}
                memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
@@ -2220,6 +2227,7 @@ begin
         //  img_temp[0,fitsY,100]:=0;
         //  img_average[0,fitsY,100]:=0;
         //end;
+
         black_spot_filter(img_loaded, img_average, img_temp, pedestal);// correct black spots due to alignment. The pixel count is in arrayA
 
        // for fitsY:=0 to height_max-1 do
