@@ -1041,7 +1041,7 @@ begin
       max_distance:=round(radius/(fov2+0.00001));{expressed in steps}
 
       memo2_message(inttostr(nrstars)+' stars, '+inttostr(nr_quads)+quads_str+' selected in the image. '+inttostr(round(nrstars_required*sqr(oversize)))+' database stars, '
-                              +inttostr(round(nr_quads*nrstars_required*sqr(oversize)/nrstars))+' database'+quads_str+' required for the '+floattostrF(oversize*fov2,ffFixed,0,2)+'° square search window. '
+                               +inttostr(round(nr_quads*nrstars_required*sqr(oversize)/nrstars))+' database'+quads_str+' required for the '+floattostrF(oversize*fov2,ffFixed,0,2)+'° square search window. '
                               +'Step size '+floattostrF(fov2,FFfixed,0,2) +'°. Oversize '+floattostrF(oversize,FFfixed,0,2) );
 
       stackmenu1.Memo2.Lines.BeginUpdate;{do not update tmemo, very very slow and slows down program}
@@ -1147,12 +1147,11 @@ begin
               if match_nr=1 then //2025 first solution found, filter out stars for the second match. Avoid that stars outside the image boundaries are used to create database quads
               begin //keep only stars which are visible in the image according the first solution
                 count:=0;
-                for i:=0 to Length(starlist1[0])  do
+                for i:=0 to Length(starlist1[0])-1  do
                 begin
-                   rotate(crota2,starlist1[0,i]/cdelt1,starlist1[1,i]/cdelt2,xi,yi);{rotate to screen orientation}
-                   xi:=centerX-xi;
-                   yi:=centerY-yi;
-
+                  rotate(crota2,starlist1[0,i]/cdelt1,starlist1[1,i]/cdelt2,xi,yi);{rotate to screen orientation}
+                  xi:=centerX-xi;
+                  yi:=centerY-yi;
                   if ((xi>0) and (xi<hd.width) and (yi>0) and (yi<hd.height)) then //within image boundaries
                   begin
                     starlist1[0,count]:=starlist1[0,i];
@@ -1261,24 +1260,9 @@ begin
     //    hd.cd2_1:= + solution_vectorY[0]/3600;
     //    hd.cd2_2:= + solution_vectorY[1]/3600;
 
-    //New 2023 method for correct rotation angle/annotation near to the celestial pole.
-//    if solution_vectorX[0]*solution_vectorY[1] - solution_vectorX[1]*solution_vectorY[0] >0 then // flipped?
-//    flipped_image:=-1 //change rotation for flipped image, {Flipped image. Either flipped vertical or horizontal but not both. Flipped both horizontal and vertical is equal to 180 degrees rotation and is not seen as flipped}
-//    else
-//    flipped_image:=+1;//not flipped
-
-//    hd.cdelt1:=flipped_image*sqrt(sqr(solution_vectorX[0])+sqr(solution_vectorX[1]))/3600; // from unit arcsec to degrees
-//    hd.cdelt2:=sqrt(sqr(solution_vectorY[0])+sqr(solution_vectorY[1]))/3600;
 
     hd.cdelt2:=cdelt2/3600; //convert from arc seconds to degrees
     hd.cdelt1:=cdelt1/3600; //convert from arc seconds to degrees
-
-    // position +1 pixels in direction hd.crpix2
-//    standard_equatorial( ra_database,dec_database, (solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY+1) +solution_vectorX[2]), {x}
-//                                                   (solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY+1) +solution_vectorY[2]), {y}
-//                                                    1, {CCD scale}  ra7 ,dec7{equatorial position}); // the position 1 pixel away
-
-//    crota2:=-position_angle(ra7,dec7,hd.ra0,hd.dec0);//Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
 
     // position 1*flipped_image  pixels in direction hd.crpix1
     standard_equatorial( ra_database,dec_database,(solution_vectorX[0]*(centerX+flipped_image) + solution_vectorX[1]*(centerY) +solution_vectorX[2]), {x} //A pixel_aspect_ratio unequal of 1 is very rare, none square pixels
@@ -1296,7 +1280,6 @@ begin
 
     hd.crota2:=crota2*180/pi;//convert to degrees
     hd.crota1:=crota1*180/pi;
-    //end new 2023 method
 
 
     solved_in:=' Solved in '+ floattostr(round((GetTickCount64 - startTick)/100)/10)+' sec.';{make string to report in FITS header.}

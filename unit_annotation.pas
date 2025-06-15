@@ -1455,7 +1455,7 @@ begin
           begin
             with mainform1 do
             for i:=0 to high(Fshapes) do
-            if ((Fshapes[i].shape<>nil) and (abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+            if ((Fshapes[i].shape<>nil) and (abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_fitsX/Y are in sensor coordinates
                      Fshapes[i].shape.HINT:=naam2;//copy(naam2,1,posex(' ',naam2,4)-1);
 
           end;
@@ -1667,12 +1667,24 @@ begin
       else
         mainform1.image1.Canvas.font.color:=cllime;{AAVSO reference star}
 
-      if mode=1 then counts:=length(vsx) else counts:=length(vsp);
+      if mode=1 then
+        counts:=length(vsx)
+      else
+        counts:=length(vsp);
       count:=0;
 
       while count<counts do //go through data
       begin
-        if mode=1 then begin ra:=vsx[count].ra; dec:=vsx[count].dec;end else begin ra:=vsp[count].ra; dec:=vsp[count].dec;end;
+        if mode=1 then
+        begin
+          ra:=vsx[count].ra;
+          dec:=vsx[count].dec;
+        end
+        else
+        begin
+          ra:=vsp[count].ra;
+          dec:=vsp[count].dec;
+        end;
         celestial_to_pixel(head,ra,dec,true, fitsX,fitsY);{ra,dec to fitsX,fitsY}
         x:=round(fitsX-1);//In image array range 0..width-1, fits count from 1, image from zero therefore subtract 1
         y:=round(fitsY-1);
@@ -1692,11 +1704,9 @@ begin
             else
               abbreviation:=vsx[count].name+' '+vsx[count].maxmag+'-'+vsx[count].minmag+'_'+vsx[count].category+'_Period_'+vsx[count].period;
 
-//            if ((abs(x-shape_var1_fitsX)<5) and  (abs(y-shape_var1_fitsY)<5)) then // note shape_var1_fitsX/Y are in sensor coordinates
-//              mainform1.Shape_var1.HINT:=vsx[count].name;
             with mainform1 do
             for i:=0 to high(Fshapes) do
-              if ((Fshapes[i].shape<>nil) and (abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+              if ((Fshapes[i].shape<>nil) and (abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_fitsX/Y are in sensor coordinates
                 Fshapes[i].shape.HINT:=vsx[count].name;
 
 
@@ -1754,7 +1764,7 @@ begin
 
             with mainform1 do
             for i:=0 to high(Fshapes) do
-            if ((Fshapes[i].shape<>nil) and (abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_var1_fitsX/Y are in sensor coordinates
+            if ((Fshapes[i].shape<>nil) and (abs(x-Fshapes[i].fitsX)<5) and  (abs(y-Fshapes[i].fitsY)<5)) then  // note shape_fitsX/Y are in sensor coordinates
                      Fshapes[i].shape.HINT:=abbreviation;//copy(naam2,1,posex(' ',naam2,4)-1);
 
 
@@ -1923,8 +1933,15 @@ var
   datab,filterstrUP :string;
 begin
   datab:=stackmenu1.reference_database1.text;
-  if ((pos('auto',datab)>0) or (pos('Local',datab)>0)) then //local or auto
-  begin  //auto
+  if pos('Local',datab)>0 then //local or auto
+  begin
+    if pos('V',filterstrUP)>0  then passband:='V'
+    else
+    passband:='BP';
+    memo2_message('Local databasa as set in tab Photometry. Filter='+filterstr+'. Local database = '+passband);
+  end
+  else
+  begin  //online auto transformation
     filterstrUP:=uppercase(filterstr);
     if ((length(filterstrUP)=0) or (pos('CV',filterstrUP)>0))  then passband:='BP'  //Johnson-V, online
     else
@@ -1943,34 +1960,15 @@ begin
     else
     if pos('V',filterstrUP)>0  then passband:='V'  //Johnson-V, online
     else
-    if pos('B',filterstrUP)>0  then passband:='B'  //Johnson-V, online Blue
+    if pos('B',filterstrUP)>0  then passband:='B'  //Johnson-B, online Blue
     else
-    if pos('R',filterstrUP)>0  then passband:='R'  //Johnson-V, online red
+    if pos('R',filterstrUP)>0  then passband:='R'  //Cousins-R, online red
+    else
+    if pos('I',filterstrUP)>0  then passband:='I'  //Cousins-R, online red
     else
     passband:='BP';  //online take clear view
 
-    memo2_message('Auto selected transformation as set in tab Photometry. Filter='+filterstr+'. Online Gaia ->'+passband);
-
-  end
-  else  //manual
-  begin
-    if pos('BP',datab)>0 then passband:='BP' //Gaia blue=CV=Gray, online
-    else
-    if pos('V',datab)>0 then passband:='V'  //Johnson-V, online
-    else
-    if pos('B',datab)>0 then  passband:='B'  //Johnson-B, online
-    else
-    if pos('R',datab)>0 then passband:='R'  //Cousins-R, online
-    else
-    if pos('SG',datab)>0 then passband:='SG' //Gaia blue=CV=Gray, online
-    else
-    if pos('SR',datab)>0 then passband:='SR'  //Johnson-V, online
-    else
-    if pos('SI',datab)>0 then  passband:='SI'  //Johnson-B, online
-    else
-      passband:='??';
-
-    memo2_message('Manual selected transformation as set in tab Photometry. Filter='+filterstr+'. Online Gaia ->'+passband);
+    memo2_message('Gaia online with database transformation as set in tab Photometry. Filter='+filterstr+'. Online Gaia ->'+passband);
   end;
 end;
 
@@ -2068,6 +2066,8 @@ begin
     flip_horizontal:=mainform1.flip_horizontal1.Checked;
 
 //    sip:=((ap_order>=2) and (mainform1.Polynomial1.itemindex=1));{use sip corrections?}  Already set
+
+//  if ((usethesip) and (ap_order<>0)) then {apply SIP correction, sky to pixel}
 
     bp_rp:=999;{not defined in mono versions of the database}
 
