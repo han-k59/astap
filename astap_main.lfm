@@ -768,6 +768,19 @@ object mainform1: Tmainform1
           ShowHint = True
           Visible = False
         end
+        object StaticText_labelversion1: TStaticText
+          Left = 1207
+          Height = 14
+          Top = 7
+          Width = 122
+          Anchors = [akTop, akRight]
+          AutoSize = True
+          Caption = 'StaticText_labelversion1'
+          Font.Color = clBtnShadow
+          Font.Height = -11
+          ParentFont = False
+          TabOrder = 10
+        end
       end
     end
     object PairSplitterSide2: TPairSplitterSide

@@ -30,6 +30,7 @@ uses
   LCLIntf,{for for getkeystate, selectobject, openURL}
   clipbrd, PairSplitter, Types, strutils,
   fileutil,
+//  CommCtrl, // For ListView_GetSubItemRect and LVM_SCROLL
   unit_star_database,
   astap_main;
 
@@ -76,6 +77,8 @@ type
     luminance_slope1: TComboBox;
     MenuItem35: TMenuItem;
     listview1_photometric_calibration1: TMenuItem;
+    export_to_tg1: TMenuItem;
+    find_listview_text7: TMenuItem;
     rb2: TEdit;
     report_sqm1: TMenuItem;
     MenuItem41: TMenuItem;
@@ -86,6 +89,8 @@ type
     Separator10: TMenuItem;
     Separator11: TMenuItem;
     Separator12: TMenuItem;
+    Separator13: TMenuItem;
+    Separator14: TMenuItem;
     Separator9: TMenuItem;
     sn_rename_selected_files1: TMenuItem;
     MenuItem36: TMenuItem;
@@ -183,6 +188,7 @@ type
     solar_drift_dec1: TEdit;
     SpeedButton2: TSpeedButton;
     SpeedButton3: TSpeedButton;
+    transformation2: TButton;
     undo_button23: TBitBtn;
     font_size_photometry_UpDown1: TUpDown;
     unselect10: TMenuItem;
@@ -260,7 +266,6 @@ type
     Edit_width1: TEdit;
     ephemeris_centering1: TComboBox;
     Equalise_background1: TCheckBox;
-    export_aligned_files1: TButton;
     extract_background_box_size1: TComboBox;
     files_live_stacked1: TLabel;
     file_to_add1: TBitBtn;
@@ -774,11 +779,12 @@ type
     procedure ClearButton1Click(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure Label19Click(Sender: TObject);
-    procedure listview1DrawItem(Sender: TCustomListView; AItem: TListItem;
-      ARect: TRect; AState: TOwnerDrawState);
+    procedure listview1DrawItem(Sender: TCustomListView; AItem: TListItem;  ARect: TRect; AState: TOwnerDrawState);
     procedure listview1_photometric_calibration1Click(Sender: TObject);
     procedure measure_all1Change(Sender: TObject);
     procedure measuring_method1Change(Sender: TObject);
+    procedure export_to_tg1Click(Sender: TObject);
+    procedure find_listview_text7Click(Sender: TObject);
     procedure report_sqm1Click(Sender: TObject);
     procedure MenuItem41Click(Sender: TObject);
     procedure annotate_unknown1Click(Sender: TObject);
@@ -787,6 +793,7 @@ type
     procedure rename_selectedfiles1Click(Sender: TObject);
     procedure solar_drift_compensation1Change(Sender: TObject);
     procedure SpeedButton2Click(Sender: TObject);
+    procedure transformation2Click(Sender: TObject);
     procedure view_next1Click(Sender: TObject);
     procedure unsharp_edit_amount1Change(Sender: TObject);
     procedure unsharp_edit_radius1Change(Sender: TObject);
@@ -870,7 +877,6 @@ type
     procedure restore_file_ext1Click(Sender: TObject);
     procedure colournebula1Click(Sender: TObject);
     procedure clear_photometry_list1Click(Sender: TObject);
-    procedure export_aligned_files1Click(Sender: TObject);
     procedure FormDropFiles(Sender: TObject; const FileNames: array of string);
     procedure help_blink1Click(Sender: TObject);
     procedure help_photometry1Click(Sender: TObject);
@@ -1142,8 +1148,6 @@ function julian_calc(yyyy, mm: integer; dd, hours, minutes, seconds: double): do
 function RemoveSpecialChars(const STR: string): string; {remove ['.','\','/','*','"',':','|','<','>']}
 function calc_saturation_level(head :theader) : double;//calculate saturation level image
 
-
-
 const
   L_object = 0; {lights, position in listview1}
   L_filter = 1;
@@ -1302,7 +1306,7 @@ uses
   unit_astrometric_solving, unit_stack_routines, unit_annotation, unit_hjd,
   unit_live_stacking, unit_monitoring, unit_hyperbola, unit_asteroid, unit_yuv4mpeg2,
   unit_avi, unit_aavso, unit_raster_rotate, unit_listbox, unit_aberration, unit_online_gaia, unit_disk,
-  unit_contour, unit_interpolate, unit_sqm, unit_threaded_calibration;
+  unit_contour, unit_interpolate, unit_sqm, unit_threaded_calibration,unit_transformation;
 
 type
   blink_solution = record
@@ -1352,6 +1356,7 @@ end;
 
 {$else} {unix}
 {$endif}
+
 
 
 function inverse_erf(x: double): double;  {Inverse of erf function. Inverse of approximation formula by Sergei Winitzki. Error in result is <0.005 for sigma [0..3] Source wikipedia https://en.wikipedia.org/wiki/Error_function}
@@ -2280,7 +2285,7 @@ begin
       if ((ListView1.Items.item[c].Checked) and
       (
       ((analyse_level<=1) and  (length(ListView1.Items.item[c].subitems.Strings[L_hfd]) = 0){hfd empthy}) or
-//      ((analyse_level<=1) and  (analyse_quick1.checked=false)  and (strtofloat2(ListView1.Items.item[c].subitems.Strings[L_hfd]) =-1){previouse quick analyse result}) or
+      ((analyse_level<=1) and  (analyse_quick1.checked=false)  and (strtofloat2(ListView1.Items.item[c].subitems.Strings[L_hfd]) =-1){previouse quick analyse result}) or
       ((analyse_level=2) and  (length(ListView1.Items.item[c].subitems.Strings[L_streaks]) <= 0){streak/sharpness}) or
        (new_analyse_required))
       ) then
@@ -2728,7 +2733,7 @@ begin
 
     img_loaded := img_temp; {use result}
 
-    use_histogram(img_loaded, True);
+    plot_histogram(img_loaded, True);
     plot_fits(mainform1.image1, False);{plot real}
   end;
   update_equalise_background_step(5 {force 5 since equalise background is set to 1 by loading fits file});{update menu}
@@ -3367,7 +3372,7 @@ begin
     Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
     apply_factors;
-    use_histogram(img_loaded, True);
+    plot_histogram(img_loaded, True);
     plot_fits(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
@@ -3453,7 +3458,7 @@ begin
       end;{file loaded}
     end;
     add_text(mainform1.memo1.lines,'HISTORY   ', add_substract1.text+' '+ExtractFileName(image_to_add1.Caption));
-    use_histogram(img_loaded, True);
+    plot_histogram(img_loaded, True);
     plot_fits(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
@@ -3521,7 +3526,7 @@ begin
           img_loaded[col, fitsY, fitsX] := colr;
         end;
     //apply_dpp_button1.Enabled := False;
-    use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+    plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
     plot_fits(mainform1.image1, True);{plot real}
 
     Screen.Cursor := crDefault;
@@ -3589,12 +3594,12 @@ end;
 
 procedure Tstackmenu1.transformation1Click(Sender: TObject);
 var
-  i, countxy,formalism     : integer;
-  magnitude,raM,decM,v,b,r,sg,sr,si,g,bp,rp : double;
+  i, countxy,formalism,starX,starY,size, countBV                : integer;
+  magnitude,raM,decM,v,b,rc,ic,sg,sr,si,g,bp,rp,sep,fov_rad,mean_bv : double;
 
   stars,xylist  : Tstar_list;
   slope, intercept, sd : double;
-
+  flip_vertical,flip_horizontal : boolean;
 
 begin
   if head.naxis=0 then
@@ -3623,27 +3628,68 @@ begin
   end;
 
   measure_magnitudes(img_loaded,head, 14,0,0,head.width-1,head.height-1,false{histogram update},true {deep},stars);
+
+  fov_rad:=head.height*abs(head.cdelt2)*pi/180; //radians. cdelt2 can be negative for other solvers
+
+  if gaia_magn_limit<head.magn_limit+1.0-0.1 then sep:=999 //update required based on magnitude
+  else
+  ang_sep(head.ra0,head.dec0,gaia_ra,gaia_dec,sep);//update required based on position
+
+  if ((sep>0.15*fov_rad) or (online_database=nil)) then  //other sky area, update Gaia database online
+  begin
+  if read_stars_online(head.ra0,head.dec0,(pi/180)*min(180,max(head.height,head.width)*abs(head.cdelt2)), head.magn_limit+1.0 {max_magnitude, one magnitude extra})= false then
+  begin
+     memo2_message('Error. failure accessing Vizier for Gaia star database!');
+     Clipboard.AsText:='Error. failure accessing Vizier for Gaia star database!';
+     Screen.Cursor:=crDefault;
+     exit;
+    end;
+  end;
   formalism:=mainform1.Polynomial1.itemindex;
+
+  if formalism=0 then
+    memo2_message('█ █ █ █ █ █ Warning. First solve image with option "Add SIP coefficients" in tab alignment activated to spot all stars');
 
   setlength(xylist,2, length(stars[0]));
   countxy:=0;
 
   if length(stars[0])>9 then
   begin
+    mainform1.image1.Canvas.Pen.Mode := pmCopy;
+    mainform1.image1.Canvas.Pen.width := 1; //round(1+head.height/mainform1.image1.height);{thickness lines}
+    mainform1.image1.Canvas.brush.Style:=bsClear;
+    mainform1.image1.Canvas.Pen.Color :=$009CFF ;//orange
+    mainform1.image1.Canvas.font.color:=$009CFF ;//orange
+    mainform1.image1.Canvas.font.size:=8;
+
+    flip_vertical:=mainform1.flip_vertical1.Checked;
+    flip_horizontal:=mainform1.flip_horizontal1.Checked;
+
+    mean_bv:=0;
+    countBV:=0;
     for i:=0 to  length(stars[0])-1 do
     begin
       if stars[4,i]{SNR}>40 then
       begin
         magnitude:=(head.mzero - ln(stars[3,i]{flux})*2.5/ln(10));//flux to magnitude
-        pixel_to_celestial(head,1+stars[0,i],1+stars[1,i],formalism,raM,decM);//+1 to get fits coordinated
-        report_one_star_magnitudes(raM,decM, {out} b,v,r,sg,sr,si,g,bp,rp ); //report the database magnitudes for a specfic position. Not efficient but simple routine
+        size:=15;
+        if flip_horizontal=true then starX:=round((head.width-stars[0,i]))  else starX:=round(stars[0,i]);
+        if flip_vertical=false  then starY:=round((head.height-stars[1,i])) else starY:=round(stars[1,i]);
 
+        mainform1.image1.Canvas.Rectangle(starX-size,starY-size, starX+size, starY+size);{indicate hfd with rectangle}
+
+        pixel_to_celestial(head,1+stars[0,i],1+stars[1,i],formalism,raM,decM);//+1 to get fits coordinated
+        report_one_star_magnitudes(raM,decM, {out} b,v,rc,ic,sg,sr,si,g,bp,rp ); //report the database magnitudes for a specfic position. Not efficient but simple routine
+
+        mainform1.image1.Canvas.textout(starX+size,starY+size,'Gaia V='+floattostrf(v, ffFixed, 0,2)+', B='+floattostrf(B, ffFixed, 0,2));{add hfd as text}
         if ((v>0) and (b>0)) then
         begin
           xylist[0,countxy]:=b-v; //gaiaB-gaiaV, star colour
           xylist[1,countxy]:=magnitude-v; //V- gaiaV, delta magnitude
           inc(countXY);
 
+          mean_bv:=mean_bv+(b-v);
+          inc(countBV);
          // memo2_message(#9+floattostr(b-v)+#9+floattostr(magnitude-v));
         end;
 
@@ -3664,14 +3710,18 @@ begin
 
       //  xylist[0,1]:=100; //outlier y=100 instead of 51.75}
 
-
-     memo2_message('Using '+inttostr(countXY)+' detected stars.');
-     trendline_without_outliers(xylist,countXY,slope, intercept,sd);
-     memo2_message('Slope is '+floattostrF(slope,FFfixed,5,3)+ '. Calculated required absolute transformation correction  ∆ V = '+floattostrF(intercept,FFfixed,5,3)+' + '+floattostrF(slope,FFfixed,5,3)+'*(B-V). Standard deviation of measured magnitude vs Gaia transformed for stars with SNR>40 and without B-V correction is '+floattostrF(sd,FFfixed,5,3)+ #10);
-
+     if countXY>0 then
+     begin
+       memo2_message('Using '+inttostr(countXY)+' detected stars.');
+       trendline_without_outliers(xylist,countXY,1.5,slope, intercept,sd);
+       memo2_message('Mean B-V of all bright stars is '+floattostrF(mean_bv/countBV,FFfixed,5,3));
+       memo2_message('Slope is '+floattostrF(slope,FFfixed,5,3)+ '. Calculated required absolute transformation correction  ∆ V = '+floattostrF(slope,FFfixed,5,3)+'*(B-V) + '+floattostrF(intercept,FFfixed,5,3)+'. Standard deviation of measured magnitude vs Gaia transformed for stars with SNR>40 and without B-V correction is '+floattostrF(sd,FFfixed,5,3)+ #10);
+     end
+     else
+     memo2_message('Something wrong. xylist is nil');
   end
   else
-  memo2_message('Not enough stars found!');
+  memo2_message('Abort. SNR stars too low!');
 
   stars:=nil;
   xylist:=nil;
@@ -4033,7 +4083,7 @@ begin
       if load_fits(filename2, True {light}, True, True {update memo}, 0,mainform1.memo1.lines, head, img_loaded) then
         {succes load}
       begin
-        use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+        plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
         plot_fits(mainform1.image1, False);{plot real}
         update_equalise_background_step(0); {go to step 0}
       end;
@@ -4100,7 +4150,7 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
   gaussian_blur2(img_loaded, strtofloat2(blur_factor1.Text));
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   plot_fits(mainform1.image1, False);{plot}
   Screen.cursor := crDefault;
 end;
@@ -4468,6 +4518,8 @@ begin
               else
               if pos('R',filterstrUP)>0  then lv.Items.item[c].SubitemImages[P_filter]:=24 //Cousins-red. Note Green also contains a R so first test Green
               else                                                                         //The official abbreviation for Cousins R is R. See https://www.aavso.org/filters
+              if pos('I',filterstrUP)>0 then lv.Items.item[c].SubitemImages[P_filter]:=28 // Bessel
+              else //U is not supported because can't be transformed from Gaia data
               lv.Items.item[c].SubitemImages[P_filter]:=-1; //unknown
 
               date_to_jd(headx.date_obs,headx.date_avg, headx.exposure); {convert headx.date_obs string and headx.exposure time to global variables jd_start (julian day start headx.exposure) and jd_mid (julian day middle of the headx.exposure)}
@@ -5306,7 +5358,7 @@ begin
   backup_img;
   resize_img_loaded(width_UpDown1.position / head.Width {ratio});
 
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   remove_photometric_calibration;//from header
   plot_fits(mainform1.image1, True);{plot}
   Screen.cursor := crDefault;
@@ -5404,7 +5456,7 @@ begin
         Screen.Cursor:=crDefault;
         exit;
       end;
-     use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+     plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
      plot_fits(mainform1.image1, False {re_center});
 
      {show alignment marker}
@@ -5759,7 +5811,7 @@ begin
           break;
         end;
 
-        use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+        plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
         if first_image = c then Inc(cycle);
 
@@ -6066,7 +6118,7 @@ begin
     end;
 
   update_menu(True);{file loaded, update menu for fits. Set fits_file:=true}
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
   mainform1.memo1.lines.endupdate;
 
@@ -7507,7 +7559,7 @@ begin
   update_header_for_colour; {update header naxis and naxis3 keywords}
   add_text(mainform1.memo1.lines,'HISTORY   ', 'Artificial colour applied.');
 
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   plot_fits(mainform1.image1, False);{plot real}
   Screen.Cursor := crDefault;
 end;
@@ -7522,111 +7574,6 @@ begin
   listview7.Items.EndUpdate;
   bakfiles:=nil; //unrename function
   mainform1.clear_fshapes_array;//nil fshapes array
-end;
-
-
-procedure Tstackmenu1.export_aligned_files1Click(Sender: TObject);
-var
-  c, fitsX, fitsY, x_new, y_new, col, ps: integer;
-  st: string;
-  img_temp : Timage_array;
-
-begin
-  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
-  esc_pressed := False;
-
-  align_blink1.Checked := True;
-  for c := 0 to listview6.items.Count - 1 do {check alignement and if not align}
-  begin
-    st := listview6.Items.item[c].subitems.Strings[B_solution];
-    if st = '' then
-    begin
-      memo2_message('Doing the alignment first');
-      stackmenu1.clear_blink_alignment1Click(nil);
-      stackmenu1.blink_button1Click(nil);
-      break;
-    end;
-  end;
-
-
-  for c := 0 to listview6.items.Count - 1 do {this is not required but nice}
-  begin
-    st := listview6.Items.item[c].subitems.Strings[B_solution];
-    if st <> '' then {Solution available}
-    begin
-      filename2 := listview6.items[c].Caption;
-      mainform1.Caption := filename2;
-
-      listview6.Selected := nil; {remove any selection}
-      listview6.ItemIndex := c;
-      {mark where we are. Important set in object inspector    Listview1.HideSelection := false; Listview1.Rowselect := true}
-      listview6.Items[c].MakeVisible(False);{scroll to selected item}
-
-      if load_fits(filename2, True {light}, True, True {update memo}, 0,mainform1.memo1.lines, head, img_loaded) = False then
-      begin
-        esc_pressed := True;
-        break;
-      end;  {load fits}
-
-      Application.ProcessMessages;
-      if esc_pressed then break;
-
-      {reuse solution}
-      ps := StrToInt(copy(st, 4, 10));
-      solution_vectorX := bsolutions[ps].solution_vectorX; {use stored solution}
-      solution_vectorY := bsolutions[ps].solution_vectorY;
-
-
-      setlength(img_temp, head.naxis3, head.Height, head.Width);{new size}
-
-      for fitsY := 0 to head.Height - 1 do
-        for fitsX := 0 to head.Width - 1 do
-        begin
-          for col := 0 to head.naxis3 - 1 do
-            {all colors} img_temp[col, fitsY, fitsX] := 0;{clear memory}
-        end;
-
-      {align}
-      for fitsY := 0 to head.Height - 1 do
-        for fitsX := 0 to head.Width - 1 do
-        begin
-          x_new := round(solution_vectorX[0] * (fitsx) + solution_vectorX[1] * (fitsY) + solution_vectorX[2]); {correction x:=aX+bY+c}
-          y_new := round(solution_vectorY[0] * (fitsx) + solution_vectorY[1] * (fitsY) + solution_vectorY[2]); {correction y:=aX+bY+c}
-
-          if ((x_new >= 0) and (x_new <= head.Width - 1) and (y_new >= 0) and (y_new <= head.Height - 1)) then
-            for col := 0 to head.naxis3 - 1 do
-              {all colors} img_temp[col, y_new, x_new] := img_loaded[col, fitsY, fitsX];
-        end;
-
-      {fix black holes}
-      img_loaded := img_temp;
-      black_spot_filter_for_aligned(img_loaded);
-
-      if pos('_aligned.fit', filename2) = 0 then
-        filename2 := ChangeFileExt(Filename2, '_aligned.fit');{rename only once}
-
-      if timestamp1.Checked then
-      begin
-        if head.date_avg = '' then annotation_to_array('date_obs: ' + head.date_obs, False, 65535, 1{size}, 1, 10, img_loaded) {head.date_obs to image array as annotation}
-        else
-          annotation_to_array('date_avg: ' + head.date_avg, False, 65535, 1{size}, 1, 10, img_loaded);  {head.date_obs to image array as annotation}
-      end;
-      add_text(mainform1.memo1.lines,'COMMENT ',
-        ' Image aligned with other images.                                    ');
-
-      save_fits(img_loaded,mainform1.memo1.lines,head, filename2, True);
-      memo2_message('New aligned image created: ' + filename2);
-      listview6.items[c].Caption := filename2;
-    end;
-
-  end;
-  img_temp := nil;
-
-  if head.naxis <> 0 then
-    plot_fits(mainform1.image1, False {re_center});
-  {the last displayed image doesn't match with header. Just plot last image to fix}
-  Screen.Cursor := crDefault;{back to normal }
 end;
 
 
@@ -8004,7 +7951,7 @@ var
   flipvertical, fliphorizontal, refresh_solutions, analysedP, store_annotated,
   warned, success,new_object,listview_updating, reference_defined                               : boolean;
   starlistx                                     : Tstar_list;
-  astr, filename1,totalnrstr,dummy              : string;
+  astr, filename1,totalnrstr                    : string;
   oldra0 : double=0;
   olddec0: double=-pi/2;
   headx : theader;
@@ -8018,7 +7965,6 @@ var
                 if saturation(img_loaded,round(xc),round(yc),saturation_level)=false then {not saturated}
                 begin
                   magn:=head.mzero - ln(flux)*2.5/ln(10);
-
 
                   Result := floattostrf(magn, ffFixed, 5, 3);
                   {write measured magnitude to list}
@@ -8060,8 +8006,6 @@ var
 
 
             procedure nil_all;{reactivate listview updating, nil all arrays and restore cursor}
-            var
-               ww: integer;
             begin
               stop_updating(false);
               //remove following line at the end of 2025
@@ -8232,7 +8176,7 @@ begin
       end;
       reference_defined:=true;
 
-      use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+      plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
       if  ((pos('F', head.calstat) = 0) or (head.naxis3 > 1)) then
       begin
@@ -8278,6 +8222,8 @@ begin
       if head.passband_database='V' then database_col:=1 //green
       else
       if head.passband_database='B' then database_col:=2 //blue icon
+      else
+      if head.passband_database='I' then database_col:=28 //dark red icon
       else
       if head.passband_database='SI' then database_col:=21 //SDSS-i red/infrared
       else
@@ -8384,6 +8330,9 @@ begin
               celestial_to_pixel(head, variable_list[j].ra, variable_list[j].dec,true, xn, yn);
               if ((xn>0) and (xn<head.width-1) and (yn>0) and (yn<head.height-1)) then {within image1}
               begin
+                //if pos('AD_CMi',variable_list[j].abbr)>0 then
+                //i:=j;
+
                 astr := measure_star(xn, yn); //measure in the orginal image, not later when it is alligned/transformed to the reference image
                 if snr>=snr_min then
                 begin
@@ -8392,6 +8341,7 @@ begin
                   begin
                     if ((  frac((i-p_nr_norm)/3)=0 ){tagnr column} and (stackmenu1.listview7.Column[i+1].Caption=variable_list[j].abbr)) then //find the  correct column. If image share not 100% aligned there could be more or less objects
                     begin //existing object column
+
                      listview7.Items.item[c].subitems.Strings[i]:= astr;
                      listview7.Items.item[c].subitems.Strings[i+1]:= IntToStr(round(snr));
                      listview7.Items.item[c].subitems.Strings[i+2]:= IntToStr(round(flux));
@@ -8425,7 +8375,7 @@ begin
       {calculate vectors from astrometric solution to speed up}
       sincos(head.dec0, SIN_dec0, COS_dec0);
       {do this in advance since it is for each pixel the same}
-      astrometric_to_vector;{convert astrometric solution to vectors}
+      astrometric_to_vector(head,head_ref);{convert astrometric solution to vectors}
 
       aa:=solution_vectorX[0];//move to local variable for minor faster processing
       bb:=solution_vectorX[1];
@@ -8716,7 +8666,7 @@ var
   flux, red, green, blue, rgb, r, g, b, sqr_dist, strongest_colour_local,
   top, bg, r2, g2, b2, {noise_level1,} peak, bgR2, bgB2, bgG2, highest_colour, lumr: single;
   bgR, bgB, bgG, star_level, luminance_slope  : double;
-  copydata, red_nebula: boolean;
+  copydata            : boolean;
   headR,headG,headB : Theader;
 begin
   if length(img) < 3 then exit;{not a three colour image}
@@ -9012,8 +8962,8 @@ end;
 procedure Tstackmenu1.list_to_clipboard1Click(Sender: TObject);
 {copy seleced lines to clipboard}
 var
-  row, c,dum,dum2: integer;
-  info,dummy: string;
+  row, c         : integer;
+  info      : string;
   lv: tlistview;
 begin
   info := '';
@@ -9399,7 +9349,7 @@ begin
   blur_factor:=2+box_blur_factor1.ItemIndex;//box blur factor
   box_blur(1 {nr of colors}, blur_factor, img_loaded);
 
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   plot_fits(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
@@ -9462,7 +9412,7 @@ begin
 
   check_pattern_filter(img_loaded);
 
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   plot_fits(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
@@ -9589,7 +9539,7 @@ begin
         break;
       end;
 
-      use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+      plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
       if head.cd1_1 = 0 then {get astrometric solution}
       begin
@@ -9818,12 +9768,259 @@ begin
 end;
 
 procedure Tstackmenu1.measuring_method1Change(Sender: TObject);
-var
-  i: integer;
 begin
   clear_added_AAVSO_columns;
   hide_show_columns_listview7(true {tab8 photometry});
   nr_stars_to_detect1.enabled:=measuring_method1.itemindex=3;
+end;
+
+procedure Tstackmenu1.export_to_tg1Click(Sender: TObject);
+var
+   col,row,nr   :integer;
+   abrv,info,R,V,B,I,Rc,auid,julian_str,filt_line,data_line : string;
+   filt_done,b_filt,v_filt,r_filt,i_filt,rc_filt,skip,selected_rows  : boolean;
+begin
+  nr:=(p_nr-p_nr_norm) div 3;
+  if nr<2 then
+  begin
+    stackmenu1.photometry_button1Click(nil);
+    nr:=1+(p_nr-p_nr_norm) div 3;
+    if nr<2 then
+    begin
+      memo2_message('Abort. Not enough magnitude value found in the list. Press first the play button to measure!');
+      beep;
+      exit;
+    end;
+  end;
+
+  R:='';
+  V:='';
+  B:='';
+  I:='';
+
+  julian_str:='';
+  filt_done:=false;
+  b_filt:=false;
+  v_filt:=false;
+  r_filt:=false;
+  i_filt:=false;
+  rc_filt:=false;
+  selected_rows:=false;
+  filt_line:='Filt';
+  with stackmenu1.listview7 do
+  begin
+
+  for col:=p_nr_norm to p_nr-1 do
+    if frac((col-p_nr_norm)/3)=0 then //not snr col
+    begin
+      abrv:=Columns[col+1].Caption;
+      if pos('000-',abrv)>0 then  //check star or iau code
+      begin
+        auid:=copy(abrv,1,11);
+        data_line:='';
+        for row := 0 to listview7.items.Count - 1 do //go through rows
+
+        if Items[row].Selected then
+        begin
+           selected_rows:=true;
+           if julian_str='' then
+            julian_str:='Julian_Day;'+listview7.Items.item[row].subitems.Strings[p_jd_mid];
+           try
+             case Items.item[row].SubitemImages[P_filter] of
+                       0 : begin R:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';R';R_filt:=true; data_line:=data_line+';'+R; end;  //red
+                       1 : begin V:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';V';V_filt:=true; data_line:=data_line+';'+V;  end;   //V or G TG
+                       2 : begin B:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';B';B_filt:=true; data_line:=data_line+';'+B; end;   //B or TB
+                       28: begin I:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';I';I_filt:=true; data_line:=data_line+';'+I; end;   //I FILTER
+
+//                       21 : begin si:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';SI' end; //SDSS-i
+//                       22 : begin sr:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';SR' end;  //SDSS-r not
+//                       23 : begin sg:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';SG end;  //SDSS-g
+                       24 : begin Rc:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';R';Rc_filt:=true;data_line:=data_line+';'+Rc;  end;  //Cousins red
+
+
+             end;
+            except
+              info := info + ':' + 'Error';
+            end;
+        end;
+        if filt_done=false then
+        begin
+          info:=julian_str+#13+#10;
+          info:=info+Filt_line;
+          if ((b_filt) or (v_filt) or (r_filt) or (i_filt) or (Rc_filt))=false then
+            begin
+              memo2_message('Abort. No B,V,R or I magnitudes found. Press first the play button and the select rows to process!');
+              beep;
+              exit;
+            end;
+          info:=info+#13+#10;
+          filt_done:=true;
+        end;
+        skip:=false;
+        if ((B_filt) and (B='')) then skip:=true;//missing magnitude
+        if ((V_filt) and (V='')) then skip:=true;//missing magnitude
+        if ((R_filt) and (R='')) then skip:=true;//missing magnitude
+        if ((I_filt) and (I='')) then skip:=true;//missing magnitude
+        if ((Rc_filt) and (Rc='')) then skip:=true;//missing magnitude
+        if pos('Satur',data_line)>0 then skip:=true;
+
+        if skip=false then //add star line
+        begin
+          info:=info+AUID + StringReplace(data_line,',','.',[]);   ;
+          info:=info+#13+#10;
+        end;
+      end;
+    end;
+  end;//with stackmenu
+
+  if selected_rows=false then
+  begin
+    memo2_message('Abort. No magnitudes found. Press first the play button and the select rows to process!');
+    beep;
+  end
+  else
+  memo2_message('Copied to clipboard. Paste to text file and feed that file to Transformation Generator');
+  Clipboard.AsText := info;
+end;
+
+
+procedure ScrollToItem(ListView: TListView; Item: TListItem; ColumnIndex: Integer);
+var
+  TotalWidth, TargetPos, MaxScroll: Integer;
+  i: Integer;
+  {$IFNDEF WINDOWS}
+  ScrollSteps: Integer;
+  {$ENDIF}
+begin
+  // Make item visible vertically
+  Item.MakeVisible(False);
+  Item.Selected := True;
+  ListView.ItemFocused := Item;
+  ListView.SetFocus;
+
+  // Calculate horizontal position
+  TotalWidth := 0;
+  for i := 0 to ColumnIndex - 1 do
+    Inc(TotalWidth, ListView.Column[i].Width);
+
+  // Center the target column
+  TargetPos := TotalWidth - (ListView.ClientWidth div 2) +
+               (ListView.Column[ColumnIndex].Width div 2);
+
+  // Calculate maximum scroll (estimated)
+  MaxScroll := 0;
+  for i := 0 to ListView.Columns.Count - 1 do
+    Inc(MaxScroll, ListView.Column[i].Width);
+  MaxScroll := Max(0, MaxScroll - ListView.ClientWidth);
+
+  // Apply bounds checking
+  TargetPos := Max(0, Min(TargetPos, MaxScroll));
+
+  // Platform-specific scrolling
+  {$IFDEF WINDOWS}
+  SendMessage(ListView.Handle, LVM_SCROLL, TargetPos, 0);
+  {$ELSE}
+  // Linux/macOS workaround
+  // Reset to left first (scrolling left by maximum amount)
+  ListView.ScrollBy(-MaxScroll, 0);
+
+  // Scroll right to target position in reasonable steps
+  ScrollSteps := TargetPos div 50;
+  for i := 1 to ScrollSteps do
+    ListView.ScrollBy(50, 0);
+  ListView.ScrollBy(TargetPos mod 50, 0);
+  {$ENDIF}
+end;
+
+
+procedure FindAndScrollInListView(ListView: TListView; const SearchText: string);
+var
+  i, j: Integer;
+  Item: TListItem;
+  SearchStr, ItemText: string;
+  Found: Boolean;
+  TotalWidth, TargetPos, MaxScroll: Integer;
+  {$IFNDEF WINDOWS}
+  ScrollSteps: Integer;
+  {$ENDIF}
+begin
+  if not Assigned(ListView) or (SearchText = '') then Exit;
+
+  SearchStr := UpperCase(SearchText);
+
+  // First search in column titles
+  for i := 0 to ListView.Columns.Count - 1 do
+  begin
+    if Pos(SearchStr, UpperCase(ListView.Columns[i].Caption)) > 0 then
+    begin
+      // Calculate total width of preceding columns
+      TotalWidth := 0;
+      for j := 0 to i - 1 do
+        Inc(TotalWidth, ListView.Column[j].Width);
+
+      // Calculate target scroll position (center the column)
+      TargetPos := TotalWidth - (ListView.ClientWidth div 2) +
+                   (ListView.Column[i].Width div 2);
+
+      // Calculate maximum possible scroll (estimated)
+      MaxScroll := 0;
+      for j := 0 to ListView.Columns.Count - 1 do
+        Inc(MaxScroll, ListView.Column[j].Width);
+      MaxScroll := Max(0, MaxScroll - ListView.ClientWidth);
+
+      // Apply bounds checking
+      TargetPos := Max(0, Min(TargetPos, MaxScroll));
+
+      // Platform-specific scrolling
+      {$IFDEF WINDOWS}
+      SendMessage(ListView.Handle, LVM_SCROLL, TargetPos, 0);
+      {$ELSE}
+      // Linux/macOS workaround - reset to left first
+      ListView.ScrollBy(-MaxScroll, 0);
+
+      // Scroll to target position in reasonable steps
+      ScrollSteps := TargetPos div 50;
+      for j := 1 to ScrollSteps do
+        ListView.ScrollBy(50, 0);
+      ListView.ScrollBy(TargetPos mod 50, 0);
+      {$ENDIF}
+
+      Exit;
+    end;
+  end;
+
+  // Search through items and subitems
+  for i := 0 to ListView.Items.Count - 1 do
+  begin
+    Item := ListView.Items[i];
+
+    // Check main caption
+    if Pos(SearchStr, UpperCase(Item.Caption)) > 0 then
+    begin
+      ScrollToItem(ListView, Item, 0);
+      Exit;
+    end;
+
+    // Check subitems
+    for j := 0 to Item.SubItems.Count - 1 do
+    begin
+      if (j < ListView.Columns.Count) and
+         (Pos(SearchStr, UpperCase(Item.SubItems[j])) > 0) then
+      begin
+        ScrollToItem(ListView, Item, j + 1);
+        Exit;
+      end;
+    end;
+  end;
+
+  ShowMessage('Text "' + SearchText + '" not found');
+end;
+
+
+procedure Tstackmenu1.find_listview_text7Click(Sender: TObject);
+begin
+  PatternToFind:=uppercase(inputbox('Find','Text to find in listview:' ,PatternToFind));
+  FindAndScrollInListView(ListView7, PatternToFind);
 end;
 
 
@@ -9913,6 +10110,15 @@ begin
     memo2_message('Test completed. Results: '+#13+#10+results+#13+#10+#13+#10+'Best aperture setting for these images is '+beststr);
   end;
   Screen.Cursor := crDefault;{back to normal }
+end;
+
+
+
+procedure Tstackmenu1.transformation2Click(Sender: TObject);
+begin
+  if Form_transformation1 = nil then
+    Form_transformation1 := TForm_transformation1.Create(self); {in project option not loaded automatic}
+  Form_transformation1.Show{Modal};
 end;
 
 
@@ -10276,7 +10482,7 @@ end;
 
 procedure remove_stars;
 var
-  fitsX,fitsY,hfd_counter,position,x,y,x1,y1,counter_noflux  : integer;
+  fitsX,fitsY,position,x,y,x1,y1,counter_noflux                  : integer;
   magnd, backgrR,backgrG,backgrB,delta                           : double;
   img_temp3 :Timage_array;
   old_aperture : string;
@@ -10570,7 +10776,7 @@ begin
   esc_pressed := False;
   someresult := False;
   index := 0;
-  shape_var1_fitsX := -99;
+  shape_fitsX := -99;
   while index <= total do
   begin
     if listview1.Items[index].Selected then
@@ -10580,18 +10786,18 @@ begin
       psx := ListView1.Items.item[index].subitems.Strings[L_X];
       if psx <> '' then
       begin
-        shape_var1_fitsX := -1 + strtofloat2(psx);{keep updating each image}
+        shape_fitsX := -1 + strtofloat2(psx);{keep updating each image}
         psy := ListView1.Items.item[index].subitems.Strings[L_Y];
-        shape_var1_fitsY := -1 + round(strtofloat2(psy));{keep updating each image}
+        shape_fitsy := -1 + round(strtofloat2(psy));{keep updating each image}
       end
       else
-      if shape_var1_fitsX > 0 {at least one reference found} then
+      if shape_fitsX > 0 {at least one reference found} then
         if load_image(filename2,img_loaded,head,mainform1.memo1.lines,True, False {plot}) then {load}
         begin
           if find_reference_star(img_loaded) then
           begin
-            ListView1.Items.item[index].subitems.Strings[L_X] := floattostrF(shape_var1_fitsX, ffFixed, 0, 2);
-            ListView1.Items.item[index].subitems.Strings[L_Y] := floattostrF(shape_var1_fitsY, ffFixed, 0, 2);
+            ListView1.Items.item[index].subitems.Strings[L_X] := floattostrF(shape_fitsX, ffFixed, 0, 2);
+            ListView1.Items.item[index].subitems.Strings[L_Y] := floattostrF(shape_fitsy, ffFixed, 0, 2);
             {$ifdef darwin} {MacOS}
             {bugfix darwin green red colouring}
             stackmenu1.ListView1.Items.item[index].Subitems.strings[L_result]:='✓ star';
@@ -10599,8 +10805,8 @@ begin
             memo2_message(filename2 + ' lock');{for manual alignment}
             someresult := True;
 
-            startX := round(shape_var1_fitsX - 1);{follow star movement for next image}
-            startY := round(shape_var1_fitsY - 1);
+            startX := round(shape_fitsX - 1);{follow star movement for next image}
+            startY := round(shape_fitsy - 1);
           end;
           application.ProcessMessages;
           if esc_pressed then break;
@@ -11192,7 +11398,7 @@ begin
   background_noise_filter(img_loaded, strtofloat2(stackmenu1.noisefilter_sd1.Text),
     strtofloat2(stackmenu1.noisefilter_blur1.Text));
 
-  //  use_histogram(true);{get histogram}
+  //  plot_histogram(true);{get histogram}
   plot_fits(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
@@ -11250,7 +11456,7 @@ begin
     plot_fits(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
-  use_histogram(img_loaded, True {update}); {update for the noise, plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {update for the noise, plot histogram, set sliders}
 end;
 
 
@@ -11309,7 +11515,7 @@ begin
           break;
         end;
 
-        use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+        plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
         plot_fits(mainform1.image1, False {re_center});
 
@@ -11912,8 +12118,8 @@ end;
 
 function apply_dark_and_flat(var img: Timage_array; var hd : theader): boolean; {apply dark and flat if required, renew if different head.exposure or ccd temp}
 var
-  fitsX, fitsY, k: integer;
-  Value, flat_factor, flatNorm11, flatNorm12, flatNorm21, flatNorm22, flat_norm_value: double;
+  fitsX, fitsY   : integer;
+  Value, flatNorm11, flatNorm12, flatNorm21, flatNorm22, flat_norm_value: double;
 
 begin
   Result := False;
@@ -13004,7 +13210,7 @@ begin
             stackmenu1.reset_factors1Click(nil);{reset factors to default}
 
 
-            use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+            plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
             if stackmenu1.global_colour_smooth1.Checked then
             begin
@@ -13028,7 +13234,7 @@ begin
           else
           begin
             memo2_message('Adjusting colour levels and colour smooth are disabled. See tab "stack method"');
-            use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+            plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
           end;
         end
         else
@@ -13041,7 +13247,7 @@ begin
               stackmenu1.auto_background_level1Click(nil);
               apply_factors;{histogram is after this action invalid}
               stackmenu1.reset_factors1Click(nil);{reset factors to default}
-              use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+              plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
               if stackmenu1.osc_colour_smooth1.Checked then
               begin
                 memo2_message( 'Applying colour-smoothing filter image as set in tab "stack method".');
@@ -13051,11 +13257,11 @@ begin
             else
             begin
               memo2_message('Adjusting colour levels and colour smooth are disabled. See tab "stack method"');
-              use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+              plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
             end;
           end
           else {mono files}
-            use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+            plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
         end;
 
         plot_fits(mainform1.image1, True);{plot real}
@@ -13489,7 +13695,7 @@ begin
       end;
   end;{k color}
 
-  use_histogram(img_loaded, True {update}); {plot histogram, set sliders}
+  plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   plot_fits(mainform1.image1, False);
 
   memo2_message('Remove gradient done.');
