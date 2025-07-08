@@ -93,7 +93,6 @@ type
     Separator14: TMenuItem;
     Separator9: TMenuItem;
     sn_rename_selected_files1: TMenuItem;
-    MenuItem36: TMenuItem;
     MenuItem37: TMenuItem;
     MenuItem39: TMenuItem;
     MenuItem40: TMenuItem;
@@ -107,7 +106,7 @@ type
     Separator8: TMenuItem;
     solar_drift_ra1: TEdit;
     solar_drift_compensation1: TCheckBox;
-    copyRowsandColumnsswapped1: TMenuItem;
+    list_to_clipboard7: TMenuItem;
     ignore_saturation1: TCheckBox;
     Label74: TLabel;
     MenuItem34: TMenuItem;
@@ -557,8 +556,7 @@ type
     stack_groups1: TMenuItem;
     refresh_astrometric_solutions1: TMenuItem;
     photometric_calibration1: TMenuItem;
-    photom_blue1: TMenuItem;
-    photom_red1: TMenuItem;
+    photom_extractRGB1: TMenuItem;
     Separator2: TMenuItem;
     Separator3: TMenuItem;
     column_fov1: TMenuItem;
@@ -667,7 +665,6 @@ type
     MenuItem25: TMenuItem;
     rename_result1: TMenuItem;
     MenuItem24: TMenuItem;
-    list_to_clipboard7: TMenuItem;
     MenuItem20: TMenuItem;
     MenuItem21: TMenuItem;
     MenuItem22: TMenuItem;
@@ -774,7 +771,7 @@ type
     procedure apply_unsharp_mask1Click(Sender: TObject);
     procedure classify_dark_temperature1Change(Sender: TObject);
     procedure contour_gaussian1Change(Sender: TObject);
-    procedure copyRowsandColumnsswapped1Click(Sender: TObject);
+    procedure list_to_clipboard7Click(Sender: TObject);
     procedure detect_contour1Click(Sender: TObject);
     procedure ClearButton1Click(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -785,6 +782,7 @@ type
     procedure measuring_method1Change(Sender: TObject);
     procedure export_to_tg1Click(Sender: TObject);
     procedure find_listview_text7Click(Sender: TObject);
+    procedure Panel_stack_button1Click(Sender: TObject);
     procedure report_sqm1Click(Sender: TObject);
     procedure MenuItem41Click(Sender: TObject);
     procedure annotate_unknown1Click(Sender: TObject);
@@ -1018,6 +1016,8 @@ type
 
   public
     { Public declarations }
+    procedure DisplayHint(Sender: TObject);//for popup menu hints
+
   end;
 
 var
@@ -1036,6 +1036,8 @@ type
     index  : integer;//original listview index position
     name   : string;
   end;
+
+
 
 
 var
@@ -1104,7 +1106,6 @@ var  {################# initialised variables #########################}
   groupsizeStr : string='';
   images_selected: integer=0;
   dark_norm_value: double=0;
-
 
 
 const
@@ -2921,12 +2922,22 @@ begin
 end;
 
 
+procedure Tstackmenu1.displayhint(Sender: TObject);
+var
+  hintstr: string;
+begin
+   hintStr := application.hint;    // Set the form's caption to the hint string
+   if ((length(hintstr)>0) and (copy(hintstr,1,1)='#')) then //# A marker indicating this is coming from a popupmenu. Enter this # at every hint
+      self.Caption := copy(hintstr,2,999)
+    else
+      self.Caption := 'Stack menu'; // Or empty string, or default
+end;
+
 procedure Tstackmenu1.FormCreate(Sender: TObject);
 var
   RealFontSize: integer;
 begin
-  RealFontSize := abs(Round((GetFontData(stackmenu1.Font.Handle).Height *
-    72 / stackmenu1.Font.PixelsPerInch)));
+  RealFontSize := abs(Round((GetFontData(stackmenu1.Font.Handle).Height * 72 / stackmenu1.Font.PixelsPerInch)));
   if realfontsize > 11 then stackmenu1.font.size := 11;{limit fontsize}
 
   {$ifdef mswindows}
@@ -2939,6 +2950,7 @@ begin
   if commandline_execution=false then update_stackmenu_mac;
   {$endif}
 
+  Application.OnHint := DisplayHint;
 end;
 
 procedure Tstackmenu1.FormKeyPress(Sender: TObject; var Key: char);
@@ -4040,7 +4052,7 @@ begin
       ImageList2.GetBitmap(12, bmp){colour stack}
     else
     if ((process_as_osc > 0) or (make_osc_color1.Checked)) then
-      ImageList2.GetBitmap(30, bmp){OSC colour stack}
+      ImageList2.GetBitmap(29, bmp){OSC colour stack}
     else
       ImageList2.GetBitmap(6, bmp);{gray stack}
 
@@ -4165,7 +4177,7 @@ begin
 //  detag:=column.tag;
 //  if column.tag<>0 then
 //  begin
-  //  variable_list[detag].ra
+  //  vsp_vsx_list[detag].ra
   //  ffffff
 //    beep;
 //  end;
@@ -4264,8 +4276,6 @@ end;
 procedure Tstackmenu1.listview1DblClick(Sender: TObject);
 begin
   listview_view(TListView(Sender));
-//  if ((pagecontrol1.tabindex = 8) {photometry} and (annotate_mode1.ItemIndex > 0)) then
-//    mainform1.variable_star_annotation1Click(nil); //plot variable stars and comp star annotations
   Screen.Cursor := crDefault;;//just to be sure for Mac.
 end;
 
@@ -5268,7 +5278,7 @@ end;
 procedure resize_img_loaded(ratio: double); {resize img_loaded in free ratio}
 var
   img_temp2: Timage_array;
-  FitsX, fitsY, k, w, h, w2, h2,colours,col : integer;
+  FitsX, fitsY, w, h, w2, h2,colours,col : integer;
   x, y: double;
   colour : pixel;
 begin
@@ -6280,6 +6290,7 @@ begin
     exit;
   end;
 
+
   if form_aavso1 = nil then
     form_aavso1 := Tform_aavso1.Create(self); {in project option not loaded automatic}
   form_aavso1.Show{Modal};
@@ -7146,7 +7157,7 @@ end;
 procedure Tstackmenu1.photom_green1Click(Sender: TObject);
 var
   c: integer;
-  fn, ff: string;
+  fn, ff, fnBlue, fnRed : string;
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   esc_pressed := False;
@@ -7171,24 +7182,29 @@ begin
         ff := ListView7.items[c].Caption;
         if fits_tiff_file_name(ff) = False then
         begin
-          memo2_message('█ █ █ █ █ █ Can' + #39 +
-            't extract. First analyse file list to convert to FITS !! █ █ █ █ █ █');
+          memo2_message('█ █ █ █ █ █ Can' + #39 + 't extract. First analyse file list to convert to FITS !! █ █ █ █ █ █');
           beep;
           exit;
         end;
 
 
-        if sender=photom_blue1 then
-          fn := extract_raw_colour_to_file(ff, 'TB', 1, 1) {extract green red or blue channel}
-        else
-        if sender=photom_red1 then
-          fn := extract_raw_colour_to_file(ff, 'TR', 1, 1) {extract green red or blue channel}
+        if sender=photom_extractRGB1 then
+        begin
+          fn := extract_raw_colour_to_file(ff, 'TG', 1, 1); {extract green red or blue channel}
+          fnBlue := extract_raw_colour_to_file(ff, 'TB', 1, 1); {extract green red or blue channel}
+          fnRed := extract_raw_colour_to_file(ff, 'TR', 1, 1); {extract green red or blue channel}
+
+          listview7.Items.beginupdate;
+          if fnBlue<>'' then listview_add(ListView7,fnBlue,true,P_nr);
+          if fnRed<>'' then listview_add(ListView7,fnRed,true,P_nr);;
+          listview7.Items.endupdate;
+        end
         else
           fn := extract_raw_colour_to_file(ff, 'TG', 1, 1); {extract green red or blue channel}
 
         if fn <> '' then
         begin
-          ListView7.items[c].Caption := fn;
+          ListView7.items[c].Caption := fn;//replace by green channel
         end;
 
       end;
@@ -7884,7 +7900,7 @@ begin
 end;
 
 
-procedure create_all_star_list; //collect any star in the variable_list
+procedure create_all_star_list; //collect any star in the vsp_vsx_list
 var
    i,j, nrstars, formalism            :integer;
    hfd_min,ra2,dec2,sep,mean_hfd      : double;
@@ -7892,37 +7908,37 @@ var
    variable_listAAVSO: array of tvariable_list;
    found               : boolean;
 begin
-  variable_listAAVSO:=copy(variable_list,0,variable_list_length+1);//duplicate AAVSO list
+  variable_listAAVSO:=copy(vsp_vsx_list,0,vsp_vsx_list_length+1);//duplicate AAVSO list
 
   if img_loaded=nil then exit;
   hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
   find_stars(img_loaded, head,hfd_min, round(strtofloat2(stackmenu1.nr_stars_to_detect1.text)), starlist,mean_hfd);
   nrstars:=length(starlist[0]);
-  setlength(variable_list,nrstars);//make space
+  setlength(vsp_vsx_list,nrstars);//make space
   formalism:=mainform1.Polynomial1.itemindex;
 
   for i:=0 to nrstars-1 do
   begin
     pixel_to_celestial(head,starlist[0,i]+1,starlist[1,i]+1, formalism, ra2,dec2);
-    variable_list[i].ra:=ra2;
-    variable_list[i].dec:=dec2;
+    vsp_vsx_list[i].ra:=ra2;
+    vsp_vsx_list[i].dec:=dec2;
     found:=false;
     for j:=0 to length(variable_listAAVSO)-1 do
     begin
       ang_sep(ra2, dec2, variable_listAAVSO[j].ra, variable_listAAVSO[j].dec, {out}sep);
       if sep < 10 * pi / (180*60*60) then //same star, position within 10 arcsec
       begin
-        variable_list[i]:=variable_listAAVSO[j]; //same star. Use all AAVSO data, a,dec and magnitudes
+        vsp_vsx_list[i]:=variable_listAAVSO[j]; //same star. Use all AAVSO data, a,dec and magnitudes
         found:=true;
       end;
     end;
     if found=false then
     begin
-       variable_list[i].abbr:=prepare_IAU_designation(ra2, dec2);
-       variable_list[i].source:=3;//not is AAVSO database
+       vsp_vsx_list[i].abbr:=prepare_IAU_designation(ra2, dec2);
+       vsp_vsx_list[i].source:=3;//not is AAVSO database
     end;
   end;
-  variable_list_length:=nrstars-1;
+  vsp_vsx_list_length:=nrstars-1;
 end;
 
 
@@ -8031,7 +8047,7 @@ begin
 
   save_settings2;{Too many lost selected files, so first save settings.}
 
-  variable_list:=nil;//clear every time. In case the images are changed then the columns are correct.
+  vsp_vsx_list:=nil;//clear every time. In case the images are changed then the columns are correct.
 
 
   {check is analyse is done}
@@ -8264,6 +8280,27 @@ begin
 
         saturation_level:=calc_saturation_level(head);
 
+
+        // fill vsx, vsp database database
+        if length(vsp_vsx_list)=0 then //fill with vsp, vsx stars for later
+        begin
+          variable_star_annotation(true {extract AAVSO database  to vsp_vsx_list});
+
+          if stackmenu1.measuring_method1.itemindex=3 then //add none AAVSO stars
+            create_all_star_list;//collect any star in the vsp_vsx_list
+
+          oldra0:=head.ra0;
+          olddec0:=head.dec0;
+        end
+        else
+        begin
+          ang_sep(oldra0,olddec0,head.ra0,head.dec0,sep);
+            if sep>head.width*head.cdelt2*0.1*pi/180 then //10% of size shift. Update fill_variable_list
+                mainform1.variable_star_annotation1Click(sender {new position, update variable list});
+        end;
+
+
+
         if stackmenu1.measuring_method1.itemindex=0 then // measure manual
         begin
           with mainform1 do
@@ -8292,45 +8329,27 @@ begin
                 listview7.Items.item[c].subitems.Strings[p_nr_norm+i*3] := astr;
                 listview7.Items.item[c].subitems.Strings[p_nr_norm+1+i*3] := IntToStr(round(snr));
                 listview7.Items.item[c].subitems.Strings[p_nr_norm+2+i*3] := IntToStr(round(Flux));
-
-                listview7.Column[p_nr_norm+1+i*3].Caption:=Fshapes[i].shape.hint; //abbrv hint is only available after plot. Is updated for second image Caption counting is one different
+                listview7.Column[p_nr_norm+1+i*3].Caption:=Fshapes[i].shape.hint; //abbrv hint is only available after plot. Is updated for second image Caption counting is one different. Caption positions are 19, 22, 25 ...
+                listview7.column[p_nr_norm+1+i*3].tag:=Fshapes[i].vspvsx_list_index;//copy the vsp_vsx_list index of this star
               end;
             end;//for
 
           end;//mainform1
         end
         else
-        begin //mode measure all AAVSO objects
+        begin // None manual
 
-          if length(variable_list)=0 then
-          begin
-            variable_star_annotation(true {extract AAVSO database  to variable_list});
-
-            if stackmenu1.measuring_method1.itemindex=3 then //add none AAVSO stars
-              create_all_star_list;//collect any star in the variable_list
-
-            oldra0:=head.ra0;
-            olddec0:=head.dec0;
-          end
-          else
-          begin
-            ang_sep(oldra0,olddec0,head.ra0,head.dec0,sep);
-              if sep>head.width*head.cdelt2*0.1*pi/180 then //10% of size shift. Update fill_variable_list
-                  mainform1.variable_star_annotation1Click(sender {new position, update variable list});
-
-          end;
-
-          if stackmenu1.measuring_method1.itemindex=1 then snr_min:=30 else snr_min:=10; //onlt bright enough stars
+          if stackmenu1.measuring_method1.itemindex=1 then snr_min:=30 else snr_min:=10; //only bright enough stars
 
           //measure all AAVSO stars using the position from the local database
-          if variable_list_length>0 then
+          if vsp_vsx_list_length>0 then
           begin
-            for j:=0 to variable_list_length do
+            for j:=0 to vsp_vsx_list_length do
             begin
-              celestial_to_pixel(head, variable_list[j].ra, variable_list[j].dec,true, xn, yn);
+              celestial_to_pixel(head, vsp_vsx_list[j].ra, vsp_vsx_list[j].dec,true, xn, yn);
               if ((xn>0) and (xn<head.width-1) and (yn>0) and (yn<head.height-1)) then {within image1}
               begin
-                //if pos('AD_CMi',variable_list[j].abbr)>0 then
+                //if pos('AD_CMi',vsp_vsx_list[j].abbr)>0 then
                 //i:=j;
 
                 astr := measure_star(xn, yn); //measure in the orginal image, not later when it is alligned/transformed to the reference image
@@ -8339,7 +8358,7 @@ begin
                   new_object:=true;
                   for i:=p_nr_norm to p_nr-3 do
                   begin
-                    if ((  frac((i-p_nr_norm)/3)=0 ){tagnr column} and (stackmenu1.listview7.Column[i+1].Caption=variable_list[j].abbr)) then //find the  correct column. If image share not 100% aligned there could be more or less objects
+                    if ((  frac((i-p_nr_norm)/3)=0 ){tagnr column} and (stackmenu1.listview7.Column[i+1].Caption=vsp_vsx_list[j].abbr)) then //find the  correct column. If image share not 100% aligned there could be more or less objects
                     begin //existing object column
 
                      listview7.Items.item[c].subitems.Strings[i]:= astr;
@@ -8353,10 +8372,10 @@ begin
                   begin
                     with listview7 do
                     begin //add column
-                      listview7_add_column(variable_list[j].abbr);
+                      listview7_add_column(vsp_vsx_list[j].abbr);
                       listview7_add_column('SNR');
                       listview7_add_column('Flux');
-                      memo2_message('Added columns for '+variable_list[j].abbr);
+                      memo2_message('Added columns for '+vsp_vsx_list[j].abbr);
                     end;
                     listview7.Items.item[c].subitems.Strings[P_nr-3]:= astr;
                     listview7.Items.item[c].subitems.Strings[P_nr-2]:= IntToStr(round(snr));
@@ -8472,7 +8491,7 @@ begin
 
         if annotate_mode1.ItemIndex > 0 then
         begin
-          variable_star_annotation(false  {plot, do not extract to variable_list}); //vsp & vsx
+          variable_star_annotation(false  {plot, do not extract to vsp_vsx_list}); //vsp & vsx
         end;
 
         stop_updating(false);//listview7.Items.endUpdate;
@@ -8485,7 +8504,7 @@ begin
       form_aavso1.FormShow(nil);{aavso report}
 
   nil_all;{reactivate listview updating, nil all arrays and restore cursor}
-
+  memo2_message('Measurements completed.');
 
 end;
 
@@ -8973,8 +8992,8 @@ begin
   else
   if Sender = list_to_clipboard8 then lv := listview8
   else
-  if Sender = list_to_clipboard7 then lv := listview7
-  else
+//  if Sender = list_to_clipboard7 then lv := listview7
+//  else
   if Sender = list_to_clipboard6 then lv := listview6
   else
   if Sender = list_to_clipboard1 then lv := listview1
@@ -9669,20 +9688,27 @@ begin
 end;
 
 
-procedure Tstackmenu1.copyRowsandColumnsswapped1Click(Sender: TObject);
+procedure Tstackmenu1.list_to_clipboard7Click(Sender: TObject);
 var
-   column, row : integer;
-   info        : string;
+   column, row,icon_nr : integer;
+   info,doc_magn,abbrv : string;
    lv: tlistview;
+   documented_comp_magn : double;
+   add_doc : boolean;
 begin
   info:='';
   lv:=listview7;
   for column := 0 to lv.columns.count-1 do //go trough column titles
   begin
+    doc_magn:='Documented magnitude'+#9;
     for row := -1 to lv.items.Count - 1 do //go from title row then through next rows
     begin
+      add_doc:=false;
       if row=-1 then //column title row
-         info := info + lv.columns[column].Caption + #9   //column title. There  X titles, one caption column and X-1 subitems columns
+      begin
+        abbrv:=lv.columns[column].Caption;
+        info := info +abbrv + #9   //column title. There  X titles, one caption column and X-1 subitems columns
+      end
       else
       if lv.Items[row].Selected then
       begin
@@ -9690,11 +9716,22 @@ begin
         else
         begin
           if column<=lv.Items[row].SubItems.Count then //does the field exist ?
+          begin
             info := info + lv.Items.item[row].subitems.Strings[column-1]+ #9; //Report subitem rows. Subitem rows have a position equals title position -1
+
+            add_doc:=((column>p_nr_norm) and (frac((column-p_nr_norm-1)/3)=0));//add documented magnitudes?
+            if add_doc then
+            begin
+              icon_nr:=stackmenu1.listview7.Items.item[row].SubitemImages[P_filter];{filter icon nr}
+              documented_comp_magn:=retrieve_comp_magnitude(false,icon_nr,column-1, abbrv);//  retrieve the documented magnitude at passband used from the abbrev_comp string
+              doc_magn:=doc_magn+floattostrF(documented_comp_magn,FFfixed,0,3)+#9;
+            end;
+          end;
         end;
       end;//rows
     end;
     info := info + slinebreak;
+    if add_doc then info:=info+doc_magn + slinebreak;
   end;//columns
   Clipboard.AsText := info;
 end;
@@ -9740,6 +9777,7 @@ begin
         undo_rename_to_bak(tabind);//ctrl+z
   end;
 end;
+
 
 procedure Tstackmenu1.Label19Click(Sender: TObject);
 begin
@@ -9883,14 +9921,10 @@ begin
   Clipboard.AsText := info;
 end;
 
-
 procedure ScrollToItem(ListView: TListView; Item: TListItem; ColumnIndex: Integer);
 var
-  TotalWidth, TargetPos, MaxScroll: Integer;
+  TotalWidth, TargetPos: Integer;
   i: Integer;
-  {$IFNDEF WINDOWS}
-  ScrollSteps: Integer;
-  {$ENDIF}
 begin
   // Make item visible vertically
   Item.MakeVisible(False);
@@ -9907,30 +9941,20 @@ begin
   TargetPos := TotalWidth - (ListView.ClientWidth div 2) +
                (ListView.Column[ColumnIndex].Width div 2);
 
-  // Calculate maximum scroll (estimated)
-  MaxScroll := 0;
-  for i := 0 to ListView.Columns.Count - 1 do
-    Inc(MaxScroll, ListView.Column[i].Width);
-  MaxScroll := Max(0, MaxScroll - ListView.ClientWidth);
-
-  // Apply bounds checking
-  TargetPos := Max(0, Min(TargetPos, MaxScroll));
-
   // Platform-specific scrolling
   {$IFDEF WINDOWS}
-  SendMessage(ListView.Handle, LVM_SCROLL, TargetPos, 0);
+  SendMessage(ListView.Handle, WM_HSCROLL, SB_TOP, 0);  // Reset to left
+  SendMessage(ListView.Handle, LVM_SCROLL, TargetPos, 0); // Scroll to position
   {$ELSE}
-  // Linux/macOS workaround
-  // Reset to left first (scrolling left by maximum amount)
-  ListView.ScrollBy(-MaxScroll, 0);
-
-  // Scroll right to target position in reasonable steps
-  ScrollSteps := TargetPos div 50;
-  for i := 1 to ScrollSteps do
-    ListView.ScrollBy(50, 0);
-  ListView.ScrollBy(TargetPos mod 50, 0);
+  // Linux solution that actually works
+  // 1. First set the scroll position
+  LCLIntf.SetScrollPos(ListView.Handle, SB_HORZ, TargetPos, True);
+  listview.columns[0].autosize:=false;//force a repaint. Repaint doesn't work
+  application.processmessages;
+  listview.columns[0].autosize:=true;
   {$ENDIF}
 end;
+
 
 
 procedure FindAndScrollInListView(ListView: TListView; const SearchText: string);
@@ -9939,20 +9963,19 @@ var
   Item: TListItem;
   SearchStr, ItemText: string;
   Found: Boolean;
-  TotalWidth, TargetPos, MaxScroll: Integer;
-  {$IFNDEF WINDOWS}
-  ScrollSteps: Integer;
-  {$ENDIF}
+  TotalWidth, TargetPos: Integer;
 begin
   if not Assigned(ListView) or (SearchText = '') then Exit;
 
   SearchStr := UpperCase(SearchText);
+  Found := False;
 
   // First search in column titles
   for i := 0 to ListView.Columns.Count - 1 do
   begin
     if Pos(SearchStr, UpperCase(ListView.Columns[i].Caption)) > 0 then
     begin
+      Found := True;
       // Calculate total width of preceding columns
       TotalWidth := 0;
       for j := 0 to i - 1 do
@@ -9962,65 +9985,67 @@ begin
       TargetPos := TotalWidth - (ListView.ClientWidth div 2) +
                    (ListView.Column[i].Width div 2);
 
-      // Calculate maximum possible scroll (estimated)
-      MaxScroll := 0;
-      for j := 0 to ListView.Columns.Count - 1 do
-        Inc(MaxScroll, ListView.Column[j].Width);
-      MaxScroll := Max(0, MaxScroll - ListView.ClientWidth);
-
-      // Apply bounds checking
-      TargetPos := Max(0, Min(TargetPos, MaxScroll));
-
       // Platform-specific scrolling
       {$IFDEF WINDOWS}
-      SendMessage(ListView.Handle, LVM_SCROLL, TargetPos, 0);
+      SendMessage(ListView.Handle, WM_HSCROLL, SB_TOP, 0);  // Reset to left
+      SendMessage(ListView.Handle, LVM_SCROLL, TargetPos, 0);// Scroll to position
       {$ELSE}
-      // Linux/macOS workaround - reset to left first
-      ListView.ScrollBy(-MaxScroll, 0);
-
-      // Scroll to target position in reasonable steps
-      ScrollSteps := TargetPos div 50;
-      for j := 1 to ScrollSteps do
-        ListView.ScrollBy(50, 0);
-      ListView.ScrollBy(TargetPos mod 50, 0);
+      // Linux solution - use direct scrollbar control with refresh
+      LCLIntf.SetScrollPos(ListView.Handle, SB_HORZ, TargetPos, True);
+      listview.columns[0].autosize:=false;//force a repaint. Repaint doesn't work
+      application.processmessages;
+      listview.columns[0].autosize:=true;
       {$ENDIF}
 
-      Exit;
+      Break;
     end;
   end;
 
-  // Search through items and subitems
-  for i := 0 to ListView.Items.Count - 1 do
+  // If not found in column titles, search through items and subitems
+  if not Found then
   begin
-    Item := ListView.Items[i];
-
-    // Check main caption
-    if Pos(SearchStr, UpperCase(Item.Caption)) > 0 then
+    for i := 0 to ListView.Items.Count - 1 do
     begin
-      ScrollToItem(ListView, Item, 0);
-      Exit;
-    end;
+      Item := ListView.Items[i];
 
-    // Check subitems
-    for j := 0 to Item.SubItems.Count - 1 do
-    begin
-      if (j < ListView.Columns.Count) and
-         (Pos(SearchStr, UpperCase(Item.SubItems[j])) > 0) then
+      // Check main caption
+      if Pos(SearchStr, UpperCase(Item.Caption)) > 0 then
       begin
-        ScrollToItem(ListView, Item, j + 1);
-        Exit;
+        Found := True;
+        ScrollToItem(ListView, Item, 0);
+        Break;
       end;
+
+      // Check subitems
+      for j := 0 to Item.SubItems.Count - 1 do
+      begin
+        if (j < ListView.Columns.Count) and
+           (Pos(SearchStr, UpperCase(Item.SubItems[j])) > 0) then
+        begin
+          Found := True;
+          ScrollToItem(ListView, Item, j + 1);
+          Break;
+        end;
+      end;
+      if Found then Break;
     end;
   end;
 
-  ShowMessage('Text "' + SearchText + '" not found');
+  if not Found then
+    ShowMessage('Text "' + SearchText + '" not found');
 end;
+
 
 
 procedure Tstackmenu1.find_listview_text7Click(Sender: TObject);
 begin
   PatternToFind:=uppercase(inputbox('Find','Text to find in listview:' ,PatternToFind));
   FindAndScrollInListView(ListView7, PatternToFind);
+end;
+
+procedure Tstackmenu1.Panel_stack_button1Click(Sender: TObject);
+begin
+
 end;
 
 
@@ -10034,6 +10059,49 @@ begin
   solar_drift_dec1.visible:=show;
   label_delta_dec1.visible:=show;
 end;
+
+
+
+function find_sd_star(column: integer) : double;//calculate the standard deviation of a variable
+var
+   count, c,count_checked, icon_nr  : integer;
+   magn, mean                       : double;
+   dum: string;
+   listMagnitudes : array of double;
+begin
+  count:=0;
+  count_checked:=0;
+  setlength(listMagnitudes,stackmenu1.listview7.items.count);//list with magnitudes check star
+
+
+  with stackmenu1 do
+  for c:=0 to length(RowChecked)-1 do {retrieve data from listview}
+  begin
+    icon_nr:=listview7.Items.item[c].SubitemImages[P_filter];
+    if ((icon_nr=1) or (icon_nr=4)) then //for filter V or TG or CV only
+    if listview7.Items.item[c].checked then
+    begin
+      dum:=(listview7.Items.item[c].subitems.Strings[column]);{var star}
+      if ((length(dum)>1 {not a ?}) and (dum[1]<>'S'{saturated})) then magn:=strtofloat(dum) else magn:=0;
+      if magn>0 then
+      begin
+        listMagnitudes[count]:= magn;
+        inc(count);
+      end;
+      inc(count_checked);
+    end;
+
+  end;
+  if count>count_checked/2 then //at least 50% valid measurements Not 50% because it will not report if two filter are in the list
+  begin
+     //calc standard deviation using the classic method. This will show the effect of outliers
+    calc_sd_and_mean(listMagnitudes, count{counter},{out}result, mean);// calculate sd and mean of an array of doubles}
+  end
+  else
+    result:=-99;//unknown
+end;
+
+
 
 
 procedure Tstackmenu1.SpeedButton2Click(Sender: TObject);
@@ -10116,6 +10184,7 @@ end;
 
 procedure Tstackmenu1.transformation2Click(Sender: TObject);
 begin
+
   if Form_transformation1 = nil then
     Form_transformation1 := TForm_transformation1.Create(self); {in project option not loaded automatic}
   Form_transformation1.Show{Modal};
@@ -11697,7 +11766,7 @@ begin
           if hd.height = StrToInt( stackmenu1.listview3.Items.item[c].subitems.Strings[D_height]) then
           begin
             calst:=stackmenu1.listview3.Items.item[c].subitems.Strings[F_calibration];
-            if  ((pos('D',calst)=0) and (pos('F',calst)=0)) then //not a calibrated light or a dark?
+            if  (((pos('D',calst)=0) and (pos('F',calst)=0)) or (pos('F',imagetype)>0 )) then //not a calibrated light or a dark?
             begin
               d := strtofloat(stackmenu1.listview3.Items.item[c].subitems.Strings[F_jd]);
               if abs(d - jd_int) < day_offset then {find flat with closest date}
@@ -12485,7 +12554,7 @@ end;
 procedure Tstackmenu1.stack_button1Click(Sender: TObject);
 var
   i, c, nrfiles, image_counter, object_counter,
-  first_file, total_counter, counter_colours,analyse_level, referenceX,referenceY :   integer;
+  first_file, total_counter, counter_colours,analyse_level, referenceX,referenceY,filter_icon :   integer;
   filter_name1, filter_name2, defilter, filename3,
   extra1, extra2, object_to_process, stack_info, thefilters                       : string;
   lrgb, solution, monofile, ignore, cal_and_align,
@@ -13025,6 +13094,7 @@ begin
                 (AnsiCompareText(filter_name2, defilter) = 0)) then
               begin {correct filter}
                 filters_used[i] := defilter;
+                filter_icon:=ListView1.Items.item[c].SubitemImages[L_filter];
                 files_to_process[c].Name := ListView1.items[c].Caption;
                 Inc(image_counter);{one image more}
 
@@ -13114,7 +13184,11 @@ begin
             end;
 
             stack_info := 'Interim result ' + head.filter_name + ' x ' + IntToStr(counterL);
-            report_results(object_to_process, stack_info, object_counter, i {color icon},5 {stack icon}); {report result in tab result using modified filename2}
+
+
+            report_results(object_to_process, stack_info, object_counter, filter_icon {color icon},5 {stack icon}); {report result in tab result using modified filename2}
+
+
             filename2 := filename3;{restore last filename}
             extra1 := extra1 + head.filter_name;
           end{nrfiles>1}
@@ -13133,10 +13207,9 @@ begin
           end;
 
           case i of
-            0: begin extra2 := extra2 + 'R'; end;
-            1: begin extra2 := extra2 + 'G'; end;
-            2: begin extra2 := extra2 + 'B'; end;
-            3: begin extra2 := extra2 + '-'; end;
+            0,3: begin extra2 := extra2 + 'R'; end;
+            1,4: begin extra2 := extra2 + 'G'; end;
+            2,5: begin extra2 := extra2 + 'B'; end;
             else
             begin extra2 := extra2 + 'L'; end;
           end;{case}
@@ -13271,8 +13344,8 @@ begin
         //remove_solution(false {keep wcs});//fast and efficient
 
         remove_key(mainform1.memo1.lines,'DATE    ', False{all});{no purpose anymore for the original date written}
-        remove_key(mainform1.memo1.lines,'EXPTIME', False{all}); {remove, will be added later in the header}
-        remove_key(mainform1.memo1.lines,'EXPOSURE', False{all});{remove, will be replaced by LUM_EXP, RED_EXP.....}
+//        remove_key(mainform1.memo1.lines,'EXPTIME', False{all}); {remove, will be added later in the header}
+        remove_key(mainform1.memo1.lines,'EXPOSURE', False{all});{remove, will be replaced by EXPTIME, LUM_EXP, RED_EXP.....}
         remove_key(mainform1.memo1.lines,'CCD-TEMP', False{all});{remove, will be replaced by SET-TEMP.....}
         remove_key(mainform1.memo1.lines,'SET-TEMP', False{all});{remove, will be added later in mono or for colour as LUM_TEMP, RED_TEMP.....}
         remove_key(mainform1.memo1.lines,'LIGH_CNT', False{all});{remove, will be replaced by LUM_CNT, RED_CNT.....}
@@ -13343,6 +13416,7 @@ begin
 
         if lrgb = False then {monochrome}
         begin {adapt astrometric solution. For colour this is already done during luminance stacking}
+          update_integer(mainform1.memo1.lines,'EXPTIME =', ' / Total exposure time in seconds.      ', round(counterL * exposureL));
           update_integer(mainform1.memo1.lines,'SET-TEMP=', ' / Average set temperature used for luminance.    ', temperatureL);
           add_integer(mainform1.memo1.lines,'LUM_EXP =', ' / Average luminance exposure time.               ', exposureL);
           add_integer(mainform1.memo1.lines,'LUM_CNT =', ' / Luminance images combined.                     ', counterL);
@@ -13362,6 +13436,7 @@ begin
           if length(extra2) > 1 then update_text(mainform1.memo1.lines,'FILTER  =', #39 + '        ' + #39); {wipe filter info}
           if counterL > 0 then  //counter number of luminance used in LRGB stacking
           begin
+            update_integer(mainform1.memo1.lines,'EXPTIME =', ' / Total exposure time in seconds.      ', round(counterL * exposureL));
             add_integer(mainform1.memo1.lines,'LUM_EXP =', ' / Luminance exposure time.                       ' , exposureL);
             add_integer(mainform1.memo1.lines,'LUM_CNT =', ' / Luminance images combined.                     ' , counterL);
             add_integer(mainform1.memo1.lines,'LUM_DARK=', ' / Darks used for luminance.                      ' , counterLdark);

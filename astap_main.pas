@@ -23,10 +23,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html
 https://gitlab.com/freepascal.org/fpc/source/-/issues/40302
 
-CPUcount
-https://gitlab.com/freepascal.org/fpc/source/-/issues/41265
 
-line colourss GTK3
+line colours GTK3
 https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/41655
 pairspliter GTK3
 https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/41654
@@ -38,6 +36,9 @@ https://gitlab.com/freepascal.org/fpc/source/-/issues/41022   allow larger TIFF 
 MacOS
 ScrollCode=scEndScroll does not appears at the end of scroll
 https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/37454
+
+// https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/41570
+//Adding -WM10.15 to Project Options > Custom Options enables projects to build without the Linker error. However each .o file generates a version mismatch warning
 }
 
 
@@ -67,12 +68,13 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2025.06.17';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.07.08';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
               ra,dec,
               fitsX,fitsY : double;
+              vspvsx_list_index : integer; //index of vsp_vsx_list
             end;
 
 type
@@ -640,6 +642,7 @@ type
 
   theVar = record
               name: string;
+              AUID: string;//variable have also an AUID. Only if they have a AUID they can be submitted
               ra  : double;
               dec : double;
               maxmag: string;
@@ -1624,6 +1627,11 @@ begin
             begin
               dec_mount:=tempval;
               if head.dec0=0 then head.dec0:=tempval; {dec telescope, read double value only if crval is not available}
+            end
+            else
+            begin
+              mainform1.dec1.text:=get_string;{triggers an onchange event which will convert the string to ra_radians}
+              dec_mount:=dec_radians;//preference for the other keywords
             end;
           end;
 
@@ -1772,6 +1780,11 @@ begin
               begin
                 ra_mount:=tempval;
                 if head.ra0=0 then head.ra0:=tempval; {ra telescope, read double value only if crval is not available}
+              end
+              else
+              begin
+                mainform1.ra1.text:=get_string;{triggers an onchange event which will convert the string to ra_radians}
+                ra_mount:=ra_radians;{preference for other keywords}
               end;
             end;
             if ((header[i+1]='O')  and (header[i+2]='W') and (header[i+3]='O') and (header[i+4]='R') and (header[i+5]='D') and (header[i+6]='E')) then
@@ -1936,15 +1949,7 @@ begin
        if ((focallen<>0) and (head.xpixsz<>0)) then
           head.cdelt2:=180/(pi*1000)*head.xpixsz/focallen; {use maxim DL key word. xpixsz is including binning}
       end;
-{
-if ap_order>0 then
-  mainform1.Polynomial1.itemindex:=1//switch to sip
-else
-if x_coeff[0]<>0 then
-   mainform1.Polynomial1.itemindex:=2//switch to DSS
-else
-  mainform1.Polynomial1.itemindex:=0;//switch to WCS
-      }
+
       if ((head.ra0<>0) or (head.dec0<>0) or (equinox<>2000)) then
       begin
         if equinox<>2000 then //e.g. in SharpCap
@@ -2405,22 +2410,26 @@ begin
     begin
       ra_mount:=read_float*pi/180;{degrees -> radians}
       if head.ra0=0 then head.ra0:=ra_mount; {ra telescope, read double value only if crval is not available}
-    end else
+    end
+    else
     if key='DEC     =' then
     begin
       dec_mount:=read_float*pi/180;
       if head.dec0=0 then head.dec0:=dec_mount; {ra telescope, read double value only if crval is not available}
-    end else
+    end
+    else
     if ((key='OBJCTRA =') and (ra_mount>=999)) {ra_mount value is unfilled, preference for keyword RA} then
     begin
       mainform1.ra1.text:=read_string;{triggers an onchange event which will convert the string to ra_radians}
       ra_mount:=ra_radians;{preference for keyword RA}
-    end  else
+    end
+    else
     if ((key='OBJCTDEC=') and (dec_mount>=999)) {dec_mount value is unfilled, preference for keyword DEC} then
     begin
       mainform1.dec1.text:=read_string;{triggers an onchange event which will convert the string to dec_radians}
-      dec_mount:=dec_radians;
-    end else
+      dec_mount:=dec_radians;//preference for outher keyword
+    end
+    else
     if key='OBJECT  =' then object_name:=read_string else
 
     if ((key='EXPOSURE=') or ( key='EXPTIME =')) then head.exposure:=read_float else
@@ -3684,7 +3693,7 @@ var
   i : integer;
 begin
   for i:=high(fshapes) downto 0 do
-      freeandnil(fshapes[i]);//essential
+    fshapes[i].shape.free;//essential
   setlength(fshapes,0);
 end;
 
@@ -4789,7 +4798,7 @@ end;
 
 function place_marker3(data0: string): boolean;{place ra,dec marker in image}
 var
-  ra_new,dec_new, fitsx,fitsy : double;
+  ra_new,dec_new : double;
   data1,sipwcs  : string;
 begin
   if ((head.naxis=0) or (head.cd1_1=0) or (mainform1.shape_marker3.visible=false)) then exit;{no solution to place marker}
@@ -6272,7 +6281,7 @@ begin
   end
   else
   begin
-    if head.naxis3>1 then memo2_message('Skipped COLOUR image '+ filename7+', Raw red, green or blue pixel extraction is only possible for raw images.')
+    if head.naxis3>1 then memo2_message('Skipped COLOUR image '+ filename7+', Raw red, green or blue sensitive pixels extraction is only possible for raw images. This image is debayered to colour and no longer raw!')
     else
     memo2_message('Skipped image '+ filename7+', FILTER indicates earlier extraction!');
   end;
@@ -8260,7 +8269,7 @@ begin
       ensemble_database:=Sett.ReadBool('aavso','ensemble',true);{aavso report}
 
       aavso_filter_index:=Sett.ReadInteger('aavso','pfilter',0);
-      used_vsp_stars:=Sett.ReadString('aavso','vsp-stars','');
+      report_stars:=Sett.ReadString('aavso','report-stars','');
       obstype:=Sett.Readinteger('aavso','obstype',0); {photometry}
 
       stackmenu1.live_stacking_path1.caption:=Sett.ReadString('live','live_stack_dir','');
@@ -8672,7 +8681,7 @@ begin
       sett.writeBool('aavso','ensemble',ensemble_database);{AAVSO report}
 
       sett.writeInteger('aavso','pfilter',aavso_filter_index);
-      sett.writestring('aavso','vsp-stars',used_vsp_stars);
+      sett.writestring('aavso','report-stars',report_stars);
       sett.writeinteger('aavso','obstype',obstype);//CCD, DSLR, PEP
 
       sett.writestring('live','live_stack_dir',stackmenu1.live_stacking_path1.caption);{live stacking}
@@ -9924,7 +9933,7 @@ begin
 
   url:='https://apps.aavso.org/vsp/api/chart/?format=json&ra='+floattostr6(head.ra0*180/pi)+'&dec='+floattostr6(head.dec0*180/pi)+'&fov='+inttostr(fov)+'&maglimit='+floattostr4(limiting_mag);{+'&special=std_field'}
 
-  if stackmenu1.annotate_mode1.itemindex>11 then
+  if stackmenu1.annotate_mode1.itemindex>12 then
            url:=url+'&special=std_field';//standard field for specific purpose of calibrating their equipment
   s:=get_http(url);{get webpage}
   if length(s)=0 then begin beep; exit end;;
@@ -10106,9 +10115,9 @@ end;
 function download_vsx(limiting_mag: double): boolean;//AAVSO API access variables
 var
   s,dummy,url                                : string;
-  count,i,j,k,errorRa,errorDec,err           : integer;
+  count,i,j,k,errorRa,errorDec,err,idx       : integer;
   radius,ra,dec,ProperMotionRA,ProperMotionDEC,years_since_2000,var_period : double;
-  skip,period_filter  : boolean;
+  skip,auid_filter  : boolean;
 begin
   result:=false;
   radius:=sqrt(sqr(head.width)+sqr(head.height))*abs(head.cdelt2/2); //radius in degrees. Some solvers produce files with neagative cdelt2
@@ -10121,7 +10130,8 @@ begin
 
   if radius>3 {degrees} then limiting_mag:=min(12,limiting_mag); ////Required by AAVSO
 
-  period_filter:=stackmenu1.annotate_mode1.itemindex <8;
+  idx:=stackmenu1.annotate_mode1.itemindex;
+  auid_filter:=((idx>=5) and (idx<=8)); //variable has an AUID so it can be reported
 
 
   //old https://www.aavso.org/vsx/index.php?view=api.list&ra=173.478667&dec=-0.033698&radius=0.350582&tomag=13.0000&format=json
@@ -10145,18 +10155,16 @@ begin
     j:=posex('"',s,i);
     vsx[count].name:=stringreplace(copy(s,i,j-i),' ','_',[]);//add underscore for consistancy with local database
 
-    //optional field
-//     if s[j+3]='A' then
-//     begin
-//       i:=posex('"AUID":"',s,j); //AUID will NOT always available !!!
-//       if i=0 then
-//               break;//no more data
-//       i:=i+length('"AUID":"');
-//       j:=posex('"',s,i);
-//       vsx[count].auid:=copy(s,i,j-i);
-//     end
-//     else
-//     vsx[count].auid:='';
+    //optional field direct after the name
+    if ((s[j+3]='A') and (s[j+4]='U') and (s[j+5]='I') and (s[j+6]='D')) then
+    begin
+      i:=posex('"AUID":"',s,j); //AUID will NOT always available !!!
+      i:=i+length('"AUID":"');
+      j:=posex('"',s,i);
+      vsx[count].auid:=copy(s,i,j-i);
+    end
+    else
+    vsx[count].auid:='';
 
     i:=posex('"RA2000":"',s,j);//RA will be always available
     i:=i+length('"RA2000":"');
@@ -10239,12 +10247,10 @@ begin
     until ((s[j]='}') or (j=length(s)-1));
 
     //filtering
-    skip:=false;
-    if period_filter then
-    begin
-      var_period:=strtofloat1(vsx[count].period);
-      if ((var_period=0) or (var_period>=3)) then  skip:=true;//only short period var's
-    end;
+    if auid_filter then
+      skip:=length(vsx[count].auid)<2 //no AUID available
+    else
+      skip:=false;
 
     if skip=false then
          inc(count);//number of entries/stars
@@ -10266,7 +10272,7 @@ begin
 end;
 
 
-procedure variable_star_annotation(extract_visible: boolean {extract to variable_list});
+procedure variable_star_annotation(extract_visible: boolean {extract to vsp_vsx_list});
 var
   lim_magnitude            : double;
 begin
@@ -10283,13 +10289,24 @@ begin
 //10,Annotation online DB mag 99 & measure all
 
   case stackmenu1.annotate_mode1.itemindex of
-       0,1: begin lim_magnitude:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
-       2:   begin lim_magnitude:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
-       3:   begin lim_magnitude:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
-       4,8,12:  lim_magnitude:=11;
-       5,9,13:  lim_magnitude:=13;
-       6,19,14: lim_magnitude:=15;
-       7,11,15: lim_magnitude:=99;
+//     0,1: begin lim_magnitude:=-99; load_variable;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
+//     2:   begin lim_magnitude:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
+//     3:   begin lim_magnitude:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
+//     4,8,12:  lim_magnitude:=11;
+//     5,9,13:  lim_magnitude:=13;
+//     6,19,14: lim_magnitude:=15;
+//     7,11,15: lim_magnitude:=99;
+
+       1:   begin lim_magnitude:=-99; load_variable_8;{Load the local database once. If loaded no action} end;//use local database. Selection zero the viewer plot deepsky should still work
+       0,2: begin lim_magnitude:=-99; load_variable_11;{Load the local database once. If loaded no action} end;//use local database
+       3:   begin lim_magnitude:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
+       4:   begin lim_magnitude:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
+       5,9,13:  lim_magnitude:=11;
+       6,10,14:  lim_magnitude:=13;
+       7,11,15: lim_magnitude:=15;
+       8,12,16: lim_magnitude:=99;
+
+
        else
           lim_magnitude:=99;
      end; //case
@@ -10312,7 +10329,7 @@ begin
   else
   begin //local version
     memo2_message('Using local variable database. Online version can be set in tab Photometry');
-    plot_deepsky(extract_visible{then extract visible to variable_list},stackmenu1.font_size_photometry_UpDown1.position); {Plot the variables on the image. }
+    plot_deepsky(extract_visible{then extract visible to vsp_vsx_list},stackmenu1.font_size_photometry_UpDown1.position); {Plot the variables on the image. }
   end;
 end;
 
@@ -10322,7 +10339,7 @@ procedure Tmainform1.variable_star_annotation1Click(Sender: TObject);
 begin
   if head.cd1_1=0 then begin memo2_message('No solution!'); exit; end;//no solution
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-  variable_star_annotation(false  {plot, do not extract to variable_list});
+  variable_star_annotation(false  {plot, do not extract to vsp_vsx_list});
   Screen.Cursor:=crDefault;
 end;
 
@@ -14565,7 +14582,7 @@ begin
     slist.Free;
   end;
 
-  database_nr:=6;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
+  database_nr:=7;{1 is deepsky, 2 is hyperleda, 3 is variable magn 8 loaded, 4 is variable magn 11 loaded, 5 is variable magn 13 loaded, , 6 is variable magn 15 loaded, 7=simbad}
   plot_deepsky(false,8);
 end;
 
@@ -14640,7 +14657,7 @@ begin
     slist.Free;
   end;
 
-  database_nr:=6;{1 is deepsky, 2 is hyperleda, 3 is variable magn 11 loaded, 4 is variable magn 13 loaded, 5 is variable magn 15 loaded, 6=simbad}
+  database_nr:=7;{1 is deepsky, 2 is hyperleda, 3 is variable magn 8 loaded, 4 is variable magn 11 loaded, 5 is variable magn 13 loaded, , 6 is variable magn 15 loaded, 7=simbad}
   plot_deepsky(false,8);
 end;
 
