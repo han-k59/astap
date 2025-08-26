@@ -30,7 +30,6 @@ uses
   LCLIntf,{for for getkeystate, selectobject, openURL}
   clipbrd, PairSplitter, Types, strutils,
   fileutil,
-//  CommCtrl, // For ListView_GetSubItemRect and LVM_SCROLL
   unit_star_database,
   astap_main;
 
@@ -65,6 +64,7 @@ type
     bb2: TEdit;
     bg2: TEdit;
     br2: TEdit;
+    nebula1: TCheckBox;
     equaliseBG_for_solving1: TCheckBox;
     gb2: TEdit;
     gg2: TEdit;
@@ -1446,8 +1446,10 @@ begin
      {$IFDEF unix}
      if ((commandline_execution=false){save some time and run time error in command line} and (stackmenu1.Memo2.HandleAllocated){prevent run time errors}) then
      begin  // scroll down:
-       stackmenu1.Memo2.SelStart:=Length(stackmenu1.Memo2.lines.Text)-1;
-       stackmenu1.Memo2.VertScrollBar.Position:=65000;
+       //       stackmenu1.Memo2.SelStart:=Length(stackmenu1.Memo2.lines.Text)-1;
+       //       stackmenu1.Memo2.VertScrollBar.Position:=65000;
+       stackmenu1.Memo2.SelStart := Length(stackmenu1.Memo2.Text);//2025
+       stackmenu1.Memo2.SelLength := 0;
      end;
     {$ELSE }
     {$ENDIF}
@@ -2753,7 +2755,7 @@ begin
     img_loaded := img_temp; {use result}
 
     plot_histogram(img_loaded, True);
-    plot_fits(mainform1.image1, False);{plot real}
+    plot_image(mainform1.image1, False);{plot real}
   end;
   update_equalise_background_step(5 {force 5 since equalise background is set to 1 by loading fits file});{update menu}
   Screen.Cursor := crDefault;
@@ -2778,7 +2780,7 @@ begin
     max_stars := strtoint2(stackmenu1.max_stars1.Text,500);  {maximum star to process, if so filter out brightest stars later}
 
     if quads_displayed then
-      plot_fits(mainform1.image1, False); {remove quads}
+      plot_image(mainform1.image1, False); {remove quads}
 
     binning := report_binning(head.Height{*cropping});
     {select binning on dimensions of cropped image}
@@ -2981,7 +2983,7 @@ begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
   gaussian_blur2(img_loaded, 2 * strtofloat2(most_common_filter_radius1.Text));
-  plot_fits(mainform1.image1, False);{plot}
+  plot_image(mainform1.image1, False);{plot}
   Screen.Cursor := crDefault;
   update_equalise_background_step(equalise_background_step + 1);{update menu}
 end;
@@ -3192,7 +3194,7 @@ begin
 end;
 
 
-procedure artificial_flatV2(var img: Timage_array;head:theader; centrum_diameter: integer);
+procedure artificial_flatV2(var img: Timage_array;var head:theader; centrum_diameter: integer);
 var
   fitsx, fitsy, dist, col, centerX, centerY, colors, w, h, leng, angle,
   Count, largest_distX, largest_distY: integer;
@@ -3312,7 +3314,7 @@ begin
     else
       artificial_flatV2(img_loaded, head,    StrToInt(StringReplace(ring_equalise_factor1.Text, '%', '', [])));
 
-    plot_fits(mainform1.image1, False);{plot real}
+    plot_image(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
 end;
@@ -3395,7 +3397,7 @@ begin
 
     apply_factors;
     plot_histogram(img_loaded, True);
-    plot_fits(mainform1.image1, False);{plot real}
+    plot_image(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
 end;
@@ -3481,7 +3483,7 @@ begin
     end;
     add_text(mainform1.memo1.lines,'HISTORY   ', add_substract1.text+' '+ExtractFileName(image_to_add1.Caption));
     plot_histogram(img_loaded, True);
-    plot_fits(mainform1.image1, False);{plot real}
+    plot_image(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
 end;
@@ -3549,7 +3551,7 @@ begin
         end;
     //apply_dpp_button1.Enabled := False;
     plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-    plot_fits(mainform1.image1, True);{plot real}
+    plot_image(mainform1.image1, True);{plot real}
 
     Screen.Cursor := crDefault;
   end;
@@ -3608,7 +3610,7 @@ begin
   apply_most_common(img_backup[index_backup].img, img_loaded,head.datamax_org, radius);
   {apply most common filter on first array and place result in second array}
 
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
   Screen.Cursor := crDefault;
   update_equalise_background_step(equalise_background_step + 1);{update menu}
 end;
@@ -4007,7 +4009,7 @@ var
   newtop : integer;
 
 begin
-  pagecontrol1.Height := classify_groupbox1.top;{make it High-DPI robust}
+ // pagecontrol1.Height := classify_groupbox1.top;{make it High-DPI robust}  2025 removed for Darwin
 
   newtop := browse1.top + browse1.Height + 5;
 
@@ -4106,7 +4108,7 @@ begin
         {succes load}
       begin
         plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-        plot_fits(mainform1.image1, False);{plot real}
+        plot_image(mainform1.image1, False);{plot real}
         update_equalise_background_step(0); {go to step 0}
       end;
     end
@@ -4173,7 +4175,7 @@ begin
   backup_img;
   gaussian_blur2(img_loaded, strtofloat2(blur_factor1.Text));
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-  plot_fits(mainform1.image1, False);{plot}
+  plot_image(mainform1.image1, False);{plot}
   Screen.cursor := crDefault;
 end;
 
@@ -5277,7 +5279,7 @@ begin
         end;
       end;
     end;{k color}
-    plot_fits(mainform1.image1, False);{plot real}
+    plot_image(mainform1.image1, False);{plot real}
     progress_indicator(-100, '');{back to normal}
     Screen.Cursor := crDefault;
   end;
@@ -5380,7 +5382,7 @@ begin
 
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
   remove_photometric_calibration;//from header
-  plot_fits(mainform1.image1, True);{plot}
+  plot_image(mainform1.image1, True);{plot}
   Screen.cursor := crDefault;
 end;
 
@@ -5477,7 +5479,7 @@ begin
         exit;
       end;
      plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-     plot_fits(mainform1.image1, False {re_center});
+     plot_image(mainform1.image1, False {re_center});
 
      {show alignment marker}
       if (stackmenu1.use_manual_alignment1.Checked) then
@@ -5958,8 +5960,8 @@ begin
 
 
         store_annotated := annotated;{store temporary annotated}
-        annotated := False;{prevent annotations are plotted in plot_fits}
-        plot_fits(mainform1.image1, False {re_center});
+        annotated := False;{prevent annotations are plotted in plot_image}
+        plot_image(mainform1.image1, False {re_center});
         annotated := store_annotated;{restore anotated value}
         if ((annotated) and (mainform1.annotations_visible1.Checked)) then
           plot_annotations(True {use solution vectors!!!!}, False);  {corrected annotations in case a part of the lights are flipped in the alignment routien}
@@ -6038,17 +6040,19 @@ begin
   starcounter := 0;
 
   {star test image}
-  head.naxis3 := 1; {head.naxis3 number of colors}
+  if nebula1.Checked then
+    head.naxis3 := 3
+  else
+    head.naxis3 := 1; {head.naxis3 number of colors}
   filename2 := 'star_test_image.fit';
   for j := 0 to 10 do {create an header with fixed sequence}
-    if (j <> 5) then {skip head.naxis3 for mono images}
+    if ((j <> 5) or (head.naxis3 <> 1)) then {skip head.naxis3 for mono images}
       mainform1.memo1.Lines.add(head1[j]); {add lines to empthy Memo3}
   mainform1.memo1.Lines.add(head1[27]); {add end}
 
   update_integer(mainform1.memo1.lines,'BITPIX  =', ' / Bits per entry                                 ' , head.nrbits);
   update_integer(mainform1.memo1.lines,'NAXIS1  =', ' / length of x axis                               ' , head.Width);
   update_integer(mainform1.memo1.lines,'NAXIS2  =', ' / length of y axis                               ' , head.Height);
-  if head.naxis3 = 1 then  remove_key(mainform1.memo1.lines,'NAXIS3  ', False{all});  {remove key word in header. Some program don't like naxis3=1}
   update_integer(mainform1.memo1.lines,'DATAMIN =', ' / Minimum data value                             ', 0);
   update_integer(mainform1.memo1.lines,'DATAMAX =', ' / Maximum data value                             ',  round(head.datamax_org));
   add_text(mainform1.memo1.lines,'COMMENT 1', '  Written by Astrometric Stacking Program. www.hnsky.org');
@@ -6069,8 +6073,7 @@ begin
     begin
       if gradient = False then img_loaded[0, i, j] := randg(1000, 100 {noise}){default background is 1000}
       else
-        img_loaded[0, i, j] := -500 * sqrt(sqr((i - head.Height / 2) / head.Height) + sqr((j - head.Width / 2) / head.Height)){circular gradient} +
-          randg(1000, 100 {noise});{default background is 100}
+        img_loaded[0, i, j] := -500 * sqrt(sqr((i - head.Height / 2) / head.Height) + sqr((j - head.Width / 2) / head.Height)){circular gradient} +  randg(1000, 100 {noise});{default background is 100}
     end;
 
   stepsize := round(sigma * 3);
@@ -6137,12 +6140,36 @@ begin
 
     end;
 
+  if head.naxis3<>1 then
+    for i := 0 to head.Height - 1 do
+      for j := 0 to head.Width - 1 do
+      begin
+        img_loaded[1, i, j] :=img_loaded[0, i, j];
+        img_loaded[2, i, j] :=img_loaded[0, i, j];
+        if ((j>=1000) and (j<=1800) and  (i>400) and (i<1400)) then
+        begin
+          if j<1350 then
+          img_loaded[0, i, j] :=img_loaded[0, i, j] + (i-400) div 2;//red
+          img_loaded[1, i, j] :=img_loaded[1, i, j] + (i-400) div 3;//red
+          img_loaded[2, i, j] :=img_loaded[2, i, j] + (i-400) div 3;//red
+          if ((j>=1350) and (j<1700)) then
+          begin
+            img_loaded[0, i, j] :=img_loaded[0, i, j] + (i-400) div 3; //bluesh
+            img_loaded[1, i, j] :=img_loaded[1, i, j] + (i-400) div 3; //bluesh
+            img_loaded[2, i, j] :=img_loaded[2, i, j] + (i-400) div 2; //bluesh
+          end;
+          if j>=1700 then
+            img_loaded[1, i, j] :=img_loaded[1, i, j] + (i-400) div 3;//green
+        end;
+      end;
+
+
   update_menu(True);{file loaded, update menu for fits. Set fits_file:=true}
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
   mainform1.memo1.lines.endupdate;
 
-  plot_fits(mainform1.image1, True);{plot test image}
+  plot_image(mainform1.image1, True);{plot test image}
 end;
 
 
@@ -7371,6 +7398,7 @@ var
 begin
   with stackmenu1.rainbow_panel1 do
   begin
+
     w2 := Width div 2;
     h2 := Height div 2;
 
@@ -7381,7 +7409,8 @@ begin
         begin
           h := 180 + Arctan2(i, j) * 180 / pi;
           radius := (i * i + j * j) / (w2 * h2);
-          HSV2RGB(h, radius {s 0..1}, 255 {v 0..1}, r, g, b);
+          HSV2RGB(h, radius {s 0..1 or 0..255}, 255 {v 0..1 or 0.255}, r, g, b);
+
           canvas.pixels[i + w2, j + h2] := rgb(trunc(r), trunc(g), trunc(b));
         end;
       end;
@@ -7586,7 +7615,7 @@ begin
   add_text(mainform1.memo1.lines,'HISTORY   ', 'Artificial colour applied.');
 
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
   Screen.Cursor := crDefault;
 end;
 
@@ -8008,7 +8037,7 @@ var
                 Result := '?';
             end;
 
-            procedure plot_annulus(head: theader; x, y: integer; apr,anr :double); {plot the aperture and annulus}
+            procedure plot_annulus(const head: theader; x, y: integer; apr,anr :double); {plot the aperture and annulus}
             begin
               if Flipvertical = False then  starY := (head.Height - y) else starY := (y);
               if Fliphorizontal then starX := (head.Width - x) else starX := (x);
@@ -8437,9 +8466,9 @@ begin
       head:=head_ref;//use reference header for plotting since the image should be aligned to the reference image
 
       store_annotated := annotated;{store temporary annotated}
-      annotated := False;{prevent annotations are plotted in plot_fits}
+      annotated := False;{prevent annotations are plotted in plot_image}
 
-      plot_fits(mainform1.image1, False {re_center});
+      plot_image(mainform1.image1, False {re_center});
 
       annotated := store_annotated;{restore anotated value}
       if ((annotated) and (mainform1.annotations_visible1.Checked)) then  //header annotations
@@ -8719,11 +8748,6 @@ begin
   get_background(2, img, headB, measurehist {hist}, True {noise level});{calculate blue background, noise_level and star_level}
   bgB:=headB.backgr;
 
-
-
-//  star_level:=max(bckR.star_level,max(bckG.star_level,bckB.star_level));
-//  star_level:=max(bckR.star_level2,max(bckG.star_level2,bckB.star_level2));
-
   star_level:=30*max(headR.noise_level,max(headG.noise_level,headB.noise_level));
 
   bg := (bgR + bgG + bgB) / 3; {average background}
@@ -8739,7 +8763,6 @@ begin
       bgR2 := 65535;
       bgG2 := 65535;
       bgB2 := 65535;
-//      colour_slope:=0;
       luminance_slope:=0;
 
       r2 := img[0, fitsY, fitsX] - bgR;
@@ -8774,11 +8797,6 @@ begin
                 if g < bgG2 then bgG2 := g;
                 if b < bgB2 then bgB2 := b;
 
-//                colour_slope:=colour_slope+
-//                sqr(r-img[0, y2, x2+1])+sqr(r-img[0, y2+1, x2])+
-//                sqr(g-img[1, y2, x2+1])+sqr(r-img[1, y2+1, x2])+
-//                sqr(b-img[2, y2, x2+1])+sqr(r-img[2, y2+1, x2]);
-
                 luminance_slope:=luminance_slope +
                 sqr(r-img[0, y2, x2+1])+
                 sqr(r-img[0, y2+1, x2])+
@@ -8786,9 +8804,6 @@ begin
                 sqr(g-img[1, y2+1, x2])+
                 sqr(b-img[2, y2, x2+1])+
                 sqr(b-img[2, y2+1, x2]);
-
-//                          sqr(r+g+b-  img[0, y2, x2+1] - img[1, y2, x2+1] -img[2, y2, x2+1])+
-//                          sqr(r+g+b-  img[0, y2+1, x2] - img[1, y2+1, x2] -img[2, y2+1, x2]);
 
                 if ((r < 60000) and (g < 60000) and (b < 60000)) then  {no saturation, ignore saturated pixels}
                 begin
@@ -8812,49 +8827,33 @@ begin
         red := red / Count;{scale using the number of data points=count}
         green := green / Count;
         blue := blue / Count;
-//        colour_slope:=sqrt(colour_slope/count);
-        luminance_slope:=sqrt(luminance_slope/(6*count));
-//      if ((fitsx=2471) and (fitsy=1806)) then
-//        beep;
 
+        luminance_slope:=sqrt(luminance_slope/(6*count));
 
         if luminance_slope>luminance_slope_min then
-      //  if colour_slope/luminance_slope>1.5 then
+
         if peak > star_level then {star level very close}
         begin
-//        if ((fitsx=2320) and (fitsy=1740)) then
- //           beep;
+          if red < blue * 1.06 then{>6000k}
+            green := max(green, 0.6604 * red + 0.3215 * blue);
+          {prevent purple stars, purple stars are physical not possible. Emperical formula calculated from colour table http://www.vendian.org/mncharity/dir3/blackbody/UnstableURLs/bbr_color.html}
 
-//          highest_colour := max(r2, max(g2, b2));
-//          if preserve_r_nebula then
-//            red_nebula := ((highest_colour = r2) and (r2 - (bgR2 - bgR) < 150){not the star} and  (bgR2 - bgR > 3 * headR.noise_level))
-//          else
-//            red_nebula := False;
+          flux := r2 + g2 + b2;//pixel flux
+          rgb := red + green + blue + 0.00001;
+          {average pixel flux, 0.00001, prevent dividing by zero}
 
-//          if red_nebula = False then
-          begin
-            if red < blue * 1.06 then{>6000k}
-              green := max(green, 0.6604 * red + 0.3215 * blue);
-            {prevent purple stars, purple stars are physical not possible. Emperical formula calculated from colour table http://www.vendian.org/mncharity/dir3/blackbody/UnstableURLs/bbr_color.html}
+          strongest_colour_local := max(red, max(green, blue));
+          top := bg + strongest_colour_local * (flux / rgb);
+          {calculate the highest colour value}
+          if top >= 65534.99 then
+            flux := flux - (top - 65534.99) * rgb / strongest_colour_local;{prevent values above 65535}
 
-            flux := r2 + g2 + b2;//pixel flux
-            rgb := red + green + blue + 0.00001;
-            {average pixel flux, 0.00001, prevent dividing by zero}
+          lumr := flux / rgb;
+          img_temp2[0, fitsY, fitsX] := bg + red * lumr; //use average bg and not bgR. See "if copydata" below.
+          img_temp2[1, fitsY, fitsX] := bg + green * lumr;
+          img_temp2[2, fitsY, fitsX] := bg + blue * lumr;
 
-            strongest_colour_local := max(red, max(green, blue));
-            top := bg + strongest_colour_local * (flux / rgb);
-            {calculate the highest colour value}
-            if top >= 65534.99 then
-              flux := flux - (top - 65534.99) * rgb / strongest_colour_local;{prevent values above 65535}
-
-            lumr := flux / rgb;
-            img_temp2[0, fitsY, fitsX] := bg + red * lumr; //use average bg and not bgR. See "if copydata" below.
-            img_temp2[1, fitsY, fitsX] := bg + green * lumr;
-            img_temp2[2, fitsY, fitsX] := bg + blue * lumr;
-
-            copydata := False;{data is already copied}
-
-          end;
+          copydata := False;{data is already copied}
         end;
       end;
       if copydata then {keep original data but adjust zero level}
@@ -8947,7 +8946,7 @@ begin
 
   global_colour_smooth(img_loaded, strtofloat2(global_colour_smooth_width1.Text), strtofloat2(luminance_slope1.text), False);
 
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
   memo2_message('Ready colour smooth.');
@@ -8973,7 +8972,7 @@ begin
     except
     end;
     apply_most_common(img_backup[index_backup].img, img_loaded,head.datamax_org, radius);  {apply most common filter on first array and place result in second array}
-    plot_fits(mainform1.image1, True);{plot real}
+    plot_image(mainform1.image1, True);{plot real}
     Screen.Cursor := crDefault;
   end;
 end;
@@ -9169,7 +9168,7 @@ begin
       img_loaded[1, fitsY, fitsX] := green;
       img_loaded[2, fitsY, fitsX] := blue;
     end;
-  plot_fits(mainform1.image1, False);{plot}
+  plot_image(mainform1.image1, False);{plot}
   Screen.cursor := crDefault;
 end;
 
@@ -9382,7 +9381,7 @@ begin
   box_blur(1 {nr of colors}, blur_factor, img_loaded);
 
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
 end;
@@ -9405,12 +9404,24 @@ end;
 
 
 procedure Tstackmenu1.tab_photometry1Show(Sender: TObject);
+var
+   dummy: integer;
 begin
   stackmenu1.flux_aperture1change(nil);{photometry, disable annulus_radius1 if mode max flux}
   nr_stars_to_detect1.enabled:=measuring_method1.itemindex=3;//enabled only if method is measure all
   hide_show_columns_listview7(true {tab8});
   stackmenu1.reference_database1.items[0]:='Local database '+ star_database1.text;
-//  max_period1.enabled:=annotate_mode1.itemindex>=5;//only for online database photometry
+
+
+  //Already fixed in trunk Remove in 2026
+  {$ifdef darwin} {MacOS}
+   //temporary bug fix
+   dummy:=stackmenu1.reference_database1.itemindex;
+   stackmenu1.reference_database1.items.insert(0,'Local database '+ star_database1.text);
+   stackmenu1.reference_database1.items.delete(1);
+   stackmenu1.reference_database1.itemindex:=dummy;
+  {$endif}
+
 end;
 
 
@@ -9446,7 +9457,7 @@ begin
   check_pattern_filter(img_loaded);
 
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
 end;
@@ -9484,7 +9495,7 @@ begin
   mainform1.annotations_visible1.checked:=annotations_visible2.checked; {follow in main menu viewer}
   if head.naxis=0 then exit;
   if annotations_visible2.checked=false then  {clear screen}
-    plot_fits(mainform1.image1,false)
+    plot_image(mainform1.image1,false)
   else
     if annotated then plot_annotations(false {use solution vectors},false);
 end;
@@ -9530,7 +9541,7 @@ begin
 
   apply_star_smooth(star_colour_smooth_diameter1.Text, star_colour_smooth_nrstars1.Text);
 
-  plot_fits(mainform1.image1,false);
+  plot_image(mainform1.image1,false);
 
   Screen.Cursor:=crDefault;
 end;
@@ -9661,7 +9672,7 @@ begin
 
   end;
 
-  plot_fits(mainform1.image1,false);
+  plot_image(mainform1.image1,false);
   Screen.Cursor:=crDefault;
 
   {
@@ -9756,7 +9767,7 @@ begin
   if head.naxis=0 then exit; {file loaded?}
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
-  plot_fits(mainform1.image1,false);//clear
+  plot_image(mainform1.image1,false);//clear
 
   memo2_message('Satellite streak detection started.');
   contour(true {plot}, img_loaded,head,strtofloat2(contour_gaussian1.text),strtofloat2(contour_sigma1.text));
@@ -9770,7 +9781,7 @@ end;
 procedure Tstackmenu1.ClearButton1Click(Sender: TObject);
 begin
   memo2_message('Removing streak annotations from header');
-  plot_fits(mainform1.image1,false);
+  plot_image(mainform1.image1,false);
 end;
 
 procedure Tstackmenu1.FormKeyDown(Sender: TObject; var Key: Word;
@@ -10748,7 +10759,7 @@ begin
   letter_height:=mainform1.image1.Canvas.textheight('M');
   mainform1.image1.Canvas.textout(20,head.height-letter_height,stackmenu1.reference_database1.text);//show which database was used
 
-  plot_fits(mainform1.image1,false);//refresh screen
+  plot_image(mainform1.image1,false);//refresh screen
 
   Screen.Cursor:=crDefault;
 end;
@@ -11312,7 +11323,7 @@ begin
         end;
       end;
     end;
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
 
   HueRadioButton1.Checked := False;
   HueRadioButton2.Checked := False;
@@ -11478,7 +11489,7 @@ begin
     strtofloat2(stackmenu1.noisefilter_blur1.Text));
 
   //  plot_histogram(true);{get histogram}
-  plot_fits(mainform1.image1, False);{plot real}
+  plot_image(mainform1.image1, False);{plot real}
 
   Screen.Cursor := crDefault;
 end;
@@ -11505,7 +11516,7 @@ begin
     end;
 
     remove_photometric_calibration;//from header
-    plot_fits(mainform1.image1, True);{plot real}
+    plot_image(mainform1.image1, True);{plot real}
     Screen.Cursor := crDefault;
   end;
 end;
@@ -11532,7 +11543,7 @@ begin
           img_loaded[col, fitsY, fitsX] :=
             max(0, img_loaded[col, fitsY, fitsX] + randg(mean, noise){gaussian noise});
 
-    plot_fits(mainform1.image1, False);{plot real}
+    plot_image(mainform1.image1, False);{plot real}
     Screen.Cursor := crDefault;
   end;
   plot_histogram(img_loaded, True {update}); {update for the noise, plot histogram, set sliders}
@@ -11596,7 +11607,7 @@ begin
 
         plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
-        plot_fits(mainform1.image1, False {re_center});
+        plot_image(mainform1.image1, False {re_center});
 
         {show alignment marker}
         if (stackmenu1.use_manual_alignment1.Checked) then
@@ -11652,7 +11663,7 @@ begin
 end;
 
 
-procedure load_master_dark(jd_int: integer; hd: theader);
+procedure load_master_dark(jd_int: integer; const hd: theader);
 var
   c: integer;
   d, day_offset: double;
@@ -11756,7 +11767,7 @@ begin
 end;
 
 
-procedure load_master_flat(jd_int: integer;hd: theader);
+procedure load_master_flat(jd_int: integer;const hd: theader);
 var
   c: integer;
   d, day_offset: double;
@@ -12437,7 +12448,7 @@ begin
       end;
   end;{with stackmenu1 do}
 
-  plot_fits(mainform1.image1, True);{update to last image, activate Memo3}
+  plot_image(mainform1.image1, True);{update to last image, activate Memo3}
 
   Screen.Cursor := crDefault;
   memo2_message('Calibration of the individual files is complete. New files are posted in the results tab');
@@ -13291,8 +13302,6 @@ begin
             stackmenu1.auto_background_level1Click(nil);
             apply_factors;{histogram is after this action invalid}
             stackmenu1.reset_factors1Click(nil);{reset factors to default}
-
-
             plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
 
             if stackmenu1.global_colour_smooth1.Checked then
@@ -13347,7 +13356,7 @@ begin
             plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
         end;
 
-        plot_fits(mainform1.image1, True);{plot real}
+        plot_image(mainform1.image1, True);{plot real}
 
         mainform1.Memo1.Lines.BeginUpdate;
 
@@ -13781,7 +13790,7 @@ begin
   end;{k color}
 
   plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-  plot_fits(mainform1.image1, False);
+  plot_image(mainform1.image1, False);
 
   memo2_message('Remove gradient done.');
 
