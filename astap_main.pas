@@ -72,7 +72,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2025.08.26';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.09.14';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -425,6 +425,12 @@ type
     procedure dust_spot_removal1Click(Sender: TObject);
     procedure batch_add_tilt1Click(Sender: TObject);
     procedure mpcreport1Click(Sender: TObject);
+    procedure saturation_factor_plot1MouseWheel(Sender: TObject;
+      Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
+      var Handled: Boolean);
+    procedure selective_colour_saturation1MouseWheel(Sender: TObject;
+      Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
+      var Handled: Boolean);
     procedure simbad_annotation_deepsky_filtered1Click(Sender: TObject);
     procedure move_images1Click(Sender: TObject);
     procedure Panel1MouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -557,6 +563,7 @@ var
 type
   Timage_array = array of array of array of Single;// note fastest processing is achieved if both access loop and memory storage are organised in rows. So as array[nrcolours,height,width]
   Tstar_list   = array of array of double;
+  Tarray_integer = array of integer;
 
   Theader =record    {contains the most important header info}
     nrbits : integer;{almost always equivalent to bitpix}
@@ -827,7 +834,7 @@ procedure ExecuteAndWait(const aCommando: string; show_console:boolean);
 procedure execute_unix(const execut:string; param: TStringList; show_output: boolean);{execute linux program and report output}
 procedure execute_unix2(s:string);
 {$endif}
-function mode(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
+function trimmed_median_background(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
 function get_negative_noise_level(img :Timage_array;colorm,xmin,xmax,ymin,ymax: integer;common_level:double): double;{find the negative noise level below most_common_level  of a local area}
 function prepare_ra5(rax:double; sep:string):string; {radialen to text  format 24h 00.0}
 function prepare_ra6(rax:double; sep:string):string; {radialen to text  format 24h 00 00}
@@ -874,7 +881,7 @@ procedure log_to_file(logf,mess : string);{for testing}
 procedure log_to_file2(logf,mess : string);{used for platesolve2 and photometry}
 procedure demosaic_advanced(var img : Timage_array);{demosaic img_loaded}
 procedure bin_X2X3X4(var img :Timage_array; var head : theader;memo:tstrings; binfactor:integer);{bin img 2x,3x or 4x}
-procedure local_sd(x1,y1, x2,y2{regio of interest},col : integer; img : Timage_array; out sd,mean :double; out iterations :integer);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
+procedure local_sigma_clip_mean_and_sd(x1,y1, x2,y2{regio of interest},col : integer; img : Timage_array; out sd,mean :double; out iterations :integer);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
 function extract_raw_colour_to_file(filename7,filtern: string; xp,yp : integer) : string;{extract raw colours and write to file}
 function fits_file_name(inp : string): boolean; {fits file name?}
 function fits_tiff_file_name(inp : string): boolean; {fits or tiff file name?}
@@ -2568,8 +2575,8 @@ end;
 function load_PPM_PGM_PFM(filen:string; out head :theader; out img_loaded2: Timage_array; memo :Tstrings) : boolean;{load PPM (color),PGM (gray scale)file or PFM color}
 var
   TheFile  : tfilestream;
-  i,j, reader_position  : integer;
-  aline,w1,h1,bits,comm  : ansistring;
+  i,j, reader_position,s              : integer;
+  aline,w1,h1,bits,comm,comment_line  : ansistring;
   ch                : ansichar;
   rgb32dummy        : byteXXXX3;
   rgb16dummy        : byteXX3;
@@ -2577,6 +2584,7 @@ var
   err,err2,err3,package  : integer;
   comment,color7,pfm,expdet,timedet,isodet,instdet,ccdtempdet  : boolean;
   range, jd2        : double;
+  thecomments       : TStringList;
 var
    x_longword  : longword;
    x_single    : single absolute x_longword;{for conversion 32 bit "big-endian" data}
@@ -2632,6 +2640,8 @@ begin
     else
     if aline='Pf'+#10 then begin color7:=false; pfm:=true; end;  {PFM colour scale image, photoshop export float 32 bit grayscale}
 
+    comment_line:='';
+    thecomments := TStringList.Create; // This is needed when using this class(or most classes)
     i:=0;
     repeat {read header}
       comment:=false;
@@ -2658,6 +2668,7 @@ begin
               head.date_obs:=JdToDate(jd2);
               timedet:=false;
             end;{get date from comments}
+            comment_line:=comment_line+comm+' ';//for full comment line
             comm:='';{clear for next keyword}
           end;
           if comm='EXPTIME=' then begin expdet:=true; comm:=''; end else
@@ -2669,9 +2680,14 @@ begin
         else
         if ord(ch)>32 then aline:=aline+ch;; {DCRAW write space #20 between width&length, Photoshop $0a}
 
-        if ord(ch)=$0a then comment:=false;{complete comment read}
+        if ord(ch)=$0a then
+        begin
+           comment:=false;{complete comment read}
+           thecomments.add(comment_line);//store the comments
+           comment_line:='';
+        end;
         inc(reader_position,1)
-      until ( ((comment=false) and (ord(ch)<=32)) or (reader_position>200)) ;{ignore comments, with till text is read and escape if too long}
+      until ( ((comment=false) and (ord(ch)<=32)));
       if (length(aline)>1){no comments} then {read header info}
       begin
         inc(i);{useful header line}
@@ -2681,7 +2697,7 @@ begin
         else
         bits:=aline;
       end;
-    until ((i>=3) or (reader_position>200)) ;
+    until i>=3;
 
     val(w1,head.width,err);
     val(h1,head.height,err2);
@@ -2705,6 +2721,7 @@ begin
       mainform1.error_label1.visible:=true;
       close_fits_file;
       head.naxis:=0;
+      thecomments.free; //tstringlist
       exit;
     end; {should contain 255 or 65535}
 
@@ -2731,6 +2748,7 @@ begin
       beep;
       textout(mainform1.image1.canvas.handle,30,30,'Too large FITS file !!!!!',25);
       close_fits_file;
+      thecomments.free; //tstringlist
       exit;
     end
     else
@@ -2806,6 +2824,7 @@ begin
     end;
   except;
     close_fits_file;
+    thecomments.free; //tstringlist
     exit;
   end;
 
@@ -2830,16 +2849,21 @@ begin
   update_integer(memo,'DATAMIN =',' / Minimum data value                             ' ,0);
   update_integer(memo,'DATAMAX =',' / Maximum data value                           ' ,round(head.datamax_org));
 
-  if head.exposure<>0 then   update_float(memo,'EXPTIME =',' / duration of exposure in seconds                ',false ,head.exposure);
+  if head.exposure<>0 then update_float(memo,'EXPTIME =',' / duration of exposure in seconds                ',false ,head.exposure);
   if head.gain<>'' then    update_integer(memo,'GAIN    =',' / iso speed                                      ',strtoint(head.gain));
 
-  if head.date_obs<>'' then update_text(memo,'DATE-OBS=',#39+head.date_obs+#39);
-  if instrum<>''  then update_text(memo,'INSTRUME=',#39+INSTRUM+#39);
+  if head.date_obs<>'' then add_text(memo,'DATE-OBS=',#39+head.date_obs+#39);
+  if instrum<>''  then add_text(memo,'INSTRUME=',#39+INSTRUM+#39);
 
-  update_text(memo,'BAYERPAT=',#39+'T'+#39+'                  / Unknown Bayer color pattern                  ');
+  if head.naxis3<>1 then
+     add_text(memo,'BAYERPAT=',#39+'T'+#39+'                  / Unknown Bayer color pattern                  ');
+  add_text(memo,'COMMENT 1','  Written by ASTAP, Astrometric STAcking Program. www.hnsky.org');
 
-  update_text(memo,'COMMENT 1','  Written by ASTAP, Astrometric STAcking Program. www.hnsky.org');
+  for s:=0 to thecomments.count-1 do
+      add_text(memo,'COMMENT',thecomments[s]);{add PGM comments to header memo}
+
   memo.endupdate;
+  thecomments.free; //tstringlist
 end;
 
 
@@ -3012,7 +3036,7 @@ begin
   begin
     JD2:=2415018.5+(FileDateToDateTime(fileage(filen))); {fileage ra, convert to Julian Day by adding factor. filedatatodatetime counts from 30 dec 1899.}
     head.date_obs:=JdToDate(jd2);
-    update_text(memo,'DATE-OBS=',#39+head.date_obs+#39);{give start point exposures}
+    add_text(memo,'DATE-OBS=',#39+head.date_obs+#39);{give start point exposures}
   end;
 
   update_text(memo,'COMMENT 1','  Written by ASTAP, Astrometric STAcking Program. www.hnsky.org');
@@ -3079,10 +3103,66 @@ begin
 end;
 
 
+//not used
+function trimmed_median_background2(colour, upperlimit: integer): double;
+var
+   i,val,sum, Q   :integer;
+   currentCount,  targetCount : double;
+begin
+  sum:=0;
+  for i := 0 to upperlimit do
+    sum:=sum+histogram[colour,i];
+
+
+  currentCount:=0;
+
+  targetCount:=sum*0.16;//≈ μ - 1σ
+  for i := 0 to upperlimit do
+  begin
+    val:=histogram[colour,i];
+    if val>0 then
+    begin
+      currentCount := currentCount + val;
+      if currentCount >= targetCount then
+      begin
+        Q := i;// found ≈ μ - 1σ
+        break;
+      end;
+    end;
+  end;
+
+  //calculate maximum histogram value to use
+  upperlimit:=Q*2;  // Trim at 2*(μ - 1σ)
+
+  //calculate new trimmed histogram sum.
+  sum:=0;
+  for i := 0 to upperlimit do
+    sum:=sum+histogram[colour,i];
+
+  //find median at half of the trimmed sum
+  result:=0;
+  currentCount:=0;
+  targetCount:=sum*0.50;//≈ μ
+  for i := 0 to upperlimit do
+  begin
+    val:=histogram[colour,i];
+    if val>0 then
+    begin
+      currentCount := currentCount + val;
+      if currentCount >= targetCount then
+      begin
+        Result := i;
+        break;
+      end;
+    end;
+  end;
+end;
+
+
 procedure get_background(colour: integer; img :Timage_array;var head :theader; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
 var
   i, pixels,max_range,above, fitsX, fitsY,counter,stepsize,width5,height5, iterations : integer;
-  value,sd, sd_old,factor,factor2 : double;
+  value,sd, sd_old,factor,factor2,sd2,dummy : double;
 begin
   if calc_hist then  get_hist(colour,img);{get histogram of img_loaded and his_total}
 
@@ -3096,12 +3176,14 @@ begin
     head.backgr:=0;
   end
   else
-  for i := 1 to max_range do {find peak, ignore value 0 from oversize}
-    if histogram[colour,i]>pixels then {find colour peak}
-    begin
-      pixels:= histogram[colour,i];
-      head.backgr:=i;
-    end;
+  begin
+    for i := 1 to max_range do //find peak, ignore value 0 from oversize
+      if histogram[colour,i]>pixels then //find colour peak
+      begin
+        pixels:= histogram[colour,i];
+        head.backgr:=i;
+      end;
+  end;
 
   {check alternative mean value}
   if his_mean[colour]>1.5*head.backgr {1.5* most common} then
@@ -3151,7 +3233,6 @@ begin
     until (((sd_old-sd)<0.05*sd) or (iterations>=7));{repeat until sd is stable or 7 iterations}
     head.noise_level:= sd;   {this noise level could be too high if no flat is applied. So for images where center is brighter then the corners.}
 
-
     {calculate star level}
     if ((head.nrbits=8) or (head.nrbits=24)) then max_range:= 255 else max_range:=65001 {histogram runs from 65000};{8 or 16 / -32 bit file}
     head.star_level:=0;
@@ -3160,13 +3241,13 @@ begin
     factor:=  6*strtoint2(stackmenu1.max_stars1.text,500);// Number of pixels to test. This produces about 700 stars at hfd=2.25
     factor2:=24*strtoint2(stackmenu1.max_stars1.text,500);// Number of pixels to test. This produces about 700 stars at hfd=4.5.
     above:=0;
-    while ((head.star_level=0) and (i>head.backgr+1)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
+    while ((head.star_level=0) and (i>head.backgr+1) and (i>0)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
     begin
       dec(i);
       above:=above+histogram[colour,i];//sum of pixels above pixel level i
       if above>=factor then head.star_level:=i;//level found for stars with HFD=2.25.
     end;
-    while ((head.star_level2=0) and (i>head.backgr+1)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
+    while ((head.star_level2=0) and (i>head.backgr+1) and (i>0)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
     begin
       dec(i);
       above:=above+histogram[colour,i];//sum of pixels above pixel level i
@@ -3529,11 +3610,12 @@ begin
 end;
 
 
-function mode(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
+function trimmed_median_background(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
 var
-   i,j,val,value_count,width3,height3  :integer;
+   i,j,val,width3,height3,sum, upperlimit,Q   :integer;
    histogram : array of integer;
-   centerX,centerY,a,b : double;
+   centerX,centerY,a,b        : double;
+   currentCount,  targetCount : double;
 begin
   height3:=length(img[0]);{height}
   width3:=length(img[0,0]);{width}
@@ -3552,6 +3634,7 @@ begin
   a:=(xmax-xmin-1)/2;
   b:=(ymax-ymin-1)/2;
 
+  sum:=0;
 
   for i:=ymin to  ymax do
     begin
@@ -3561,26 +3644,58 @@ begin
         begin
           val:=round(img[colorM,i,j]);{get one color value}
           if ((val>=1) and (val<max1)) then {ignore black areas and bright stars}
-          inc(histogram[val],1);{calculate histogram}
+          begin
+            inc(histogram[val],1);{calculate histogram}
+            sum:=sum+1;
+          end;
         end;
       end;{j}
     end; {i}
   result:=0; {for case histogram is empthy due to black area}
 
-
   greylevels:=0;
-  value_count:=0;
-  for i := 1 to max1 do {get most common but ignore 0}
+  currentCount:=0;
+
+  targetCount:=sum*0.16;//≈ μ - 1σ
+  for i := 0 to High(histogram) do
   begin
     val:=histogram[i];
-    if val<>0 then inc(greylevels);
-    if  val>value_count then
+    if val>0 then
     begin
-      value_count:=val; {find most common in histogram}
-      result:=i;
-    end
+      inc(greylevels);
+      currentCount := currentCount + val;
+      if currentCount >= targetCount then
+      begin
+        Q := i;// found ≈ μ - 1σ
+        break;
+      end;
+    end;
   end;
-  histogram:=nil;{free mem}
+
+  //calculate maximum histogram value to use
+  upperlimit:=Q*2;  // Trim at 2*(μ - 1σ)
+
+  //calculate new trimmed histogram sum.
+  sum:=0;
+  for i := 0 to upperlimit do
+    sum:=sum+histogram[i];
+
+  //find median at half of the trimmed sum
+  currentCount:=0;
+  targetCount:=sum*0.50;//≈ μ
+  for i := 0 to upperlimit do
+  begin
+    val:=histogram[i];
+    if val>0 then
+    begin
+      currentCount := currentCount + val;
+      if currentCount >= targetCount then
+      begin
+        Result := i;
+        break;
+      end;
+    end;
+  end;
 end;
 
 
@@ -4593,6 +4708,8 @@ begin
   u0:= - (head.cd1_2*eta - head.cd2_2*xi) / det;
   v0:= + (head.cd1_1*eta - head.cd2_1*xi) / det;
 
+//  log_to_file('c:\temp\test.csv','linear x and y, '+floattostr(u0)+', '+floattostr(v0) + ', correction x and y, '+floattostr(+ ap_0_0 + ap_0_1*v0+ ap_0_2*v0*v0+ ap_0_3*v0*v0*v0 +ap_1_0*u0 + ap_1_1*u0*v0+  ap_1_2*u0*v0*v0+ ap_2_0*u0*u0 + ap_2_1*u0*u0*v0+  ap_3_0*u0*u0*u0)
+//                                                                                                      +',  '+floattostr(bp_0_0 + bp_0_1*v0+ bp_0_2*v0*v0+ bp_0_3*v0*v0*v0 +bp_1_0*u0 + bp_1_1*u0*v0+  bp_1_2*u0*v0*v0+ bp_2_0*u0*u0 + bp_2_1*u0*u0*v0+  bp_3_0*u0*u0*u0) );
 
   if ((usethesip) and (ap_order<>0)) then {apply SIP correction, sky to pixel}
   begin
@@ -4604,6 +4721,7 @@ begin
     fitsX:=head.crpix1 + u0; {in fits range 1..width}
     fitsY:=head.crpix2 + v0;
   end;
+
 end;
 
 
@@ -5747,10 +5865,10 @@ begin
   {measure the median of the suroundings}
   for col:=0 to head.naxis3-1 do  {do all colours}
   begin
-    local_sd(startX+1 ,startY+1, stopX-1,stopY-1{within rectangle},col,img_loaded, {var} sd,mean,iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
+    local_sigma_clip_mean_and_sd(startX+1 ,startY+1, stopX-1,stopY-1{within rectangle},col,img_loaded, {var} sd,mean,iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
     measure_hotpixels(startX+1 ,startY+1, stopX-1,stopY-1{within rectangle},col,sd,mean,img_loaded,{out}hotpixel_perc,hotpixel_adu);{calculate the hotpixel_adu ratio and average value}
 
-    most_common:=mode(img_loaded,CtrlButton {ellipse},col,startx,stopX,starty,stopY,65535,greylevels);
+    most_common:=trimmed_median_background(img_loaded,CtrlButton {ellipse},col,startx,stopX,starty,stopY,65535,greylevels);
 
     {median sampling and min , max}
     max_counter:=1;
@@ -5844,7 +5962,7 @@ begin
 
     info_message:=info_message+  'x̄ :    '+floattostrf(mean,ffFixed, 0, 2)+'   (sigma-clip iterations='+inttostr(iterations)+')'+#10+             {mean}
                                   'x̃  :   '+floattostrf(median,ffFixed, 0, 2)+#10+ {median}
-                                  'Mo :  '+floattostrf(most_common,ffgeneral, 5, 5)+#10+
+                                  'tmb :  '+floattostrf(most_common,ffgeneral, 5, 5)+#10+
                                   'σ :   '+noise_to_electrons(adu_e,sd)+'   (sigma-clip iterations='+inttostr(iterations)+')'+#10+               {standard deviation}
                                   'σ_2:   '+noise_to_electrons(adu_e,get_negative_noise_level(img_loaded,col,startx,stopX,starty,stopY,most_common))+#10+
                                   'mad:   '+floattostrf(mad,ffgeneral, 4, 4)+#10+
@@ -5858,10 +5976,10 @@ begin
   end;
   if ((abs(stopX-startx)>=head.width-1) and (most_common<>0){prevent division by zero}) then
   begin
-    mc_1:=mode(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},           0{y1},       50{y2},32000,greylevels2);{for this area get most common value equals peak in histogram}
-    mc_2:=mode(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},head.height-1-50{y1},head.height-1{y2},32000,greylevels2);
-    mc_3:=mode(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},head.height-1-50{y1},head.height-1{y2},32000,greylevels2);
-    mc_4:=mode(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},           0{y1},50       {y2},32000,greylevels2);
+    mc_1:=trimmed_median_background(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},           0{y1},       50{y2},32000,greylevels2);{for this area get most common value equals peak in histogram}
+    mc_2:=trimmed_median_background(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},head.height-1-50{y1},head.height-1{y2},32000,greylevels2);
+    mc_3:=trimmed_median_background(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},head.height-1-50{y1},head.height-1{y2},32000,greylevels2);
+    mc_4:=trimmed_median_background(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},           0{y1},50       {y2},32000,greylevels2);
 
     info_message:=info_message+#10+#10+'Vignetting [Mo corners/Mo]: '+inttostr(round(100*(1-(mc_1+mc_2+mc_3+mc_4)/(most_common*4))))+'%';
   end;
@@ -5888,8 +6006,8 @@ begin
   info_message:=info_message+#10+#10+#10+'Noise in electrons can be set with the popup menu of the status bar.'+
                                             #10+#10+
                                             'Legend: '+#10+
-                                            'x̄ = mean background | x̃  = median background | '+
-                                            'Mo = mode or most common pixel value or peak histogram, so the best estimate for the background mean value | '+
+                                            'x̄ = sigma clip mean background | x̃  = median | '+
+                                            'tmb = trimmed median background | '+
                                             'σ =  standard deviation background using mean and sigma clipping| ' +
                                             'σ_2 = standard deviation background using values below Mo only | '+
                                             'mad = median absolute deviation | '+
@@ -6131,7 +6249,7 @@ var
 begin
   oldvalue:=LoadFITSPNGBMPJPEG1filterindex;
   LoadFITSPNGBMPJPEG1filterindex:=4;{preview FITS files}
-  LoadFITSPNGBMPJPEG1Click(nil);{open load file in preview mode}
+  LoadFITSPNGBMPJPEG1Click(nil);{open load file in preview trimmed_median_background}
   LoadFITSPNGBMPJPEG1filterindex:=oldvalue; {restore filterindex position}
 end;
 
@@ -6402,11 +6520,11 @@ begin
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
 
-      mode_left_bottom:=mode(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,starty-bsize,starty+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_left_top:=   mode(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,stopY-bsize,stopY+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,starty-bsize,starty+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_top:=   trimmed_median_background(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,stopY-bsize,stopY+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
 
-      mode_right_bottom:=mode(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,starty-bsize,starty+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_right_top:=   mode(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,starty-bsize,starty+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_top:=   trimmed_median_background(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
 
       noise_left_bottom:=get_negative_noise_level(img_loaded,k,startx-bsize,startx+bsize,starty-bsize,starty+bsize, mode_left_bottom);{find the negative noise level below most_common_level of a local area}
       noise_left_top:=get_negative_noise_level(img_loaded,k,startx-bsize,startx+bsize,stopY-bsize,stopY+bsize, mode_left_top);{find the negative noise level below most_common_level of a local area}
@@ -7555,11 +7673,12 @@ begin
       col:=round(img[colour,i,j]);{pixel value for this colour}
       if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
       begin
-        inc(histogram[colour,col],1);{calculate histogram}
-        his_total:=his_total+1;
-        total_value:=total_value+col;
-        inc(count);
+         inc(histogram[colour,col],1);{calculate histogram}
+         his_total:=his_total+1;
       end;
+
+      inc(count);
+      total_value:=total_value+col;//include negative values
     end;{j}
   end; {i}
 
@@ -7601,7 +7720,7 @@ begin
 
   {calculate peak values }
 
-  if mainform1.range1.itemindex<=5 then {auto detect mode}
+  if mainform1.range1.itemindex<=5 then {auto detect trimmed_median_background}
   begin
     minm:=0;
     maxm:=0;
@@ -8157,9 +8276,9 @@ begin
       dum:=Sett.ReadString('stack','lrgb_sw','');if dum<>'' then stackmenu1.lrgb_global_colour_smooth_width1.text:=dum;
 
       stackmenu1.ignore_header_solution1.Checked:= Sett.ReadBool('stack','ignore_header_solution',true);
-      stackmenu1.Equalise_background1.checked:= Sett.ReadBool('stack','equalise_background',true);{for mosaic mode}
-      stackmenu1.merge_overlap1.checked:= Sett.ReadBool('stack','merge_overlap',true);{for mosaic mode}
-      stackmenu1.limit_background_correction1.checked:= Sett.ReadBool('stack','limit_back_corr',true);{for mosaic mode}
+      stackmenu1.Equalise_background1.checked:= Sett.ReadBool('stack','equalise_background',true);{for mosaic trimmed_median_background}
+      stackmenu1.merge_overlap1.checked:= Sett.ReadBool('stack','merge_overlap',true);{for mosaic trimmed_median_background}
+      stackmenu1.limit_background_correction1.checked:= Sett.ReadBool('stack','limit_back_corr',true);{for mosaic trimmed_median_background}
 
       stackmenu1.classify_object1.checked:= Sett.ReadBool('stack','classify_object',false);
       stackmenu1.classify_filter1.checked:= Sett.ReadBool('stack','classify_filter',false);
@@ -8191,7 +8310,6 @@ begin
       stackmenu1.timestamp1.Checked:=Sett.ReadBool('stack','time_stamp',true);{blink}
 
       stackmenu1.force_oversize1.Checked:=Sett.ReadBool('stack','force_slow',false);
-      stackmenu1.equaliseBG_for_solving1.Checked:=Sett.ReadBool('stack','eqbg',false);
 
       stackmenu1.use_triples1.Checked:=Sett.ReadBool('stack','use_triples',false);
       stackmenu1.add_sip1.Checked:=Sett.ReadBool('stack','sip',false);
@@ -8219,7 +8337,7 @@ begin
       dum:=Sett.ReadString('stack','ring_equalise_factor',''); if dum<>'' then stackmenu1.ring_equalise_factor1.text:=dum;
 
       dum:=Sett.ReadString('stack','gradient_filter_factor',''); if dum<>'' then stackmenu1.gradient_filter_factor1.text:=dum;
-
+      c:=Sett.ReadInteger('stack','method_bg',0); stackmenu1.find_background_method1.itemindex:=c;
 
       dum:=Sett.ReadString('stack','bayer_pat',''); if dum<>'' then stackmenu1.bayer_pattern1.text:=dum;
 
@@ -8605,8 +8723,6 @@ begin
       sett.writeBool('stack','time_stamp',stackmenu1.timestamp1.checked);{blink}
 
       sett.writeBool('stack','force_slow',stackmenu1.force_oversize1.checked);
-      sett.writeBool('stack','eqbg',stackmenu1.equaliseBG_for_solving1.checked);
-
 
       sett.writeBool('stack','use_triples',stackmenu1.use_triples1.checked);
       sett.writeBool('stack','sip',stackmenu1.add_sip1.checked);
@@ -8641,6 +8757,7 @@ begin
       sett.writestring('stack','ring_equalise_factor',stackmenu1.ring_equalise_factor1.text);
 
       sett.writestring('stack','gradient_filter_factor',stackmenu1.gradient_filter_factor1.text);
+      sett.writeInteger('stack','method_bg',stackmenu1.find_background_method1.itemindex);
 
       sett.writestring('stack','red_filter1',stackmenu1.red_filter1.text);
       sett.writestring('stack','red_filter2',stackmenu1.red_filter2.text);
@@ -8999,11 +9116,11 @@ begin
 
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
-      mode_left_bottom:=mode(img_loaded,false{ellipse shape},k,startX-20,startX,startY-20,startY,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_left_top:=mode(img_loaded,false{ellipse shape},k,startX-20,startX,stopY,stopY+20,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,startX-20,startX,startY-20,startY,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_top:=trimmed_median_background(img_loaded,false{ellipse shape},k,startX-20,startX,stopY,stopY+20,32000,greylevels);{for this area get most common value equals peak in histogram}
 
-      mode_right_bottom:=mode(img_loaded,false{ellipse shape},k,stopX,stopX+20,startY-20,startY,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_right_top:=mode(img_loaded,false{ellipse shape},k,stopX,stopX+20,stopY,stopY+20,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX,stopX+20,startY-20,startY,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_top:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX,stopX+20,stopY,stopY+20,32000,greylevels);{for this area get most common value equals peak in histogram}
 
       for fitsY:=startY to stopY-1 do
       begin
@@ -9226,6 +9343,20 @@ begin
 //  InputBox('This line to clipboard?','Format 24 00 00.0, 90 00 00.0   or   24 00, 90 00',line);
 end;
 
+procedure Tmainform1.saturation_factor_plot1MouseWheel(Sender: TObject;
+  Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
+  var Handled: Boolean);
+begin
+  plot_image(mainform1.image1,false);{plot real}
+end;
+
+procedure Tmainform1.selective_colour_saturation1MouseWheel(Sender: TObject;
+  Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
+  var Handled: Boolean);
+begin
+  plot_image(mainform1.image1,false);{plot real}
+end;
+
 
 procedure Tmainform1.simbad_annotation_deepsky_filtered1Click(Sender: TObject);
 begin
@@ -9344,6 +9475,11 @@ begin
     exit;
   end;
   execute_unix2(application_path+'/funpack '+commando+' "'+filename3+'"');
+
+  {To compile cfitsio in MacOS:
+  autoreconf --install
+  ./configure --enable-shared=no
+  make}
   {$endif}
   {$ifdef linux}
   if fileexists('/usr/bin/funpack')=false then
@@ -10206,7 +10342,6 @@ begin
     fov:=min(5,fov);
   end;
 
-
 //  if fov>3 {degrees} then limiting_mag:=min(12,limiting_mag); //There is no limitation for VSX but follow the one of the VSP
 
   idx:=stackmenu1.annotate_mode1.itemindex;
@@ -10918,13 +11053,13 @@ begin
     backup_img;
 
     bsize:=20;
-    colrr1:=mode(img_loaded,false{ellipse shape},0,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>1 then colgg1:=mode(img_loaded,false{ellipse shape},1,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>2 then colbb1:=mode(img_loaded,false{ellipse shape},2,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
+    colrr1:=trimmed_median_background(img_loaded,false{ellipse shape},0,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>1 then colgg1:=trimmed_median_background(img_loaded,false{ellipse shape},1,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>2 then colbb1:=trimmed_median_background(img_loaded,false{ellipse shape},2,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
 
-    colrr2:=mode(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>1 then colgg2:=mode(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>2 then colbb2:=mode(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
+    colrr2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>1 then colgg2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>2 then colbb2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
 
     a:=sqrt(sqr(stopX-startX)+sqr(stopY-startY)); {distance between bright and dark area}
 
@@ -12172,8 +12307,8 @@ begin
       check_second_instance;{check for and other instance of the application. If so send paramstr(1) and quit}
   end
   else
-  if paramcount>1 then {commandline mode}
-     trayicon1.visible:=true;{Show trayicon. Do it early otherwise in Win10 it is not shown in the command line mode}
+  if paramcount>1 then {commandline trimmed_median_background}
+     trayicon1.visible:=true;{Show trayicon. Do it early otherwise in Win10 it is not shown in the command line trimmed_median_background}
 
   application_path:= extractfilepath(application.location);{}
 
@@ -13299,7 +13434,7 @@ begin
       begin
         application.messagebox( pchar(
         'Solver command-line usage:'+#10+
-        '-f  filename'+#10+
+        '-f  filename {fits, tiff, png, pgm, jpg files}'+#10+
         '-r  radius_area_to_search[degrees]'+#10+      {changed}
         '-fov height_field[degrees]'+#10+
         '-ra  right_ascension[hours]'+#10+
@@ -13312,7 +13447,6 @@ begin
         '-check apply[y/n] {Apply check pattern filter prior to solving. Use for raw OSC images only when binning is 1x1}' +#10+
         '-d  path {Specify a path to the star database}'+#10+
         '-D  abbreviation[d80,d50,...] {Specify a star database}'+#10+
-        '-eqbg apply[y/n] {Equalise unequal background prior to solving to improve star detection}'+#10+
         '-o  file {Name the output files with this base path & file name}'+#10+
         '-sip add[y/n] {Add SIP (Simple Image Polynomial) coefficients}'+#10+
         '-speed mode[auto/slow] {Slow is forcing more area overlap while searching to improve detection}'+#10+
@@ -13343,7 +13477,7 @@ begin
 
       //log_to_file('c:\temp\text.txt',cmdline);
 
-      debug:=hasoption('debug'); {The debug option allows to set some solving parameters in the GUI (graphical user interface) and to test the commandline. In debug mode all commandline parameters are set and the specified image is shown in the viewer. Only the solve command has to be given manuallydebug mode }
+      debug:=hasoption('debug'); {The debug option allows to set some solving parameters in the GUI (graphical user interface) and to test the commandline. In debug trimmed_median_background all commandline parameters are set and the specified image is shown in the viewer. Only the solve command has to be given manuallydebug trimmed_median_background }
       filespecified:=hasoption('f');
       focusrequest:=hasoption('focus1');
 
@@ -13351,7 +13485,7 @@ begin
       begin
         commandline_execution:=true;{later required for trayicon and popup notifier and Memo3 scroll in Linux}
 
-        commandline_log:=((debug) or (hasoption('log')));{log to file. In debug mode enable logging to memo2}
+        commandline_log:=((debug) or (hasoption('log')));{log to file. In debug trimmed_median_background enable logging to memo2}
         if commandline_log then memo2_message(cmdline);{write the original commmand line}
 
         if filespecified then
@@ -13399,9 +13533,6 @@ begin
             stackmenu1.add_sip1.checked:='n'<>GetOptionValue('sip');
         if hasoption('speed') then stackmenu1.force_oversize1.checked:=('slow'=GetOptionValue('speed'));
         if hasoption('check') then checkfilter:=true else checkfilter:=false;
-        if hasoption('eqbg') then
-            stackmenu1.equaliseBG_for_solving1.checked:='n'<>GetOptionValue('eqbg');
-
 
         if focusrequest then {find best focus using curve fitting}
         begin
@@ -13587,7 +13718,7 @@ begin
           // WARNING =.........
         end {standard solve via command line}
         else
-        begin {debug mode, so tab alignment for settings and testing}
+        begin {debug trimmed_median_background, so tab alignment for settings and testing}
           stackmenu1.formstyle:=fsSystemStayOnTop;
           stackmenu1.pagecontrol1.tabindex:=6; {alignment}
           stackmenu1.panel_manual1.enabled:=false;{hide for user}
@@ -15112,7 +15243,7 @@ end;
 
 
 {calculates star HFD and FWHM, SNR, xc and yc are center of gravity, rs is the boxsize, aperture for the flux measurement. All x,y coordinates in array[0..] positions}
-{aperture_small is used for photometry of stars. Set at 99 for normal full flux mode}
+{aperture_small is used for photometry of stars. Set at 99 for normal full flux trimmed_median_background}
 {Procedure uses two global accessible variables:  r_aperture and sd_bg }
 procedure HFD(img: Timage_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr, flux,xc,yc:double);
 const
@@ -15284,7 +15415,7 @@ begin
   SumValR:=0;
   pixel_counter:=0;
 
-  if r_aperture<aperture_small then //standard mode, full star flux use
+  if r_aperture<aperture_small then //standard trimmed_median_background, full star flux use
   begin
     for i:=-r_aperture to r_aperture do //Make steps of one pixel
     for j:=-r_aperture to r_aperture do
@@ -15300,7 +15431,7 @@ begin
     hfd1:=2*SumValR/flux;
   end
   else
-  begin //photometry mode. Measure only the bright center of the star for a better SNR
+  begin //photometry trimmed_median_background. Measure only the bright center of the star for a better SNR
     for i:=-r_aperture*SamplePoints to r_aperture*SamplePoints do //Make steps in fraction of a pixel
     for j:=-r_aperture*SamplePoints to r_aperture*SamplePoints do
     begin
@@ -15318,7 +15449,7 @@ begin
     flux:=max(sumval_small,0.00001);//Flux in the restricted aperture only. Prevent dividing by zero or negative values
     radius:=aperture_small; // use smaller aperture
     hfd1:=2*SumValR/max(SumVal,0.00001);//divide by the all flux of the star
-  end; //photometry mode
+  end; //photometry trimmed_median_background
 
   hfd1:=max(0.8,hfd1);
   star_fwhm:=2*sqrt(pixel_counter/pi);{calculate from surface (by counting pixels above half max) the diameter equals FWHM }
@@ -15446,9 +15577,9 @@ begin
 end;
 
 
-procedure local_sd(x1,y1, x2,y2,col : integer;{accuracy: double;} img : Timage_array; out sd,mean : double; out iterations :integer);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-var i,j,counter,w,h                 : integer;
-    value, sd_old,meanx             : double;
+procedure local_sigma_clip_mean_and_sd(x1,y1, x2,y2,col : integer; img : Timage_array; out sd,mean : double; out iterations :integer);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
+var i,j,counter,w,h                      : integer;
+    value, original_value, sd_old,meanx  : double;
 
 begin
   w:=Length(img[0,0]); {width}
@@ -15466,37 +15597,39 @@ begin
 
   iterations:=0;
   repeat
-    {mean}
-    counter:=0;
-    meanx:=0;
-    for j:=y1 to y2  do {calculate standard deviation  of region of interest}
-    for i:=x1 to x2 do {calculate standard deviation  of region of interest}
-    begin
-      value:=img[col,j,i];
-      if  ((iterations=0) or (abs(value-mean)<=3*sd)) then  {ignore outliers after first run}
+    counter := 0;
+    meanx := 0;
+    for j := y1 to y2 do
+      for i := x1 to x2 do
       begin
-        inc(counter);
-        meanx:=meanx+value; {mean}
-       end;
-     end;{filter outliers}
-    if counter<>0 then mean:=meanx/counter {calculate the mean};
-
-    {sd}
-    sd_old:=sd;
-    counter:=0;
-    for j:=y1 to y2  do {calculate standard deviation  of region of interest}
-    for i:=x1 to x2 do {calculate standard deviation  of region of interest}
-    begin
-      value:=img[col,j,i]-mean;
-      if ((value<mean {not a large outlier}) and ((iterations=0) or (abs(value)<=3*sd_old)) )  then {ignore outliers after first run}
-      begin
-        sd:=sd+sqr(value);
-        inc(counter);
+        original_value := img[col,j,i];  // Store original value
+        if ((iterations=0) or (abs(original_value-mean)<=3*sd)) then
+        begin
+          inc(counter);
+          meanx := meanx + original_value;
+        end;
       end;
-    end;
-    if counter<>0 then sd:=sqrt(sd/counter);
+    if counter <> 0 then mean := meanx/counter;
+
+    // Calculate SD
+    sd_old := sd;
+    sd := 0;  // RESET sd here!
+    counter := 0;
+    for j := y1 to y2 do
+      for i := x1 to x2 do
+      begin
+        original_value := img[col,j,i];
+        if ((original_value < mean + 2*sd_old) and  // Only clip bright outliers
+            ((iterations=0) or (abs(original_value-mean)<=3*sd_old))) then
+        begin
+          value := original_value - mean;  // Now subtract mean
+          sd := sd + sqr(value);
+          inc(counter);
+        end;
+      end;
+    if counter <> 0 then sd := sqrt(sd/counter);
     inc(iterations);
-  until (((sd_old-sd)<0.03*sd) or (iterations>=7));{repeat until sd is stable or 7 iterations}
+  until (((sd_old-sd)<0.03*sd) or (iterations>=7));
 end;
 
 
@@ -15783,7 +15916,7 @@ begin
      object_decM:=decM; {use mouse position instead}
      mainform1.statusbar1.panels[1].text:='';
 
-     local_sd(round(mouse_fitsX-1)-10,round(mouse_fitsY-1)-10, round(mouse_fitsX-1)+10,round(mouse_fitsY-1)+10{regio of interest},0 {col},img_loaded, sd,dummy {mean},iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
+     local_sigma_clip_mean_and_sd(round(mouse_fitsX-1)-10,round(mouse_fitsY-1)-10, round(mouse_fitsX-1)+10,round(mouse_fitsY-1)+10{regio of interest},0 {col},img_loaded, sd,dummy {mean},iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
 
      mainform1.statusbar1.panels[2].text:='σ = '+noise_to_electrons(adu_e, sd); //reports noise in ADU's (adu_e=0) or electrons
 

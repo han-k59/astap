@@ -893,10 +893,10 @@ begin
           begin
             if equalise_background then
             begin //measure background in all four corners
-              bck[0]:=mode(img_loaded,false{ellipse shape},col,0,round(0.2*head.width),  0,round(0.2*head.height),32000,greylevels);
-              bck[1]:=mode(img_loaded,false{ellipse shape},col,0,round(0.2*head.width),  round(0.8*head.height),head.height-1,32000,greylevels) ;
-              bck[2]:=mode(img_loaded,false{ellipse shape},col,round(0.8*head.width),head.width-1,  0,round(0.2*head.height),32000,greylevels) ;
-              bck[3]:=mode(img_loaded,false{ellipse shape},col,round(0.8*head.width),head.width-1,  round(0.8*head.height),head.height-1,32000,greylevels) ;
+              bck[0]:=trimmed_median_background(img_loaded,false{ellipse shape},col,0,round(0.2*head.width),  0,round(0.2*head.height),32000,greylevels);
+              bck[1]:=trimmed_median_background(img_loaded,false{ellipse shape},col,0,round(0.2*head.width),  round(0.8*head.height),head.height-1,32000,greylevels) ;
+              bck[2]:=trimmed_median_background(img_loaded,false{ellipse shape},col,round(0.8*head.width),head.width-1,  0,round(0.2*head.height),32000,greylevels) ;
+              bck[3]:=trimmed_median_background(img_loaded,false{ellipse shape},col,round(0.8*head.width),head.width-1,  round(0.8*head.height),head.height-1,32000,greylevels) ;
 
               background[col]:=smedian(bck,4);
               background_correction_center[col]:=1000 - background[col] ;
@@ -1011,7 +1011,7 @@ begin
                       else
                       begin {method 1}
                         value:=img_loaded[col,fitsY,fitsX]+background_correction_center[col];
-                        local_sd(fitsX-15 ,fitsY-15, fitsX+15,fitsY+15,col,img_loaded, {var} noise,mean, iterations);{local noise recheck every 10 th pixel}
+                        local_sigma_clip_mean_and_sd(fitsX-15 ,fitsY-15, fitsX+15,fitsY+15,col,img_loaded, {var} noise,mean, iterations);{local noise recheck every 10 th pixel}
                         maxlevel:=median+noise*5;
                         if ((value<maxlevel) and
                           (img_loaded[col,fitsY,fitsX-1]<maxlevel) and (img_loaded[col,fitsY,fitsX+1]<maxlevel) and (img_loaded[col,fitsY-1,fitsX]<maxlevel) and (img_loaded[col,fitsY+1,fitsX]<maxlevel) {check nearest pixels}
