@@ -72,7 +72,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2025.09.14';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.09.27';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -89,8 +89,13 @@ type
     boxshape1: TShape;
     error_label1: TLabel;
     Image1: TImage;
+    MenuItem25: TMenuItem;
+    area_crop1: TMenuItem;
+    image_based_crop1: TMenuItem;
     Panel1: TPanel;
     selective_colour_saturation1: TTrackBar;
+    Separator4: TMenuItem;
+    Separator5: TMenuItem;
     shape_manual_alignment1: TShape;
     shape_marker1: TShape;
     shape_marker2: TShape;
@@ -398,6 +403,7 @@ type
     procedure histogram_values_to_clipboard1Click(Sender: TObject);
     procedure Image1Paint(Sender: TObject);
     procedure annotate_unknown_stars1Click(Sender: TObject);
+    procedure image_based_crop1Click(Sender: TObject);
     procedure inspector1Click(Sender: TObject);
     procedure j2000d1Click(Sender: TObject);
     procedure measuretotalmagnitude1Click(Sender: TObject);
@@ -424,7 +430,9 @@ type
     procedure flipVH1Click(Sender: TObject);
     procedure dust_spot_removal1Click(Sender: TObject);
     procedure batch_add_tilt1Click(Sender: TObject);
+    procedure area_crop1Click(Sender: TObject);
     procedure mpcreport1Click(Sender: TObject);
+    procedure Panel1Click(Sender: TObject);
     procedure saturation_factor_plot1MouseWheel(Sender: TObject;
       Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
       var Handled: Boolean);
@@ -609,6 +617,11 @@ type
     light_count     : integer;
     flat_count      : integer;
     flatdark_count  : integer;
+    frameX          : integer;
+    frameY          : integer;
+    frameW          : integer;
+    frameH          : integer;
+
     egain      : string; {gain in e-/adu}
      gain      : string; {gain in 0.1dB or else}
     date_obs   : string;
@@ -917,6 +930,8 @@ procedure local_color_smooth(startX,stopX,startY,stopY: integer);//local color s
 procedure variable_star_annotation(extract_visible: boolean {extract to variable_list});
 function annotate_unknown_stars(const memox:tstrings; img : Timage_array; headx : theader; out countN: integer) : boolean;//annotate stars missing from the online Gaia catalog or having too bright magnitudes
 function saturation(img : timage_array; x,y: integer;saturation_level: single): boolean;//is the star in the img saturated?
+procedure update_sip_coefficients(memo : tstrings);//update all sip coefficients in memo
+function apply_arctan(fov : double): double; //assume the optical system can be modeled by a simple arctan function like a standard rectilinear (pinhole) lens
 
 
 const   bufwide=65535*4;{buffer size in bytes. Image dimensions 65535x65535}
@@ -1106,6 +1121,10 @@ begin
   head.passband_database:='';//used to measure MZERO
   bayerpat:='';{reset bayer pattern}
   head.issues:='';;
+
+  head.frameX:=0;// frame offset
+  head.frameY:=0;
+
 end;{reset global variables}
 
 
@@ -1409,9 +1428,6 @@ begin
           end;
         end;
 
-        if ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
-               try head.set_temperature:=round(validate_double);{read double value} except; end; {some programs give huge values}
-
 
         if (header[i]='F') then {F}
         begin
@@ -1420,6 +1436,23 @@ begin
           else
           if ((header[i+1]='L')  and (header[i+2]='A') and (header[i+3]='T') and (header[i+4]='_') and (header[i+5]='C') and (header[i+6]='N')and (header[i+7]='T')) then
                head.flat_count:=round(validate_double);{read integer as double value}
+
+          if ((header[i+1]='R')  and (header[i+2]='A') and (header[i+3]='M') and (header[i+4]='E')) then
+          begin
+            //FRAMEX  =                  100 / Frame start x
+            //FRAMEY  =                  500 / Frame start y
+            //FRAMEHGT=                  600 / Frame height
+            //FRAMEWDH=                  500 / Frame width
+            if header[i+5]='X' then head.FRAMEX:=round(validate_double)
+            else
+            if header[i+5]='Y' then head.FRAMEY:=round(validate_double)
+            else
+            if header[i+5]='H' then head.FRAMEH:=round(validate_double)
+            else
+            if header[i+5]='W' then head.FRAMEW:=round(validate_double);
+          end;
+
+
         end; {F}
 
         if ((header[i]='G') and (header[i+1]='A')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]=' ')) then
@@ -1466,6 +1499,11 @@ begin
             jd2:=2400000.5+validate_double;// MJD to JD
             head.date_obs:=JdToDate(jd2);
           end;
+
+        if ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
+               try head.set_temperature:=round(validate_double);{read double value} except; end; {some programs give huge values}
+
+
 
 
         if ((header[i]='X') and (header[i+1]='B')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]='N') and (header[i+5]='I')) then
@@ -2592,7 +2630,7 @@ var
      procedure close_fits_file; inline;
      begin
         Reader.free;
-        TheFile.free;
+        theFile.free;
      end;
 
 begin
@@ -2600,7 +2638,7 @@ begin
   result:=false; {assume failure}
 
   try
-    TheFile:=tfilestream.Create( filen, fmOpenRead or fmShareDenyWrite);
+    theFile:=tfilestream.Create( filen, fmOpenRead or fmShareDenyWrite);
   except
      beep;
      mainform1.error_label1.caption:=('Error, accessing the file!');
@@ -2611,8 +2649,8 @@ begin
  // mainform1.memo1.visible:=false;{stop visualising memo1 for speed. Will be activated in plot routine}
   memo.clear;{clear memo for new header}
 
-  Reader := TReader.Create (TheFile,$60000);// 393216 byte buffer
-  {TheFile.size-reader.position>sizeof(hnskyhdr) could also be used but slow down a factor of 2 !!!}
+  Reader := TReader.Create (theFile,$60000);// 393216 byte buffer
+  {theFile.size-reader.position>sizeof(hnskyhdr) could also be used but slow down a factor of 2 !!!}
 
   reset_fits_global_variables(true{light},head); {reset the global variable}
 
@@ -2726,8 +2764,8 @@ begin
     end; {should contain 255 or 65535}
 
     head.datamin_org:=0;
+    head.backgr:=0;{for case histogram is not called}
 
-    head.backgr:=head.datamin_org;{for case histogram is not called}
     cwhite:=head.datamax_org;
 
     if color7 then
@@ -3475,6 +3513,86 @@ begin
 end;
 
 
+procedure ConvertSIPForBinning(N {binning_factor}: integer);//Convert SIP (Simple Imaging Polynomial) coefficients after image binning.
+{
+  Convert SIP (Simple Imaging Polynomial) coefficients after image binning.
+
+  Parameters:
+    binning_factor: The binning factor (e.g., 2.0 for 2x2 binning)
+
+  Scaling rules:
+    - A and B coefficients: A_p_q -> A_p_q * N^(p+q-1)
+    - AP and BP coefficients: AP_p_q -> AP_p_q * N^(p+q-1)
+
+  Where p and q are the polynomial orders from the coefficient name A_p_q
+
+
+  Formula 1, pixel correction in X for celestal to pixel position:
+  correction_unbinned:=ap_0_0 + ap_0_1*v0+ ap_0_2*v0*v0+ ap_0_3*v0*v0*v0 +ap_1_0*u0 + ap_1_1*u0*v0+  ap_1_2*u0*v0*v0+ ap_2_0*u0*u0 + ap_2_1*u0*u0*v0+  ap_3_0*u0*u0*u0
+
+
+  When the pixels are binned 2x2 then u0 and V0 have to be doubled to calculate the same correction. After calculating the result have to be divided by the binning.
+
+  Formula 2:
+  correction_binned:=0.5* (binned_ap_0_0 + binned_ap_0_1*v0*2+ binned_ap_0_2*v0*2*v0*2+ ap_0_3*v0*2*v0*2*v0*2 +ap_1_0*u0*2 + ap_1_1*u0*2*v0*2+  ap_1_2*u0*2*v0*2*v0*2+ ap_2_0*u0*2*u0*2 + ap_2_1*u0*2*u0*2*v0*2+  ap_3_0*u0*2*u0*2*u0*2)
+
+  Formula 3:
+  correction_unbinned=correction_binned
+
+  So binned_ap_0_2:= 0.5*(binned_ap_0_2 * 2 * 2) equals binned_ap_0_2 * 2, , so multiply with binning^1
+  So binned_ap_1_2:= 0.5*(binned_ap_0_2 * 2 * 2 * 2) equals binned_ap_1_2 * 2 * 2, so multiply with binning^2
+}
+
+var
+  N_pow_minus1, N_pow_1, N_pow_2 : double;  // Powers of N
+begin
+
+  N_pow_minus1:=1/N;
+  N_pow_1 := N;
+  N_pow_2 := N * N;
+
+  a_0_0 := a_0_0 *  N_pow_minus1;  // *N^-1
+  // a_0_1, a_1_0 remain unchanged  // *N^0
+  a_0_2 := a_0_2 * N_pow_1;  // *N^1
+  a_1_1 := a_1_1 * N_pow_1;  // *N^1
+  a_2_0 := a_2_0 * N_pow_1;  // *N^1
+  a_0_3 := a_0_3 * N_pow_2;  // *N^2
+  a_1_2 := a_1_2 * N_pow_2;  // *N^2
+  a_2_1 := a_2_1 * N_pow_2;  // *N^2
+  a_3_0 := a_3_0 * N_pow_2;  // *N^2
+
+  b_0_0 := b_0_0 * N_pow_minus1;  // *N^-1
+  // b_0_1, b_1_0 remain unchanged  // *N^0
+  b_0_2 := b_0_2 * N_pow_1;  // *N^1
+  b_1_1 := b_1_1 * N_pow_1;  // *N^1
+  b_2_0 := b_2_0 * N_pow_1;  // *N^1
+  b_0_3 := b_0_3 * N_pow_2;  // *N^2
+  b_1_2 := b_1_2 * N_pow_2;  // *N^2
+  b_2_1 := b_2_1 * N_pow_2;  // *N^2
+  b_3_0 := b_3_0 * N_pow_2;  // *N^2
+
+  ap_0_0 := ap_0_0 * N_pow_minus1;  // *N^-1
+  // ap_0_1, ap_1_0 remain unchanged  // *N^0
+  ap_0_2 := ap_0_2 * N_pow_1;  // *N^1
+  ap_1_1 := ap_1_1 * N_pow_1;  // *N^1
+  ap_2_0 := ap_2_0 * N_pow_1;  // *N^1
+  ap_0_3 := ap_0_3 * N_pow_2;  // *N^2
+  ap_1_2 := ap_1_2 * N_pow_2;  // *N^2
+  ap_2_1 := ap_2_1 * N_pow_2;  // *N^2
+  ap_3_0 := ap_3_0 * N_pow_2;  // *N^2
+
+  bp_0_0 := bp_0_0 * N_pow_minus1;  // *N^-1
+  // bp_0_1, bp_1_0 remain unchanged  // *N^0
+  bp_0_2 := bp_0_2 * N_pow_1;  // *N^1
+  bp_1_1 := bp_1_1 * N_pow_1;  // *N^1
+  bp_2_0 := bp_2_0 * N_pow_1;  // *N^1
+  bp_0_3 := bp_0_3 * N_pow_2;  // *N^2
+  bp_1_2 := bp_1_2 * N_pow_2;  // *N^2
+  bp_2_1 := bp_2_1 * N_pow_2;  // *N^2
+  bp_3_0 := bp_3_0 * N_pow_2;  // *N^2
+end;
+
+
 procedure remove_solution(keep_wcs:boolean);//remove all solution key words efficient
 var
   cnt,line_end : integer;
@@ -3556,6 +3674,60 @@ begin
 
   mainform1.Memo1.text:=buf;
 end;
+
+
+procedure update_sip_coefficients(memo : tstrings);//update all sip coefficients in memo
+begin
+  update_integer(memo,'A_ORDER =',' / Polynomial order, axis 1. Pixel to Sky         ',3);
+  update_float(memo,'A_0_0   =',' / SIP coefficient                                ',false,A_0_0);
+  update_float(memo,'A_1_0   =',' / SIP coefficient                                ',false,A_1_0);
+  update_float(memo,'A_0_1   =',' / SIP coefficient                                ',false,A_0_1);
+  update_float(memo,'A_2_0   =',' / SIP coefficient                                ',false,A_2_0);
+  update_float(memo,'A_1_1   =',' / SIP coefficient                                ',false,A_1_1);
+  update_float(memo,'A_0_2   =',' / SIP coefficient                                ',false,A_0_2);
+  update_float(memo,'A_3_0   =',' / SIP coefficient                                ',false,A_3_0);
+  update_float(memo,'A_2_1   =',' / SIP coefficient                                ',false,A_2_1);
+  update_float(memo,'A_1_2   =',' / SIP coefficient                                ',false,A_1_2);
+  update_float(memo,'A_0_3   =',' / SIP coefficient                                ',false,A_0_3);
+
+
+  update_integer(memo,'B_ORDER =',' / Polynomial order, axis 2. Pixel to sky.        ',3);
+  update_float(memo,'B_0_0   =',' / SIP coefficient                                ',false ,B_0_0);
+  update_float(memo,'B_0_1   =',' / SIP coefficient                                ',false ,B_0_1);
+  update_float(memo,'B_1_0   =',' / SIP coefficient                                ',false ,B_1_0);
+  update_float(memo,'B_2_0   =',' / SIP coefficient                                ',false ,B_2_0);
+  update_float(memo,'B_1_1   =',' / SIP coefficient                                ',false ,B_1_1);
+  update_float(memo,'B_0_2   =',' / SIP coefficient                                ',false ,B_0_2);
+  update_float(memo,'B_3_0   =',' / SIP coefficient                                ',false ,B_3_0);
+  update_float(memo,'B_2_1   =',' / SIP coefficient                                ',false ,B_2_1);
+  update_float(memo,'B_1_2   =',' / SIP coefficient                                ',false ,B_1_2);
+  update_float(memo,'B_0_3   =',' / SIP coefficient                                ',false ,B_0_3);
+
+  update_integer(memo,'AP_ORDER=',' / Inv polynomial order, axis 1. Sky to pixel.      ',3);
+  update_float(memo,'AP_0_0  =',' / SIP coefficient                                ',false,AP_0_0);
+  update_float(memo,'AP_1_0  =',' / SIP coefficient                                ',false,AP_1_0);
+  update_float(memo,'AP_0_1  =',' / SIP coefficient                                ',false,AP_0_1);
+  update_float(memo,'AP_2_0  =',' / SIP coefficient                                ',false,AP_2_0);
+  update_float(memo,'AP_1_1  =',' / SIP coefficient                                ',false,AP_1_1);
+  update_float(memo,'AP_0_2  =',' / SIP coefficient                                ',false,AP_0_2);
+  update_float(memo,'AP_3_0  =',' / SIP coefficient                                ',false,AP_3_0);
+  update_float(memo,'AP_2_1  =',' / SIP coefficient                                ',false,AP_2_1);
+  update_float(memo,'AP_1_2  =',' / SIP coefficient                                ',false,AP_1_2);
+  update_float(memo,'AP_0_3  =',' / SIP coefficient                                ',false,AP_0_3);
+
+  update_integer(memo,'BP_ORDER=',' / Inv polynomial order, axis 2. Sky to pixel.    ',3);
+  update_float(memo,'BP_0_0  =',' / SIP coefficient                                ',false,BP_0_0);
+  update_float(memo,'BP_1_0  =',' / SIP coefficient                                ',false,BP_1_0);
+  update_float(memo,'BP_0_1  =',' / SIP coefficient                                ',false,BP_0_1);
+  update_float(memo,'BP_2_0  =',' / SIP coefficient                                ',false,BP_2_0);
+  update_float(memo,'BP_1_1  =',' / SIP coefficient                                ',false,BP_1_1);
+  update_float(memo,'BP_0_2  =',' / SIP coefficient                                ',false,BP_0_2);
+  update_float(memo,'BP_3_0  =',' / SIP coefficient                                ',false,BP_3_0);
+  update_float(memo,'BP_2_1  =',' / SIP coefficient                                ',false,BP_2_1);
+  update_float(memo,'BP_1_2  =',' / SIP coefficient                                ',false,BP_1_2);
+  update_float(memo,'BP_0_3  =',' / SIP coefficient                                ',false,BP_0_3);
+end;
+
 
 procedure remove_key(memo:tstrings;inpt:string; all:boolean);{remove key word in header. If all=true then remove multiple of the same keyword}
 var
@@ -4053,6 +4225,13 @@ begin
     update_float(memo,'CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
     update_float(memo,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
     update_float(memo,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
+
+    if ap_order<>0 then //sip factors
+    begin
+      ConvertSIPForBinning(binfactor); //Convert SIP (Simple Imaging Polynomial) coefficients after image binning.
+      update_sip_coefficients(memo);
+    end;
+
   end;
   head.XBINNING:=head.XBINNING*binfactor;
   head.YBINNING:=head.YBINNING*binfactor;
@@ -4067,6 +4246,9 @@ begin
     update_float(memo,'PIXSIZE1=',' / Pixel width in microns (after binning)          ' ,false,head.XPIXSZ);
     update_float(memo,'PIXSIZE2=',' / Pixel height in microns (after binning)         ' ,false,head.YPIXSZ);
   end;
+
+
+
   fact:=inttostr(binfactor);
   fact:=fact+'x'+fact;
   add_text(memo,'HISTORY   ','BIN'+fact+' version of '+filename2);
@@ -6027,11 +6209,17 @@ begin
 end;
 
 
+function apply_arctan(fov : double): double; //assume the optical system can be modeled by a simple arctan function like a standard rectilinear (pinhole) lens
+begin
+  result:=2*arctan((fov/2)*pi/180)*180/pi;
+end;
+
+
 procedure update_statusbar_section5;{update section 5 with image dimensions in degrees}
 begin
   if head.cdelt2<>0 then
   begin
-    mainform1.statusbar1.panels[6].text:=floattostrF(head.width*abs(head.cdelt2),ffFixed,0,2)+' x '+floattostrF(head.height*abs(head.cdelt2),ffFixed,0,2)+' °';{give image dimensions and bit per pixel info}
+    mainform1.statusbar1.panels[6].text:=floattostrF(apply_arctan(head.width*abs(head.cdelt2)),ffFixed,0,2)+' x '+floattostrF(apply_arctan(head.height*abs(head.cdelt2)),ffFixed,0,2)+' °';{give image dimensions and bit per pixel info}
     stackmenu1.search_fov1.text:=floattostrF(head.height*abs(head.cdelt2),ffFixed,0,2); {negative head.cdelt2 are produced by PI}
   end
   else mainform1.statusbar1.panels[6].text:='';
@@ -6369,6 +6557,7 @@ begin
       update_float(mainform1.memo1.lines,'CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
       update_float(mainform1.memo1.lines,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
       update_float(mainform1.memo1.lines,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
+      if a_order>0 then remove_solution(true {keep wcs});//remove SIP
     end;
 
     head.XBINNING:=head.XBINNING/ratio;
@@ -8333,7 +8522,6 @@ begin
       dum:=Sett.ReadString('stack','most_common_filter_radius',''); if dum<>'' then stackmenu1.most_common_filter_radius1.text:=dum;
 
       dum:=Sett.ReadString('stack','extract_background_box_size',''); if dum<>'' then stackmenu1.extract_background_box_size1.text:=dum;
-      dum:=Sett.ReadString('stack','dark_areas_box_size',''); if dum<>'' then stackmenu1.dark_areas_box_size1.text:=dum;
       dum:=Sett.ReadString('stack','ring_equalise_factor',''); if dum<>'' then stackmenu1.ring_equalise_factor1.text:=dum;
 
       dum:=Sett.ReadString('stack','gradient_filter_factor',''); if dum<>'' then stackmenu1.gradient_filter_factor1.text:=dum;
@@ -8753,7 +8941,6 @@ begin
       sett.writestring('stack','most_common_filter_radius',stackmenu1.most_common_filter_radius1.text);
 
       sett.writestring('stack','extract_background_box_size',stackmenu1.extract_background_box_size1.text);
-      sett.writestring('stack','dark_areas_box_size',stackmenu1.dark_areas_box_size1.text);
       sett.writestring('stack','ring_equalise_factor',stackmenu1.ring_equalise_factor1.text);
 
       sett.writestring('stack','gradient_filter_factor',stackmenu1.gradient_filter_factor1.text);
@@ -9220,7 +9407,6 @@ begin
 end;
 
 
-
 function Jd_To_MPCDate(jd: double): string;{Returns Date from Julian Date,  See MEEUS 2 page 63}
 var
   A, B, C, D, E, F, G, J, M, T, Z: double;
@@ -9341,6 +9527,11 @@ begin
   end;
 
 //  InputBox('This line to clipboard?','Format 24 00 00.0, 90 00 00.0   or   24 00, 90 00',line);
+end;
+
+procedure Tmainform1.Panel1Click(Sender: TObject);
+begin
+
 end;
 
 procedure Tmainform1.saturation_factor_plot1MouseWheel(Sender: TObject;
@@ -11575,6 +11766,7 @@ begin
   plot_annotations(false {use solution vectors},false);
 end;
 
+
 procedure Tmainform1.inspector1Click(Sender: TObject);
 begin
   form_inspection1:=Tform_inspection1.Create(self); {in project option not loaded automatic}
@@ -12123,6 +12315,7 @@ begin
         update_float(mainform1.memo1.lines,'CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
         update_float(mainform1.memo1.lines,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
         update_float(mainform1.memo1.lines,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
+        if a_order>0 then remove_solution(true {keep wcs});//remove SIP
       end;
 
       head.XBINNING:=head.XBINNING/ratio;
@@ -12299,6 +12492,7 @@ procedure Tmainform1.FormCreate(Sender: TObject);
 var
    param1: string;
 begin
+
   {OneInstance of ASTAP if only one parameter is specified. So if user clicks on an associated image in explorer}
   if paramcount=1 then
   begin
@@ -12337,7 +12531,6 @@ begin
   {$endif}
   image1.cursor:=crMyCursor;
 
-  Application.OnHint := DisplayHint;
 
   deepstring := Tstringlist.Create;{for deepsky overlay}
   recent_files:= Tstringlist.Create;
@@ -13674,7 +13867,7 @@ begin
 
             if ((fov_specified) and (stackmenu1.search_fov1.text='0' ) {auto}) then {preserve new found fov}
             begin
-              stackmenu1.search_fov1.text:=floattostrF(head.height*abs(head.cdelt2),ffFixed,0,2);
+              stackmenu1.search_fov1.text:=floattostrF(apply_arctan(head.height*abs(head.cdelt2)),ffFixed,0,2);
               save_settings2;{save settings with correct fov}
             end;
           end {solution}
@@ -13771,6 +13964,8 @@ begin
   FixHiddenFormProblem( Screen,stackmenu1);
 
   mainform1.StaticText_labelversion1.caption:='v'+astap_version;
+
+  Application.OnHint := DisplayHint;//this line doesn't work reliable in FormCreate.
 
 end;
 
@@ -14041,10 +14236,249 @@ begin
 end;
 
 
-procedure Tmainform1.CropFITSimage1Click(Sender: TObject);
+procedure crop_image(x1,y1,x2,y2 {array coordinates,[0..]} : integer; var img : timage_array;var head : theader; const memo : tstrings);
 var fitsX,fitsY,col,dum, formalism      : integer;
     fxc,fyc, ra_c,dec_c, ra_n,dec_n,ra_m, dec_m, delta_ra   : double;
     img_temp : Timage_array;
+begin
+  formalism:=mainform1.Polynomial1.itemindex;
+
+  x1:=max(x1,0);  // Prevent runtime errors. Box can be outside image
+  y1:=max(y1,0);
+  x2:=min(x2,head.width-1);
+  y2:=min(y2,head.height-1);
+
+  head.width:=x2-x1+1;
+  head.height:=y2-y1+1;
+  setlength(img_temp,head.naxis3,head.height,head.width);{set length of image array}
+
+
+  for col:=0 to head.naxis3-1 do
+    for fitsY:=y1 to y2 do
+      for fitsX:=x1 to x2 do {crop image EXCLUDING rectangle.}
+           img_temp[col,fitsY-y1,fitsX-x1]:=img[col,fitsY,fitsX];
+
+  img:=nil;{release memory}
+  img:=img_temp;
+
+  update_integer(memo,'NAXIS1  =',' / length of x axis                               ' ,head.width);
+  update_integer(memo,'NAXIS2  =',' / length of y axis                               ' ,head.height);
+
+  //FRAMEX  =                  100 / Frame start x
+  //FRAMEY  =                  500 / Frame start y
+  //FRAMEHGT=                  600 / Frame height
+  //FRAMEWDH=                  500 / Frame width
+
+    head.frameX:=head.frameX+x1;//frame offset in pixels
+    head.frameY:=head.frameY+y1;//frame offset in pixels
+    head.frameH:=y2-y1+1; //+1 because from position 0,0 to 2,2 is 3x3 pixels
+    head.frameW:=x2-x1+1;
+
+    update_integer(memo,'FRAMEX  =',' / Frame offset in pixels                         ' ,head.frameX);
+    update_integer(memo,'FRAMEY  =',' / Frame offset in pixels                         ' ,head.frameY);
+    update_integer(memo,'FRAMEHGT=',' / Frame height in pixels                         ' ,head.frameH);
+    update_integer(memo,'FRAMEWDH=',' / Frame width in pixe;s                          ' ,head.frameW);
+
+  {new reference pixel}
+  if head.cd1_1<>0 then
+  begin
+    {do the rigid method.}
+    fxc:=1+(x1+x2)/2;//position of new center
+    fyc:=1+(y1+y2)/2;
+    pixel_to_celestial(head,fxc,fyc, formalism, ra_c,dec_c {new center RA, DEC position});   //make 1 step in direction head.crpix1. Do first the two steps because head.cd1_1, head.cd2_1..... are required so they have to be updated after the two steps.
+    pixel_to_celestial(head,1+fxc,fyc, formalism, ra_n,dec_n {RA, DEC position, one pixel moved in head.crpix1});  //make 1 step in direction head.crpix2
+    pixel_to_celestial(head,fxc,fyc+1 , formalism, ra_m,dec_m {RA, DEC position, one pixel moved in head.crpix2});
+
+    delta_ra:=ra_n-ra_c;
+    if delta_ra>+pi then delta_ra:=2*pi-delta_ra; {359-> 1,    +2:=360 - (359- 1)}
+    if delta_ra<-pi then delta_ra:=delta_ra-2*pi; {1  -> 359,  -2:=(1-359) -360  }
+    head.cd1_1:=(delta_ra)*cos(dec_c)*(180/pi);
+    head.cd2_1:=(dec_n-dec_c)*(180/pi);
+
+    delta_ra:=ra_m-ra_c;
+    if delta_ra>+pi then delta_ra:=2*pi-delta_ra; {359-> 1,    +2:=360 - (359- 1)}
+    if delta_ra<-pi then delta_ra:=delta_ra-2*pi; {1  -> 359,  -2:=(1-359) -360  }
+    head.cd1_2:=(delta_ra)*cos(dec_c)*(180/pi);
+    head.cd2_2:=(dec_m-dec_c)*(180/pi);
+
+    head.ra0:=ra_c;
+    head.dec0:=dec_c;
+    head.crpix1:=(head.width+1)/2;
+    head.crpix2:=(head.height+1)/2;
+
+     new_to_old_WCS(head);
+
+     update_float(memo,'CRVAL1  =',' / RA of reference pixel (deg)                    ',false ,head.ra0*180/pi);
+     update_float(memo,'CRVAL2  =',' / DEC of reference pixel (deg)                   ',false ,head.dec0*180/pi);
+
+     update_float(memo,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);{adapt reference pixel of plate solution. Is no longer in the middle}
+     update_float(memo,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);
+
+     update_float(memo,'CROTA1  =',' / Image twist X axis (deg)                       ',false ,head.crota1);
+     update_float(memo,'CROTA2  =',' / Image twist Y axis (deg) E of N if not flipped.',false ,head.crota2);
+
+     update_float(memo,'CD1_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_1);
+     update_float(memo,'CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
+     update_float(memo,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
+     update_float(memo,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
+
+     if a_order>0 then remove_solution(true {keep wcs});//remove SIP
+
+     //   Alternative method keeping the old center poistion. Images center outside the image causes problems for image selection in planetarium program
+     //   if head.crpix1<>0 then begin head.crpix1:=head.crpix1-x1; update_float(memo,'CRPIX1  =',' / X of reference pixel                           ' ,head.crpix1);end;{adapt reference pixel of plate solution. Is no longer in the middle}
+     //   if head.crpix2<>0 then begin head.crpix2:=head.crpix2-y1; update_float(memo,'CRPIX2  =',' / Y of reference pixel                           ' ,head.crpix2);end;
+  end;
+
+  update_text(memo,'COMMENT C','  Cropped image');
+end;
+
+
+procedure Tmainform1.image_based_crop1Click(Sender: TObject);
+var
+  I, binfactor,frameX_sample,frameY_sample,frameW_sample,frameH_sample, sample_binning   : integer;
+  dobackup : boolean;
+  img4 : timage_array;
+  memo4 : Tstrings;
+  head4 : theader;
+  filename3 : string;
+  success   : boolean;
+begin
+   if ((head.frameX=0) and (head.frameY=0)) then  //head, so from image in the viewer
+   begin
+     application.messagebox(pchar('Abort. No image in the viewer or the image in the viewer does not contain keywords FRAMEX, FRAMEY, FRAMEHGT, FRAMEWDH. Crop an sample image first with the popup menu and mouse.'),'',MB_OK);
+     exit;
+   end;
+
+{ FRAMEX  =                  671 / Frame start X
+  FRAMEY  =                 1088 / Frame start Y
+  FRAMEHGT=                  148 / Frame start
+  FRAMEWDH=                  178 / Frame start}
+
+  OpenDialog1.Options:= [ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
+  opendialog1.Filter:=dialog_filter_fits_tif;
+  esc_pressed:=false;
+
+  memo4:=tstringlist.create;
+
+  frameX_sample:=head.frameX;//number of skipped pixels
+  frameY_sample:=head.frameY;//ascom/alpaca inverse stored
+  frameW_sample:=head.frameW;
+  frameH_sample:=head.frameH;
+  sample_binning:=round(head.xbinning);
+
+  if OpenDialog1.Execute then
+  begin
+    Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+    try { Do some lengthy operation }
+       with OpenDialog1.Files do
+      for I := 0 to Count - 1 do
+      begin
+
+        progress_indicator(100*i/(count),' Binning');{show progress}
+        filename2:=Strings[I];
+        {load fits}
+        if ((esc_pressed) or (load_fits(filename2,true {light},true,true {update memo4},0,memo4{mainform1.memo1.lines},head4,img4)=false)) then begin break;end;
+
+        if sample_binning<>round(head4.xbinning) then
+        begin
+          application.messagebox(pchar('Abort. Sample and target frames should have equal binning!'),'Abort',MB_OK);
+          break;
+       end;
+
+        crop_image(frameX_sample,frameY_sample,frameX_sample+frameW_sample-1,frameY_sample+frameH_sample-1, img4,head4,memo4);
+
+        if fits_file_name(filename2) then
+        begin
+          filename3:=ChangeFileExt(Filename2,'_cropped.fits');
+          success:=save_fits(img4,memo4,head4,filename3,true)
+        end
+        else
+        begin
+          filename3:=ChangeFileExt(Filename2,'_cropped.tif');
+          success:=save_tiff16(img4,memo4,filename3,false {flip H},false {flip V},16);
+        end;
+        if success=false then begin ShowMessage('Write error !!' + filename3);break; end;
+
+
+        Application.ProcessMessages;
+        if esc_pressed then break;
+      end;
+      finally
+      progress_indicator(-100,'');{progresss done}
+      Screen.Cursor:=crDefault;  { Always restore to normal }
+    end;
+  end;
+  memo4.free;
+end;
+
+
+procedure Tmainform1.area_crop1Click(Sender: TObject);
+var
+  I, binfactor   : integer;
+  dobackup : boolean;
+  img : timage_array;
+  memo : Tstrings;
+  head : theader;
+  filename3 : string;
+  success   : boolean;
+begin
+   if areaX1=areaX2 then
+   begin
+     application.messagebox(pchar('No area selected in current image. Hold the right mouse button and pull a rectangle around area of interest, release button and select in popup menu "Set area".'),'',MB_OK);
+     exit;
+   end;
+
+
+  OpenDialog1.Options:= [ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
+  opendialog1.Filter:=dialog_filter_fits_tif;
+  esc_pressed:=false;
+
+  memo:=tstringlist.create;
+
+  if OpenDialog1.Execute then
+  begin
+    Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
+    try { Do some lengthy operation }
+       with OpenDialog1.Files do
+      for I := 0 to Count - 1 do
+      begin
+
+        progress_indicator(100*i/(count),' Binning');{show progress}
+        filename2:=Strings[I];
+        {load fits}
+        if ((esc_pressed) or (load_fits(filename2,true {light},true,true {update memo},0,memo{mainform1.memo1.lines},head,img)=false)) then begin break;end;
+
+        crop_image(startX+1,startY+1,stopX-1,stopY-1, img,head,memo);//crop to area inside the frame
+
+
+        if fits_file_name(filename2) then
+        begin
+          filename3:=ChangeFileExt(Filename2,'_cropped.fits');
+          success:=save_fits(img,memo,head,filename3,true)
+        end
+        else
+        begin
+          filename3:=ChangeFileExt(Filename2,'_cropped.tif');
+          success:=save_tiff16(img,memo,filename3,false {flip H},false {flip V},16);
+        end;
+        if success=false then begin ShowMessage('Write error !!' + filename3);break; end;
+
+
+        Application.ProcessMessages;
+        if esc_pressed then break;
+      end;
+      finally
+      progress_indicator(-100,'');{progresss done}
+      Screen.Cursor:=crDefault;  { Always restore to normal }
+    end;
+  end;
+  memo.free;
+
+end;
+
+
+procedure Tmainform1.CropFITSimage1Click(Sender: TObject);
+var dum     : integer;
 begin
   if ((head.naxis<>0) and (abs(stopX-startX)>3)and (abs(stopY-starty)>3)) then
   begin
@@ -14052,89 +14486,17 @@ begin
 
    backup_img;
 
-   formalism:=mainform1.Polynomial1.itemindex;
 
    if startX>stopX then begin dum:=stopX; stopX:=startX; startX:=dum; end;{swap}
    if startY>stopY then begin dum:=stopY; stopY:=startY; startY:=dum; end;
 
 
-   inc(startX);//take only inside of rectangle
+   inc(startX);// In array coordinates. So [0...]   take only inside of selection rectangle
    inc(startY);
    dec(stopX);
    dec(stopY);
 
-   startx:=max(startX,0);  // prevent runtime errors. Box can be outside image
-   startY:=max(startY,0);
-   stopX:=min(stopX,head.width-1);
-   stopY:=min(stopY,head.height-1);
-
-   head.width:=stopX-startx+1;
-   head.height:=stopY-starty+1;
-   setlength(img_temp,head.naxis3,head.height,head.width);{set length of image array}
-
-
-   for col:=0 to head.naxis3-1 do
-     for fitsY:=startY to stopY do
-       for fitsX:=startX to stopX do {crop image EXCLUDING rectangle.}
-            img_temp[col,fitsY-startY,fitsX-startX]:=img_loaded[col,fitsY,fitsX];
-
-   img_loaded:=nil;{release memory}
-   img_loaded:=img_temp;
-
-   update_integer(mainform1.memo1.lines,'NAXIS1  =',' / length of x axis                               ' ,head.width);
-   update_integer(mainform1.memo1.lines,'NAXIS2  =',' / length of y axis                               ' ,head.height);
-
-   {new reference pixel}
-
-   if head.cd1_1<>0 then
-   begin
-     {do the rigid method.}
-     fxc:=1+(startX+stopX)/2;//position of new center
-     fyc:=1+(startY+stopY)/2;
-     pixel_to_celestial(head,fxc,fyc, formalism, ra_c,dec_c {new center RA, DEC position});   //make 1 step in direction head.crpix1. Do first the two steps because head.cd1_1, head.cd2_1..... are required so they have to be updated after the two steps.
-     pixel_to_celestial(head,1+fxc,fyc, formalism, ra_n,dec_n {RA, DEC position, one pixel moved in head.crpix1});  //make 1 step in direction head.crpix2
-     pixel_to_celestial(head,fxc,fyc+1 , formalism, ra_m,dec_m {RA, DEC position, one pixel moved in head.crpix2});
-
-     delta_ra:=ra_n-ra_c;
-     if delta_ra>+pi then delta_ra:=2*pi-delta_ra; {359-> 1,    +2:=360 - (359- 1)}
-     if delta_ra<-pi then delta_ra:=delta_ra-2*pi; {1  -> 359,  -2:=(1-359) -360  }
-     head.cd1_1:=(delta_ra)*cos(dec_c)*(180/pi);
-     head.cd2_1:=(dec_n-dec_c)*(180/pi);
-
-     delta_ra:=ra_m-ra_c;
-     if delta_ra>+pi then delta_ra:=2*pi-delta_ra; {359-> 1,    +2:=360 - (359- 1)}
-     if delta_ra<-pi then delta_ra:=delta_ra-2*pi; {1  -> 359,  -2:=(1-359) -360  }
-     head.cd1_2:=(delta_ra)*cos(dec_c)*(180/pi);
-     head.cd2_2:=(dec_m-dec_c)*(180/pi);
-
-     head.ra0:=ra_c;
-     head.dec0:=dec_c;
-     head.crpix1:=(head.width+1)/2;
-     head.crpix2:=(head.height+1)/2;
-
-      new_to_old_WCS(head);
-
-      update_float(mainform1.memo1.lines,'CRVAL1  =',' / RA of reference pixel (deg)                    ',false ,head.ra0*180/pi);
-      update_float(mainform1.memo1.lines,'CRVAL2  =',' / DEC of reference pixel (deg)                   ',false ,head.dec0*180/pi);
-
-      update_float(mainform1.memo1.lines,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);{adapt reference pixel of plate solution. Is no longer in the middle}
-      update_float(mainform1.memo1.lines,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);
-
-      update_float(mainform1.memo1.lines,'CROTA1  =',' / Image twist X axis (deg)                       ',false ,head.crota1);
-      update_float(mainform1.memo1.lines,'CROTA2  =',' / Image twist Y axis (deg) E of N if not flipped.',false ,head.crota2);
-
-      update_float(mainform1.memo1.lines,'CD1_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_1);
-      update_float(mainform1.memo1.lines,'CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
-      update_float(mainform1.memo1.lines,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
-      update_float(mainform1.memo1.lines,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
-
-      //   Alternative method keeping the old center poistion. Images center outside the image causes problems for image selection in planetarium program
-      //   if head.crpix1<>0 then begin head.crpix1:=head.crpix1-startX; update_float(mainform1.memo1.lines,'CRPIX1  =',' / X of reference pixel                           ' ,head.crpix1);end;{adapt reference pixel of plate solution. Is no longer in the middle}
-      //   if head.crpix2<>0 then begin head.crpix2:=head.crpix2-startY; update_float(mainform1.memo1.lines,'CRPIX2  =',' / Y of reference pixel                           ' ,head.crpix2);end;
-   end;
-
-   update_text(mainform1.memo1.lines,'COMMENT C','  Cropped image');
-
+   crop_image(startX,startY,stopX,stopY, img_loaded,head, mainform1.memo1.lines);
 
    plot_image(mainform1.image1,true);
    image_move_to_center:=true;
@@ -14536,6 +14898,7 @@ begin
     update_float(mainform1.memo1.lines,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
     update_float(mainform1.memo1.lines,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
 
+    if a_order>0 then remove_solution(true {keep wcs});//remove SIP
 
     update_float(mainform1.memo1.lines,'CRPIX1  =',' / X of reference pixel                           ',false ,head.crpix1);
     update_float(mainform1.memo1.lines,'CRPIX2  =',' / Y of reference pixel                           ',false ,head.crpix2);
@@ -16624,6 +16987,8 @@ begin
     update_float(mainform1.memo1.lines,'CD1_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd1_2);
     update_float(mainform1.memo1.lines,'CD2_1   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_1);
     update_float(mainform1.memo1.lines,'CD2_2   =',' / CD matrix to convert (x,y) to (Ra, Dec)        ',false ,head.cd2_2);
+
+    if a_order>0 then remove_solution(true {keep wcs});//remove SIP
 
     update_float(mainform1.memo1.lines,'CDELT1  =',' / X pixel size (deg)                             ',false ,head.cdelt1);
     update_float(mainform1.memo1.lines,'CDELT2  =',' / Y pixel size (deg)                             ',false ,head.cdelt2);

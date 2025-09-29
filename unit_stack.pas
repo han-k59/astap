@@ -61,10 +61,15 @@ type
     Annotations_visible2: TCheckBox;
     annulus_radius1: TComboBox;
     analyse_quick1: TCheckBox;
+    apply_artificial_flat_correction1: TButton;
+    apply_artificial_flat_correctionV2: TButton;
     bb2: TEdit;
     bg2: TEdit;
     br2: TEdit;
+    center_position1: TLabel;
     gradient_filter_factor1: TComboBox;
+    GroupBox24: TGroupBox;
+    ring_equalise_factor1: TComboBox;
     rows_to_clipboard7: TMenuItem;
     nebula1: TCheckBox;
     gb2: TEdit;
@@ -114,8 +119,6 @@ type
     Label74: TLabel;
     MenuItem34: TMenuItem;
     nr_stars_to_detect1: TComboBox;
-    apply_artificial_flat_correction1: TButton;
-    apply_artificial_flat_correctionV2: TButton;
     apply_background_noise_filter1: TButton;
     apply_box_filter2: TButton;
     apply_dpp_button1: TButton;
@@ -194,6 +197,7 @@ type
     transformation2: TButton;
     undo_button23: TBitBtn;
     font_size_photometry_UpDown1: TUpDown;
+    undo_button24: TBitBtn;
     unselect10: TMenuItem;
     use_astrometry_alignment2: TRadioButton;
     Viewimage10: TMenuItem;
@@ -214,7 +218,6 @@ type
     calculated_sensor_size1: TLabel;
     calculator_binning1: TLabel;
     calc_polar_alignment_error1: TButton;
-    center_position1: TLabel;
     classify_dark_date1: TCheckBox;
     classify_dark_exposure1: TCheckBox;
     classify_dark_gain1: TCheckBox;
@@ -245,7 +248,6 @@ type
     create_test_image_stars1: TButton;
     curve_fitting1: TButton;
     Darks: TTabSheet;
-    dark_areas_box_size1: TComboBox;
     dark_spot_filter1: TButton;
     ddp_filter1: TRadioButton;
     ddp_filter2: TRadioButton;
@@ -308,7 +310,6 @@ type
     GroupBox9: TGroupBox;
     GroupBox_astrometric_solver_settings1: TGroupBox;
     groupBox_dvp1: TGroupBox;
-    GroupBox_equalise_tool1: TGroupBox;
     GroupBox_equalise_tool2: TGroupBox;
     GroupBox_star_alignment_settings1: TGroupBox;
     GroupBox_test_images1: TGroupBox;
@@ -530,7 +531,6 @@ type
     restore_file_ext1: TButton;
     Result1: TTabSheet;
     rg1: TEdit;
-    ring_equalise_factor1: TComboBox;
     rr1: TEdit;
     sample_size1: TComboBox;
     saturation_tolerance1: TTrackBar;
@@ -633,7 +633,6 @@ type
     undo_button2: TBitBtn;
     undo_button20: TBitBtn;
     undo_button21: TBitBtn;
-    undo_button3: TBitBtn;
     undo_button4: TBitBtn;
     undo_button5: TBitBtn;
     undo_button6: TBitBtn;
@@ -3116,9 +3115,9 @@ end;
 
 procedure artificial_flatV1(var img: Timage_array; box_size: integer);
 var
-  fitsX,fitsY,i, j, col, colors, w, h,greylevels,xcount,ycount: integer;
+  fitsX,fitsY,i, j, col, colors, w, h,greylevels,xcount,ycount, iterations, themethod : integer;
   correction_factor: single;
-  bg,xstep,ystep,x,y,half_box,val : double;
+  bg,xstep,ystep,x,y,half_box,val,sd  : double;
   img_temp2: Timage_array;
 
 begin
@@ -3126,6 +3125,13 @@ begin
   colors := Length(img); {colors}
   w := Length(img[0,0]); {width}
   h := Length(img[0]);   {height}
+
+  if pos('Sig',stackmenu1.find_background_method1.text)>0 then themethod:=0
+  else
+  if pos('Mod',stackmenu1.find_background_method1.text)>0 then themethod:=1
+  else
+  exit;
+
 
   {prepare img_temp2}
   setlength(img_temp2, colors, h, w);
@@ -3158,7 +3164,12 @@ begin
       x := xStep/2;
       while x < w do
         begin
-          val:= trimmed_median_background(img_loaded,false{ellipse shape}, col, round(x-half_box),round(x+half_box), round(y-half_box),round(y+half_box), 32000,greylevels); {mode finds most common value}
+
+           case themethod of
+              0: local_sigma_clip_mean_and_sd(round(x-half_box), round(y-half_box),round(x+half_box),round(y+half_box),col, img_loaded,{out} sd,val,iterations);{calculate sigma clip mean and standard deviation in a rectangle between point x1,y1, x2,y2}
+              1: val:= trimmed_median_background(img_loaded,false{ellipse shape}, col, round(x-half_box),round(x+half_box), round(y-half_box),round(y+half_box), 32000,greylevels); {mode finds most common value}
+           end;
+
           if val>0 then correction_factor:=bg/val else correction_factor:=1;
 
           correction_factor:=max(correction_factor,1);//only increase
@@ -3187,6 +3198,7 @@ begin
 
   img_temp2 := nil;
 end;
+
 
 
 procedure artificial_flatV2(var img: Timage_array;var head:theader; centrum_diameter: integer);
@@ -3295,7 +3307,7 @@ begin
     backup_img;  {store array in img_backup}
 
     try
-      box_size := StrToInt(dark_areas_box_size1.Text);
+      box_size := StrToInt(gradient_filter_factor1.Text);
     except
     end;
 
@@ -4225,12 +4237,12 @@ procedure Tstackmenu1.listview1Compare(Sender: TObject; Item1, Item2: TListItem;
 var
   tem: boolean;
 begin
-  if SortedColumn = 0 then Compare := CompareText(Item1.Caption, Item2.Caption)
+  if SortedColumn = 0 then
+     Compare := CompareText(Item1.Caption, Item2.Caption)
   else
-  if SortedColumn <> 0 then Compare :=
-      CompareAnything(Item1.SubItems[SortedColumn - 1], Item2.SubItems[SortedColumn - 1]);
-  if TListView(Sender).SortDirection = sdDescending then
-    Compare := -Compare;
+    Compare := CompareAnything(Item1.SubItems[SortedColumn - 1], Item2.SubItems[SortedColumn - 1]);
+
+  if TListView(Sender).SortDirection = sdDescending then  Compare := -Compare;
 end;
 
 
@@ -4382,6 +4394,7 @@ begin
         memo2_message('Removed second entry of same file ' + lv.items[i].Caption);
         lv.Items.Delete(i);
         Dec(counts); {compensate for delete}
+        application.processmessages;
       end
       else
         Inc(i);
@@ -4411,6 +4424,7 @@ begin
       end;
 
       loaded := load_fits(filename1, light {light or dark/flat}, full  {full fits}, False {update memo}, 0,memox, headx, img); {for background or background+hfd+star}
+      application.processmessages;
       if loaded then
       begin {success loading header only}
         try
@@ -6308,6 +6322,12 @@ begin
 end;
 
 
+function CompareWrapper(Item1, Item2: TListItem; ParamSort: PtrInt): Integer; stdcall;
+begin
+  // Call the event handler to keep logic in one place
+  stackmenu1.ListView1Compare(stackmenu1.ListView1, Item1, Item2, ParamSort, Result);
+end;
+
 procedure Tstackmenu1.aavso_button1Click(Sender: TObject);
 begin
   if ((measuring_method1.itemindex=0) and (length(mainform1.fshapes)<2)) then
@@ -6316,10 +6336,11 @@ begin
     exit;
   end;
 
-  listview7.items.beginupdate;
-  listview7.alphasort;{sort on time for correctly connection variable points}
-  listview7.items.endupdate;
+  SortedColumn := P_date+1;
+  ListView7.SortDirection:=sdAscending;
+  listview7.sort;//Sort on date
 
+  application.processmessages;
 
   if form_aavso1 = nil then
     form_aavso1 := Tform_aavso1.Create(self); {in project option not loaded automatic}
@@ -9705,6 +9726,7 @@ begin
   new_analyse_required:=true;
 end;
 
+
 procedure Tstackmenu1.listview7ItemChecked(Sender: TObject; Item: TListItem);
 begin
   if form_aavso1<>nil then //visible
@@ -12817,6 +12839,7 @@ begin
     if stitching_mode then
     begin
       SortedColumn := L_position + 1;
+      ListView1.SortDirection:=sdAscending;
       listview1.sort;
       memo2_message('Sorted list on RA, DEC position to place tiles in the correct sequence.');
     end;
