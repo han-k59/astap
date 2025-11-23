@@ -72,7 +72,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2025.10.08';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2025.11.23';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -801,6 +801,7 @@ var {################# initialised variables #########################}
   minor_planet_at_cursor:string='';
 
 procedure ang_sep(ra1,dec1,ra2,dec2 : double;out sep: double);
+procedure ang_sep_hav(ra1,dec1,ra2,dec2: double; out sep: double);  //High-precision angular distance from 180 to very tiny angles using haversine
 function load_fits(filen:string;light {load as light or dark/flat},load_data,update_memo: boolean;get_ext: integer;const memo : tstrings; out head: Theader; out img_loaded2: Timage_array): boolean;{load a fits or Astro-TIFF file}
 procedure plot_image(img: timage;center_image:boolean);
 procedure plot_histogram(img: Timage_array; update_hist: boolean);{get histogram}
@@ -920,7 +921,7 @@ function retrieve_ADU_to_e_unbinned(head_egain :string): double; //Factor for un
 function noise_to_electrons(adu_e, sd : double): string;//reports noise in ADU's (adu_e=0) or electrons
 procedure calibrate_photometry(img : Timage_array; memo : tstrings; var head : Theader; update:boolean);
 procedure measure_hotpixels(x1,y1, x2,y2,col : integer; sd,mean:  double; img : Timage_array; out hotpixel_perc, hotpixel_adu :double);{calculate the hotpixels ratio and average value}
-function duplicate(img:Timage_array) :Timage_array;//fastest way to duplicate an image
+function duplicate(img:Timage_array ; out img2 : Timage_array): boolean;//fastest way to duplicate an image
 procedure annotation_position(aname:string;var ra,dec : double);// calculate ra,dec position of one annotation
 procedure remove_photometric_calibration;//from header
 procedure remove_solution(keep_wcs:boolean);//remove all solution key words efficient
@@ -991,7 +992,7 @@ var
 
 implementation
 
-uses unit_dss, unit_stack, unit_tiff,unit_star_align, unit_astrometric_solving, unit_star_database, unit_annotation, unit_thumbnail, unit_xisf,unit_gaussian_blur,unit_inspector_plot,unit_asteroid,
+uses unit_dss, unit_stack, unit_tiff,unit_star_align, unit_astrometric_solving, unit_star_database, unit_annotation, unit_thumbnail, unit_xisf,unit_threaded_gaussian_blur,unit_inspector_plot,unit_asteroid,
      unit_astrometry_net, unit_live_stacking, unit_hjd,unit_hyperbola, unit_aavso, unit_listbox, unit_sqm, unit_stars_wide_field,unit_constellations,unit_raster_rotate,unit_download,unit_ephemerides, unit_online_gaia,unit_contour,
      unit_threaded_bilinear_interpolation,unit_threaded_demosaic_astroC_bilinear_interpolation,unit_threaded_demosaic_astrosimple,unit_threaded_demosaic_astroM_bilinear_interpolation,unit_transformation;
 
@@ -1381,7 +1382,7 @@ begin
           if ((header[i+1]='A')  and (header[i+2]='L') and (header[i+3]='S') and (header[i+4]='T') and (header[i+5]='A')) then  {head.calstat is also for flats}
               head.calstat:=get_string {indicates calibration state of the image; B indicates bias corrected, D indicates dark corrected, F indicates flat corrected. M could indicate master}
           else
-          if ((header[i+1]='C')  and (header[i+2]='D') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
+          if ((header[i+1]='C')  and (header[i+2]='D') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then   //ccd-temp
              ccd_temperature:=validate_double;{read double value}
         end;{C}
 
@@ -2047,7 +2048,6 @@ begin
        head.set_temperature:=round(ccd_temperature); {temperature}
 
 
-
     unsaved_import:=false;{file is available for astrometry.net}
 
 
@@ -2069,7 +2069,13 @@ begin
       exit;
     end;
 
-    setlength(img_loaded2,head.naxis3,head.height,head.width);
+    try
+      setlength(img_loaded2,head.naxis3,head.height,head.width);
+    except
+      memo2_message('Abort, not enough memory!');
+      warning_str:='Not enough memory!'; //for command line usage
+      exit;
+    end;
 
     if head.nrbits=16 then
     for k:=0 to head.naxis3-1 do {do all colors}
@@ -2366,21 +2372,27 @@ begin
     end;
 end;
 
-
-function duplicate(img:Timage_array) :Timage_array;//fastest way to duplicate an image
+function duplicate(img:Timage_array ; out img2 : Timage_array): boolean;//fastest way to duplicate an image
 var
   c,w,h,k,i: integer;
 begin
+  result:=true;
   c:=length(img);
   h:=length(img[0]);
   w:=length(img[0,0]);
 
-  setlength(result,c,h,w);
+  try
+  setlength(img2,c,h,w);
   for k:=0 to c-1 do
     for i:=0 to h-1 do
-      result[k,i]:=copy(img[k,i],0,w);
+      img2[k,i]:=copy(img[k,i],0,w);
 
-//  alternative solution slower. Takes about 75% more time.
+  except
+    result:=false;
+    memo2_message('No memory available');
+  end;
+
+//  alternative solution below takes about 75% more time.
 //  result:=img; {In dynamic arrays, the assignment statement duplicates only the reference to the array, while SetLength does the job of physically copying/duplicating it, leaving two separate, independent dynamic arrays.}
 //  setlength(result,c,h,w);{force a duplication}
 end;
@@ -3737,7 +3749,6 @@ procedure remove_key(memo:tstrings;inpt:string; all:boolean);{remove key word in
 var
    count1: integer;
 begin
-
   count1:=memo.Count-1;
   while count1>=0 do {update keyword}
   begin
@@ -3751,28 +3762,35 @@ begin
 end;
 
 
-procedure progress_indicator(i:double; info:string);{0..100 is 0 to 100% indication of progress}
+procedure progress_indicator(i:double; info:string);{0..1 is 0 to 100% indication of progress}
+var
+  v : string;
 begin
   if i<=-1 then
   begin
-    if i=-101 then application.title:='🗙'
-    else
     application.title:='ASTAP';
-
     mainform1.statusbar1.SimplePanel:=false;
-
     mainform1.caption:=ExtractFileName(filename2);
     stackmenu1.caption:='stack menu';
   end
   else
   begin
-    application.title:=inttostr(round(i))+'%'+info;{show progress in taksbar}
-
+    v:=inttostr(round(i*100));
+    application.title:=v+'%'+info;{show progress in taksbar}
     mainform1.statusbar1.SimplePanel:=true;
-    mainform1.statusbar1.Simpletext:=inttostr(round(i))+'%'+info;{show progress in statusbar}
-
-    stackmenu1.caption:=inttostr(round(i))+'%'+info;{show progress in stack menu}
+    mainform1.statusbar1.Simpletext:=v+'%'+info;{show progress in statusbar}
+    stackmenu1.caption:=v+'%'+info;{show progress in stack menu}
   end;
+end;
+
+
+procedure ang_sep_hav(ra1,dec1,ra2,dec2: double; out sep: double); //Not used. High-precision angular distance from 180 degrees to very tiny angles using haversine. For tiny angle better then Cosine formula
+var dDec, dRA, a: double;
+begin
+  dDec := (dec2 - dec1) / 2;
+  dRA  := (ra2 - ra1) / 2;
+  a := sqr(sin(dDec)) + cos(dec1) * cos(dec2) * sqr(sin(dRA));
+  sep := 2 * arcsin(sqrt(a));
 end;
 
 
@@ -3904,26 +3922,34 @@ end;
 
 
 procedure backup_img;
+var
+  oldindex : integer;
 begin
   if head.naxis<>0 then
   begin
-    if img_backup=nil then setlength(img_backup,size_backup+1);{create memory for size_backup backup images}
+    if img_backup=nil then
+       setlength(img_backup,size_backup+1);{create memory for size_backup backup images}
+
+    oldindex:=index_backup;
     inc(index_backup,1);
     if index_backup>size_backup then index_backup:=0;
-    img_backup[index_backup].head_val:=head;
-    img_backup[index_backup].header:=mainform1.Memo1.Text;{backup fits header}
-    img_backup[index_backup].filen:=filename2;{backup filename}
 
-    img_backup[index_backup].img:=duplicate(img_loaded);//duplicate image fast
-
-    mainform1.Undo1.Enabled:=true;
+    if duplicate(img_loaded,img_backup[index_backup].img) then //duplicate image fast
+    begin
+      img_backup[index_backup].head_val:=head;
+      img_backup[index_backup].header:=mainform1.Memo1.Text;{backup fits header}
+      img_backup[index_backup].filen:=filename2;{backup filename}
+      mainform1.Undo1.Enabled:=true;
+    end
+    else //failure to get duplicate/memory
+     index_backup:=oldindex;
   end;
 end;
 
 
 procedure restore_img;
 var
-   resized :boolean;
+   resized,success :boolean;
    old_width2,old_height2 : integer;
 begin
    if mainform1.Undo1.Enabled=true then
@@ -3932,37 +3958,40 @@ begin
 
     Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key application.processmessages;   { Show hourglass cursor, processmessages is for Linux }
 
-    old_width2:=head.width;
-    old_height2:=head.height;
+    try
+      old_width2:=head.width;
+      old_height2:=head.height;
 
-    head:=img_backup[index_backup].head_val;{restore main header values}
-    resized:=((head.width<>old_width2) or ( head.height<>old_height2));
-    mainform1.Memo1.Text:=img_backup[index_backup].header;{restore fits header}
-    filename2:=img_backup[index_backup].filen;{backup filename}
-    mainform1.caption:=filename2; //show old filename is case image was binned
+      head:=img_backup[index_backup].head_val;{restore main header values}
+      resized:=((head.width<>old_width2) or ( head.height<>old_height2));
+      mainform1.Memo1.Text:=img_backup[index_backup].header;{restore fits header}
+      filename2:=img_backup[index_backup].filen;{backup filename}
+      mainform1.caption:=filename2; //show old filename is case image was binned
 
-    stackmenu1.test_pattern1.Enabled:=head.naxis3=1;{allow debayer if mono again}
+      stackmenu1.test_pattern1.Enabled:=head.naxis3=1;{allow debayer if mono again}
 
-    img_loaded:=duplicate(img_backup[index_backup].img);//duplicate image fast
+      if duplicate(img_backup[index_backup].img,img_loaded)=false then exit;//duplicate image fast. if fails jump to finally
 
-    plot_histogram(img_loaded,true {update}); {plot histogram, set sliders}
-    plot_image(mainform1.image1,resized);{restore image1}
+      plot_histogram(img_loaded,true {update}); {plot histogram, set sliders}
+      plot_image(mainform1.image1,resized);{restore image1}
 
-    update_equalise_background_step(equalise_background_step-1);{update equalize menu}
+      update_equalise_background_step(equalise_background_step-1);{update equalize menu}
 
-    if head.naxis=0 {due to stretch draw} then update_menu(true); {update menu and set fits_file:=true;}
+      if head.naxis=0 {due to stretch draw} then update_menu(true); {update menu and set fits_file:=true;}
 
-    dec(index_backup,1);{update index}
-    if index_backup<0 then index_backup:=size_backup;
+      dec(index_backup,1);{update index}
+      if index_backup<0 then index_backup:=size_backup;
 
-    if img_backup[index_backup].img=nil then
-    begin
-      mainform1.Undo1.Enabled:=false;  //No more backups
-    end
-    else
-    memo2_message('Restored backup index '+inttostr(index_backup));
+      if img_backup[index_backup].img=nil then
+      begin
+        mainform1.Undo1.Enabled:=false;  //No more backups
+      end
+      else
+      memo2_message('Restored backup index '+inttostr(index_backup));
 
-    Screen.Cursor:=crDefault;
+    finally
+       Screen.Cursor:=crDefault;
+    end;
   end;
 end;
 
@@ -4287,7 +4316,7 @@ end;
 function save_fits(img: Timage_array;memo:tstrings; headX : theader;filen2:ansistring;override2:boolean): boolean;{save to 8, 16 OR -32 BIT fits file}
 var
   TheFile4 : tfilestream;
-  I,j,k,bzero2, progressC,progress_value,dum, remain,minimum,maximum,dimensions, colours5,height5,width5 : integer;
+  I,j,k,bzero2,dum, remain,minimum,maximum,dimensions, colours5,height5,width5 : integer;
   dd : single;
   line0                : ansistring;
   aline,empthy_line    : array[0..80] of ansichar;{79 required but a little more to have always room}
@@ -4324,21 +4353,10 @@ begin
     end;
   end;
   filename2:=filen2;
-  {$IFDEF fpc}
-  progress_indicator(0,'');
-  {$else} {delphi}
-  mainform1.taskbar1.progressstate:=TTaskBarProgressState.Normal;
-  mainform1.taskbar1.progressvalue:=0; {show progress}
-
-  {$endif}
-
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}{application.processmessages;}{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
   try
     TheFile4:=tfilestream.Create(filen2, fmcreate );
     try
-      progressC:=0;
-
      {update FITs header}
       if headX.nrbits<>24 then {standard FITS}
       begin
@@ -4406,14 +4424,6 @@ begin
         for k:=0 to colours5-1 do {do all colors}
         for i:=0 to height5-1 do
         begin
-          inc(progressC);
-          progress_value:=round(progressC*100/(colours5*height5));{progress in %}
-          {$IFDEF fpc}
-          if frac(progress_value/5)=0 then progress_indicator(progress_value,'');{report increase insteps of 5%}
-          {$else} {delphi}
-          if frac(progress_value/5)=0 mainform1.taskbar1.progressvalue:=progress_value;
-          {$endif}
-
           for j:=0 to width5-1 do
           begin
             dd:=img[k,i,j];{save all colors}
@@ -4433,14 +4443,6 @@ begin
 
         for i:=0 to height5-1 do
         begin
-          inc(progressC);
-          progress_value:=round(progressC*100/(colours5*height5));{progress in %}
-          {$IFDEF fpc}
-          if frac(progress_value/5)=0 then progress_indicator(progress_value,'');{report increase insteps of 5%}
-          {$else} {delphi}
-          if frac(progress_value/5)=0 mainform1.taskbar1.progressvalue:=progress_value;
-          {$endif}
-
           for j:=0 to width5-1 do
           begin
             for k:=0 to 2 do {do all colors}
@@ -4463,14 +4465,6 @@ begin
         for k:=0 to colours5-1 do {do all colors}
         for i:=0 to height5-1 do
         begin
-          inc(progressC);
-          progress_value:=round(progressC*100/(colours5*height5));{progress in %}
-          {$IFDEF fpc}
-          if frac(progress_value/5)=0 then progress_indicator(progress_value,'');{report increase insteps of 5%}
-          {$else} {delphi}
-          if frac(progress_value/5)=0 mainform1.taskbar1.progressvalue:=progress_value;
-          {$endif}
-
           for j:=0 to width5-1 do
           begin
             dum:=max(0,min(65535,round(img[k,i,j]))) - bzero2;{limit data between 0 and 65535 and shift it to -32768.. 32767}
@@ -4496,13 +4490,6 @@ begin
         for k:=0 to colours5-1 do {do all colors}
         for i:=0 to height5-1 do
         begin
-          inc(progressC);
-          progress_value:=round(progressC*100/(colours5*height5));{progress in %}
-          {$IFDEF fpc}
-          if frac(progress_value/5)=0 then progress_indicator(progress_value,'');{report increase in steps of 5%}
-          {$else} {delphi}
-          if frac(progress_value/5)=0 mainform1.taskbar1.progressvalue:=progress_value;
-          {$endif}
           for j:=0 to width5-1 do
             fitsbuffer4[j]:=INT_IEEE4_reverse(img[k,i,j]);{in FITS file hi en low bytes are swapped}
           thefile4.writebuffer(fitsbuffer4,width5*4); {write as bytes}
@@ -4606,11 +4593,6 @@ begin
   end;
   mainform1.image1.stretch:=true;
   Screen.Cursor:=crDefault;
-  {$IFDEF fpc}
-  progress_indicator(-100,'');{back to normal}
-  {$else} {delphi}
-  mainform1.taskbar1.progressstate:=TTaskBarProgressState.None;
-  {$endif}
 end;
 
 
@@ -4668,7 +4650,7 @@ begin
        with OpenDialog1.Files do
       for I := 0 to Count - 1 do
       begin
-        progress_indicator(100*i/(count),' Binning');{show progress}
+        progress_indicator(i/count,' Binning');{show progress}
         filename2:=Strings[I];
         {load fits}
         Application.ProcessMessages;
@@ -4727,11 +4709,17 @@ begin
     backup_img;
     if startX>stopX then begin dum:=stopX; stopX:=startX; startX:=dum; end;{swap}
     if startY>stopY then begin dum:=stopY; stopY:=startY; startY:=dum; end;
-    setlength(img_temp,head.naxis3,stopY-startY,stopX-startX);
+
+    inc(startX);//inside of frame
+    dec(stopX);
+    inc(startY);
+    dec(stopY);
+
+    setlength(img_temp,head.naxis3,stopY-startY+1,stopX-startX+1);
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
-      for fitsY:=startY to stopY-1 do
-      for fitsX:=startX to stopX-1 do
+      for fitsY:=startY to stopY do
+      for fitsX:=startX to stopX do
       begin
         begin
           img_temp[k,fitsY-startY,fitsX-startX]:=img_loaded[k,fitsY,fitsX];{copy the area of interest to img_temp}
@@ -4739,12 +4727,12 @@ begin
       end;
     end;{k color}
 
-    gaussian_blur2(img_temp,strtofloat2(stackmenu1.blur_factor1.text));
+    gaussian_blur_threaded(img_temp,strtofloat2(stackmenu1.blur_factor1.text));
 
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
-      for fitsY:=startY to stopY-1 do
-      for fitsX:=startX to stopX-1 do
+      for fitsY:=startY to stopY do
+      for fitsX:=startX to stopX do
       begin
         begin
           img_loaded[k,fitsY,fitsX]:=img_temp[k,fitsY-startY,fitsX-startX];{copy the area of interest back}
@@ -8062,9 +8050,8 @@ end;
 
 function savefits_update_header(memo: tstrings; filen2:string) : boolean;{save fits file with updated header}
 var
-  TheFile  : tfilestream;
+  TheFile,TheFile_new  : tfilestream;
   reader_position,I,readsize,bufsize : integer;
-  TheFile_new : tfilestream;
   fract       : double;
   line0       : ansistring;
   aline,empthy_line    : array[0..80] of ansichar;{79 required but a little more to have always room}
@@ -8580,17 +8567,17 @@ begin
       dum:=Sett.ReadString('stack','star_level_colouring',''); if dum<>'' then stackmenu1.star_level_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','filter_artificial_colouring',''); if dum<>'' then stackmenu1.filter_artificial_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','resize_factor',''); if dum<>'' then stackmenu1.resize_factor1.text:=dum;
-      dum:=Sett.ReadString('stack','nr_stars_p',''); if dum<>'' then stackmenu1.nr_stars_to_detect1.text:=dum;
+      dum:=Sett.ReadString('stack','snr_min_p',''); if dum<>'' then stackmenu1.snr_min_photo1.text:=dum;
       dum:=Sett.ReadString('stack','flux_aperture',''); if dum<>'' then stackmenu1.flux_aperture1.text:=dum;
       dum:=Sett.ReadString('stack','annulus_radius',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
       dum:=Sett.ReadString('stack','font_size_p',''); if dum<>'' then stackmenu1.font_size_photometry1.text:=dum;
 
       c:=Sett.ReadInteger('stack','annotate_m',0); stackmenu1.annotate_mode1.itemindex:=c;
       c:=Sett.ReadInteger('stack','reference_d',0); stackmenu1.reference_database1.itemindex:=c;
-      c:=Sett.ReadInteger('stack','measure_all',0); stackmenu1.measuring_method1.itemindex:=c;
+
+      c:=Sett.ReadInteger('stack','measure_mode',0); stackmenu1.measuring_method1.itemindex:=c;
       stackmenu1.ignore_saturation1.checked:= Sett.ReadBool('stack','ign_saturation',true);//photometry tab
       dum:=Sett.ReadString('stack','max_period',''); if dum<>'' then stackmenu1.max_period1.text:=dum;
-
 
       dum:=Sett.ReadString('stack','sigma_decolour',''); if dum<>'' then stackmenu1.sigma_decolour1.text:=dum;
       dum:=Sett.ReadString('stack','sd_factor_list',''); if dum<>'' then stackmenu1.sd_factor_list1.text:=dum;
@@ -8663,6 +8650,7 @@ begin
 
 
       sigma_transformationSTR:=Sett.ReadString('transf','sigma_tr','2'); {transformation}
+      transformation_snrSTR:=Sett.ReadString('transf','snr_tr','70'); {transformation}
       TbvSTR:=Sett.ReadString('transf','Tbv','1'); {transformation}
       Tb_bvSTR:=Sett.ReadString('transf','Tb_bv','0'); {transformation}
       Tv_bvSTR:=Sett.ReadString('transf','Tv_bv','0'); {transformation}
@@ -8998,7 +8986,7 @@ begin
 
       sett.writestring('stack','resize_factor',stackmenu1.resize_factor1.text);
 
-      sett.writestring('stack','nr_stars_p',stackmenu1.nr_stars_to_detect1.text);
+      sett.writestring('stack','snr_min_p',stackmenu1.snr_min_photo1.text);
       sett.writestring('stack','flux_aperture',stackmenu1.flux_aperture1.text);
       sett.writestring('stack','annulus_radius',stackmenu1.annulus_radius1.text);
       sett.writestring('stack','font_size_p',stackmenu1.font_size_photometry1.text);
@@ -9007,7 +8995,7 @@ begin
       sett.writestring('stack','max_period',stackmenu1.max_period1.text);
 
 
-      sett.writeInteger('stack','measure_all',stackmenu1.measuring_method1.itemindex);
+      sett.writeInteger('stack','measure_mode',stackmenu1.measuring_method1.itemindex);
       sett.WriteBool('stack','ign_saturation', stackmenu1.ignore_saturation1.checked);//photometry tab
 
 
@@ -9075,6 +9063,8 @@ begin
      sett.writeInteger('insp','insp_grad',inspector_gradations);
 
      sett.writestring('transf','sigma_tr',sigma_transformationSTR);
+     sett.writestring('transf','snr_tr',transformation_snrSTR);
+
      sett.writestring('transf','Tbv',TbvSTR);
      sett.writestring('transf','Tb_bv',Tb_bvSTR);
      sett.writestring('transf','Tv_bv',Tv_bvSTR);
@@ -9323,7 +9313,7 @@ begin
         end;
       end;{fits loop}
 
-      gaussian_blur2(img_delta,5);
+      gaussian_blur_threaded(img_delta,5);
 
       for fitsY:=startY to stopY-1 do
       begin
@@ -10016,7 +10006,7 @@ begin
       with OpenDialog1.Files do
       for I := 0 to Count - 1 do
       begin
-        progress_indicator(100*i/(count),' Solving');{show progress}
+        progress_indicator(i/count,' Solving');{show progress}
         Application.ProcessMessages;
         if esc_pressed then begin err:=true; break;end;
         filename2:=Strings[I];
@@ -10179,7 +10169,7 @@ begin
        with OpenDialog1.Files do
        for I := 0 to Count - 1 do
        begin
-         progress_indicator(100*i/(count),' Converting');{show progress}
+         progress_indicator(i/count,' Converting');{show progress}
          filename1:=Strings[I];
          memo2_message(filename2+' file nr. '+inttostr(i+1)+'-'+inttostr(Count));
          Application.ProcessMessages;
@@ -10435,7 +10425,7 @@ begin
          vsp[count].Verr:=copy(s,i,k-i);
       end
       else
-      if ((val='"') and (val2='R')) then //R mag found, could be missing
+      if ((val='R') and (val2='c')) then //R mag found, could be missing
       begin
         i:=posex('"mag":',s,j);
         i:=i+length('"mag":');
@@ -10448,7 +10438,7 @@ begin
         vsp[count].Rerr:=copy(s,i,k-i);
       end
       else
-      if ((val='I') and (val2='C')) then //I cousins mag found, could be missing
+      if ((val='I') and (val2='c')) then //I cousins mag found, could be missing
       begin
         i:=posex('"mag":',s,j);
         i:=i+length('"mag":');
@@ -10713,11 +10703,6 @@ begin
        0,2,6: begin lim_magnitude:=-99; load_variable_11;{Load the local database once. If loaded no action} end;//use local database
        3,7:   begin lim_magnitude:=-99; load_variable_13;{Load the local database once. If loaded no action} end;//use local database
        4,8:   begin lim_magnitude:=-99; load_variable_15;{Load the local database once. If loaded no action} end;//use local database
-//       5+4,9+4,13+4:  lim_magnitude:=11; //online magn 11
-//       6+4,10+4,14+4:  lim_magnitude:=13;//online magn 13
-//       7+4,11+4,15+4: lim_magnitude:=15;//online magn 15
-//       8+4,12+4,16+4: lim_magnitude:=99;//online magn 99
-
        9,13,17:  lim_magnitude:=11; //online magn 11
        10,14,18:  lim_magnitude:=13;//online magn 13
        11,15,19: lim_magnitude:=15;//online magn 15
@@ -12062,7 +12047,6 @@ begin
   form_astrometry_net1.ShowModal;
   form_astrometry_net1.release;
 end;
-
 
 
 {type
@@ -14011,7 +13995,7 @@ begin
       for I := 0 to Count - 1 do
       begin
         filename2:=Strings[I];
-        progress_indicator(100*i/(count),' Solving');{show progress}
+        progress_indicator(i/count,' Solving');{show progress}
         solved:=false;
 
         if fits_tiff_file_name(filename2)=false then
@@ -14378,7 +14362,7 @@ begin
       for I := 0 to Count - 1 do
       begin
 
-        progress_indicator(100*i/(count),' Binning');{show progress}
+        progress_indicator(i/count,' Binning');{show progress}
         filename2:=Strings[I];
         {load fits}
         if ((esc_pressed) or (load_fits(filename2,true {light},true,true {update memo4},0,memo4{mainform1.memo1.lines},head4,img4)=false)) then begin break;end;
@@ -14453,7 +14437,7 @@ begin
       for I := 0 to Count - 1 do
       begin
 
-        progress_indicator(100*i/(count),' Binning');{show progress}
+        progress_indicator(i/count,' Binning');{show progress}
         filename2:=Strings[I];
         {load fits}
         if ((esc_pressed) or (load_fits(filename2,true {light},true,true {update memo},0,memo{mainform1.memo1.lines},head,img)=false)) then begin break;end;
@@ -16340,8 +16324,16 @@ end;
 
 
 procedure Tmainform1.SaveFITSwithupdatedheader1Click(Sender: TObject);
+var
+   result : boolean;
 begin
-  savefits_update_header(mainform1.memo1.lines,filename2);
+//  savefits_update_header(mainform1.memo1.lines,filename2);  //file could be binned or cropped so there is no file with same name
+  if fits_file_name(filename2) then
+    result:=save_fits(img_loaded,mainform1.memo1.lines,head,filename2,true)
+  else
+    result:=save_tiff16(img_loaded,mainform1.memo1.lines,filename2,false {flip H},false {flip V},16);
+
+  if result=false then ShowMessage('Write error !!' + filename2);
 end;
 
 
@@ -16804,7 +16796,7 @@ begin
       with OpenDialog1.Files do
       for I := 0 to Count - 1 do
       begin
-        progress_indicator(100*i/(count),' Converting');{show progress}
+        progress_indicator(i/count,' Converting');{show progress}
         Application.ProcessMessages;
         if esc_pressed then begin err:=true; break; end;
         filename2:=Strings[I];
@@ -16876,7 +16868,7 @@ begin
       with OpenDialog1.Files do
       for I := 0 to Count - 1 do
       begin
-        progress_indicator(100*i/(count),' Converting');{show progress}
+        progress_indicator(i/count,' Converting');{show progress}
         Application.ProcessMessages;
         if esc_pressed then begin err:=true; break;end;
         filename2:=Strings[I];
@@ -17166,7 +17158,7 @@ begin
       with OpenDialog1.Files do
       for I := 0 to Count - 1 do
       begin
-        progress_indicator(100*i/(count),' Moving');{show progress}
+        progress_indicator(i/count,' Moving');{show progress}
         Application.ProcessMessages;
         if esc_pressed then begin err:=true; break; end;
         filename2:=Strings[I];
@@ -17242,7 +17234,7 @@ begin
       with OpenDialog1.Files do
       for I := 0 to Count - 1 do
       begin
-        progress_indicator(100*i/(count),' Solving');{show progress}
+        progress_indicator(i/count,' Solving');{show progress}
         Application.ProcessMessages;
         if esc_pressed then begin err:=true; break; end;
         filename2:=Strings[I];

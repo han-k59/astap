@@ -108,7 +108,7 @@ function report_binning(Height: double): integer;{select the binning}
 function position_angle(ra1, dec1, ra0, dec0: double): double;//Position angle of a body at ra1,dec1 as seen at ra0,dec0. Rigorous method
 procedure equatorial_standard(ra0, dec0, ra, Dec, cdelt: double; out xx, yy: double);
 function read_stars(telescope_ra, telescope_dec, search_field: double; database_type, nrstars_required: integer; out starlist: Tstar_list): boolean;{read star from star database}
-procedure bin_mono_and_crop(binning: integer; crop {0..1}: double; img: Timage_array; out img2: Timage_array); // Make mono, bin and crop
+procedure bin_mono_and_crop(var binning: integer; crop {0..1}: double; img: Timage_array; out img2: Timage_array); // Make mono, bin and crop
 
 
 var
@@ -336,7 +336,7 @@ begin
 end;
 
 
-procedure bin_mono_and_crop(binning: integer; crop {0..1}: double; img: Timage_array; out img2: Timage_array);// Make mono, bin and crop
+procedure bin_mono_and_crop(var binning: integer; crop {0..1}: double; img: Timage_array; out img2: Timage_array);// Make mono, bin and crop
 var
   fitsX, fitsY, k, w, h, shiftX, shiftY, nrcolors, width5, height5, i, j, x, y: integer;
   val: single;
@@ -348,7 +348,15 @@ begin
   w := trunc(crop * width5 / binning);  {dimensions after binning and crop}
   h := trunc(crop * height5 / binning);
 
-  setlength(img2, 1, h, w); {set length of image array}
+  try
+    setlength(img2, 1, h, w); {set length of image array}
+  except
+    img2:=img;//panic, not enough memory, try without binning
+    binning:=1;
+    memo2_message('Not enough memory for binning!');
+    warning_str:='Not enough memory for binning!'; //for command line usage
+    exit;
+  end;
 
   shiftX := round(width5 * (1 - crop) / 2); {crop is 0.9, shift is 0.05*head.width}
   shiftY := round(height5 * (1 - crop) / 2); {crop is 0.9, start at 0.05*head.height}
@@ -483,6 +491,9 @@ begin
 
     bin_mono_and_crop(binfactor, cropping, img, img_binned); //{Make mono, bin and crop}
 
+ //   setlength(starlist3,1);
+ //   exit;
+
     {test routine, to show bin result}
     //    img_loaded:=img_binned;
     //    head.naxis3:=1;
@@ -529,7 +540,7 @@ begin
 
     if length(img)>=3 then //colour to mono, equalise background
     begin
-      img_binned:=duplicate(img);//work with img_binned to protect the orginal image
+      if duplicate(img,img_binned)=false then exit;//work with img_binned to protect the orginal image
       if length(img)>=3 then convert_mono2(img,img_binned);
       get_background(0, img_binned, head, true {calc hist}, True {calculate also standard deviation background});{get back ground}
       find_stars(img_binned, head, hfd_min, max_stars, starlist3, mean_hfd);
@@ -740,7 +751,7 @@ end;
 
 function solve_image(img: Timage_array; var hd: Theader; memo: TStrings; get_hist{update hist}, check_patternfilter: boolean): boolean; {find match between image and star database}
 var
-  nrstars, nrstars_required, nrstars_required2, Count, max_distance, nr_quads,
+  nrstars_image, nrstars_required, nrstars_required2, Count, max_distance, nr_quads,
   minimum_quads, binning, match_nr, spiral_x, spiral_y, spiral_dx,
   spiral_dy, spiral_t, max_stars, i, database_density, limit, err: integer;
   search_field, step_size, ra_database, dec_database, ra_database_offset, radius, fov2, fov_org,
@@ -878,13 +889,13 @@ begin
 
     bin_and_find_stars(img, hd, binning, cropping, hfd_min, max_stars, get_hist{update hist},  starlist2, mean_hfd, warning_downsample);  {bin, measure background, find stars. Do this every repeat since hfd_min is adapted}
 
-    nrstars := Length(starlist2[0]);
+    nrstars_image := Length(starlist2[0]);
 
     if ((hd.xpixsz <> 0) and (hd.ypixsz <> 0) and (abs(hd.xpixsz - hd.ypixsz) > 0.1)) then //non-square pixels, correct. Remove in future?
     begin //very very rare. Example QHY6 camera
       memo2_message('Rare none square pixels specified.');
       pixel_aspect_ratio := hd.xpixsz / hd.ypixsz;
-      for i := 0 to nrstars - 1 do {correct star positions for non-square pixels}
+      for i := 0 to nrstars_image - 1 do {correct star positions for non-square pixels}
       begin
         starlist2[0, i] := hd.Width / 2 + (starlist2[0, i] - hd.Width / 2) * pixel_aspect_ratio;
       end;
@@ -906,20 +917,20 @@ begin
     else
       info_message := '▶'; {slow}
 
-    info_message := ' [' + stackmenu1.radius_search1.Text + '°]' + #9 + info_message + #9 + IntToStr(nrstars) + ' 🟊' +
+    info_message := ' [' + stackmenu1.radius_search1.Text + '°]' + #9 + info_message + #9 + IntToStr(nrstars_image) + ' 🟊' +
                      #10 + '↕ ' + floattostrf(fov_org,ffFixed,0,2)+ '°' +#9+ #9 + IntToStr(binning)+'x'+IntToStr(binning)+' ⇒ '+IntToStr(hd.Width)+'x'+IntToStr(hd.Height)+ popup_warningG05 + popup_warningSample+
                      #10 + mainform1.ra1.Text + 'h, '+ mainform1.dec1.Text + '° ' + #9 +{for tray icon} extractfilename(filename2) +
                      #10 + extractfileDir(filename2);
 
-    nrstars_required := round(nrstars * (hd.Height / hd.Width)); {A little less. The square search field is based on height only.}
+    nrstars_required := round(nrstars_image * (hd.Height / hd.Width)); {A little less. The square search field is based on height only.}
 
     solution := False; {assume no match is found}
-    go_ahead := (nrstars >= 5); {bare minimum. Should be more but let's try}
+    go_ahead := (nrstars_image >= 5); {bare minimum. Should be more but let's try}
 
 
     if go_ahead then {enough stars, lets find quads}
     begin
-      yes_use_triples := ((nrstars < 30) and (use_triples));
+      yes_use_triples := ((nrstars_image < 30) and (use_triples));
 
       if yes_use_triples then
       begin
@@ -931,7 +942,7 @@ begin
       end
       else
       begin
-        find_quads(False, starlist2, quad_star_distances2); {find star quads for new image. Quads are binning independent}
+        find_quads(False,nrstars_image, starlist2, quad_star_distances2); {find star quads for new image. Quads are binning independent}
         quads_str := ' quads';
 
         //   for i:=0 to length(quad_star_distances2[0])-1 do
@@ -948,11 +959,11 @@ begin
       go_ahead := nr_quads >= 3; {enough quads?}
 
       {The step size is fixed. If a low amount of stars are detected, the search window (so the database read area) is increased up to 200% guaranteeing that all quads of the image are compared with the database quads while stepping through the sky}
-      if nrstars < 35 then oversize := 2 {make dimensions of square search window twice then the image height}
+      if nrstars_image < 35 then oversize := 2 {make dimensions of square search window twice then the image height}
       else
-        if nrstars > 140 {at least 100 quads} then oversize := 1 {make dimensions of square search window equal to the image height}
+        if nrstars_image > 140 {at least 100 quads} then oversize := 1 {make dimensions of square search window equal to the image height}
       else
-        oversize := 2 * sqrt(35 / nrstars); {calculate between 35 th=2 and 140 th=1, quads are area related so take sqrt to get oversize}
+        oversize := 2 * sqrt(35 / nrstars_image); {calculate between 35 th=2 and 140 th=1, quads are area related so take sqrt to get oversize}
 
       if stackmenu1.force_oversize1.Checked then oversize := 2;
 
@@ -960,14 +971,14 @@ begin
       radius := strtofloat2(stackmenu1.radius_search1.Text);{radius search field}
 
       if yes_use_triples = False then
-        minimum_quads := 3 + nrstars div 140 {prevent false detections for star rich images, 3 quads give the 3 center quad references and is the bare minimum. It possible to use one quad and four star positions but it in not reliable}
+        minimum_quads := 3 + nrstars_image div 140 {prevent false detections for star rich images, 3 quads give the 3 center quad references and is the bare minimum. It possible to use one quad and four star positions but it in not reliable}
       else
-        minimum_quads := 3 + nrstars div 140; //one quad is equivalent to 4 triples
+        minimum_quads := 3 + nrstars_image div 140; //one quad is equivalent to 4 triples
 
     end
     else
     begin
-      memo2_message('Only ' + IntToStr(nrstars) + ' stars found in image. Abort');
+      memo2_message('Only ' + IntToStr(nrstars_image) + ' stars found in image. Abort');
       errorlevel := 2;
     end;
 
@@ -985,8 +996,8 @@ begin
       else
         max_distance := round(radius / (fov2 + 0.00001));{expressed in steps}
 
-      memo2_message(IntToStr(nrstars) + ' stars, ' + IntToStr(nr_quads) +  quads_str + ' selected in the image. ' + IntToStr(round(nrstars_required * sqr(oversize))) +
-        ' database stars, ' + IntToStr(round(nr_quads * nrstars_required * sqr(oversize) / nrstars)) +
+      memo2_message(IntToStr(nrstars_image) + ' stars, ' + IntToStr(nr_quads) +  quads_str + ' selected in the image. ' + IntToStr(round(nrstars_required * sqr(oversize))) +
+        ' database stars, ' + IntToStr(round(nr_quads * nrstars_required * sqr(oversize) / nrstars_image)) +
         ' database' + quads_str + ' required for the ' + floattostrF(oversize * fov2, ffFixed, 0, 2) +
         '° square search window. ' + 'Step size ' +  floattostrF(fov2, FFfixed, 0, 2) + '°. Oversize ' + floattostrF(oversize, FFfixed, 0, 2));
 
@@ -1131,9 +1142,10 @@ begin
               if yes_use_triples then
                 find_triples_using_quads(starlist1, quad_star_distances1) {find quads for reference image/database. Filter out too small quads for Earth based telescopes}
               else
-                find_quads(False, starlist1, quad_star_distances1); {find quads for reference image/database.}
-
-              //profiler_log('Find_quads1');
+              begin
+                find_quads(False,nrstars_image, starlist1, quad_star_distances1); {find quads for reference image/database.}
+               //profiler_log('Find_quads1');
+              end;
 
               if solve_show_log then {global variable set in find stars}
                 memo2_message('Search ' + IntToStr(Count) + ', [' + IntToStr(spiral_x) + ',' + IntToStr(spiral_y) + '],' + #9 + 'position: ' +

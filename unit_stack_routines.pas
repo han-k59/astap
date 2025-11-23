@@ -424,7 +424,8 @@ begin
               begin
                 binning:=report_binning(head.height);{select binning based on the height of the light}
                 bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
-                find_quads(false,starlist2,quad_star_distances2);{find quads for reference image/database}
+                max_stars:=length(starlist2[0]); //adapt max_stars to reference image
+                find_quads(false,length(starlist2[0]),starlist2,quad_star_distances2);{find quads for reference image/database}
               end;
             end;
 
@@ -458,7 +459,7 @@ begin
                 else
                 begin{internal alignment}
                   bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
-                  find_quads(false,starlist1,quad_star_distances1);{find star quads for new image}
+                  find_quads(false,length(starlist2[0]),starlist1,quad_star_distances1);{find star quads for new image}
                   if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then //Find the solution for inverse mapping. So from reference image to each new source image
                     memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  ' +solution_str)
                   else
@@ -467,7 +468,7 @@ begin
                     files_to_process[c].name:=''; {remove file from list}
                    solution:=false;
                     ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
-                    ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_result]:='no solution';{no stack result}
+                    ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_result]:='No match';{no stack result}
                   end;
                 end;{internal alignment}
               end
@@ -597,7 +598,7 @@ begin
               end;//for fits:=0 ....
             end;
 
-            progress_indicator(94+c,' LRGB');{show progress, 95..99}
+            progress_indicator(0.94+c/100,' LRGB');{show progress, 95..99%}
             except
               beep;
           end;{try}
@@ -713,7 +714,8 @@ var
   ra,dec,x,y : double;
   formalism : integer;
 begin
-  formalism:=mainform1.Polynomial1.itemindex;
+//  formalism:=mainform1.Polynomial1.itemindex;
+  formalism:=0;
   pixel_to_celestial(head,1,1,formalism , ra, dec); //left bottom
   celestial_to_pixel(head_ref, ra,dec,false, x,y);//ra,dec to fitsX,fitsY. Do not use SIP to prevent very large errors outside the image.
   x_min:=min(x_min,x);
@@ -772,6 +774,8 @@ begin
     y_min:=0;
     y_max:=0;
     formalism:=mainform1.Polynomial1.itemindex;
+    if formalism<>1 then
+      memo2_message('█ █ █ █ █ █  Warning set viewer formalism to WCS to SIP!!');
 
     count:=0;
     total_fov:=0;
@@ -848,6 +852,7 @@ begin
             pixel_to_celestial(head,(x_min+x_max)/2,(y_min+y_max)/2,formalism, raMiddle, decMiddle);//find middle of mosaic
             sincos(decMiddle,SIN_dec_ref,COS_dec_ref);// as procedure initalise_var1, set middle of the mosaic
             head_ref.ra0:=raMiddle;// set middle of the mosaic
+            head_ref.dec0:=decMiddle;// set middle of the mosaic
             head_ref.crpix1:=abs(x_max-x_min)/2;
             head_ref.crpix2:=abs(y_max-y_min)/2;
           end;
@@ -856,7 +861,7 @@ begin
                     a_order:=0; //stop using SIP from the header in astrometric mode
 
           memo2_message('Adding file: '+inttostr(counter+1)+'-'+nr_selected1.caption+' "'+filename2+'"  to mosaic.');     // Using '+inttostr(dark_count)+' dark(s), '+inttostr(flat_count)+' flat(s), '+inttostr(flatdark_count)+' flat-dark(s)') ;
-          if a_order=0 then Memo2_message('█ █ █ █ █ █  Warning. Image distortion correction not working. Either the option SIP not checkmarked or SIP terms not in the image header. Activate SIP and refresh astrometrical solutions with SIP checkmarked!! █ █ █ █ █ █');
+          if a_order=0 then Memo2_message('█ █ █ █ █ █  Warning. Image distortion correction is not working. SIP terms are not in the image header. Refresh astrometrical solutions with SIP option check marked!! █ █ █ █ █ █');
 
           Application.ProcessMessages;
           if esc_pressed then exit;
@@ -1027,7 +1032,7 @@ begin
             end;
 
           end;
-          progress_indicator(10+89*counter/images_selected{length(files_to_process)}{(ListView1.items.count)},' Stacking');{show progress}
+          progress_indicator(0.1+0.89*counter/images_checked,' Stacking');{show progress}
         finally
         end;
       end;
@@ -1182,7 +1187,8 @@ begin
             if use_star_alignment then
             begin
               bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
-              find_quads(false,starlist2, quad_star_distances2);{find quads for reference image}
+              max_stars:=length(starlist2[0]); //adapt max_stars to reference image
+              find_quads(false,length(starlist2[0]),starlist2, quad_star_distances2);{find quads for reference image}
             end
             else
             begin
@@ -1202,7 +1208,7 @@ begin
             if use_star_alignment then {internal alignment}
             begin
               bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
-              find_quads(false,starlist1, quad_star_distances1);{find star quads for new image}
+              find_quads(false,length(starlist2[0]),starlist1, quad_star_distances1);{find star quads for new image}
 
               if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then //Find the solution for inverse mapping. So from reference image to each new source image
                  memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
@@ -1212,7 +1218,7 @@ begin
                 files_to_process[c].name:=''; {remove file from list}
                 solution:=false;
                 ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
-                ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='no solution';{no stack result}
+                ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='No match';{no stack result}
               end;
             end
             else
@@ -1253,7 +1259,7 @@ begin
 
           end; //end solution
 
-          progress_indicator(10+89*counter/images_selected,' Stacking');{show progress}
+          progress_indicator(0.1+0.89*counter/images_checked,' Stacking');{show progress}
           finally
         end;
       end;
@@ -1404,7 +1410,8 @@ begin
           if use_star_alignment then
           begin
             bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
-            find_quads(false,starlist2, quad_star_distances2);{find quads for reference image}
+            max_stars:=length(starlist2[0]); //adapt max_stars to reference image
+            find_quads(false,length(starlist2[0]),starlist2, quad_star_distances2);{find quads for reference image}
           end
           else
           begin
@@ -1426,7 +1433,7 @@ begin
           if use_star_alignment then {internal alignment}
           begin{internal alignment}
             bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
-            find_quads(false,starlist1, quad_star_distances1);{find star quads for new image}
+            find_quads(false,length(starlist2[0]),starlist1, quad_star_distances1);{find star quads for new image}
             if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then //Find the solution for inverse mapping. So from reference image to each new source image
             begin
               memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str);
@@ -1439,7 +1446,7 @@ begin
               files_to_process[c].name:=''; {remove file from list}
               solution:=false;
               ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclamation}
-              ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_result]:='no solution';{no stack result}
+              ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_result]:='No match';{no stack result}
             end
           end{internal alignment}
           else
@@ -1485,7 +1492,7 @@ begin
 
         end;//solution
 
-        progress_indicator(10+round(0.3333*90*(counter)/images_selected),' ■□□');{show progress}
+        progress_indicator(0.1+0.3333*0.9*counter/images_checked,' ■□□');{show progress}
         finally
         end;
       end;{try}
@@ -1570,7 +1577,7 @@ begin
 
           variance_array(img_variance, img_loaded, img_average,img_temp, solution_vectorX,solution_vectorY, background, weightf);//add B to A
 
-          progress_indicator(10+30+round(0.33333*90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),' ■■□');{show progress}
+          progress_indicator(0.10+0.3+0.33333*0.9*counter/images_checked,' ■■□');{show progress}
         finally
         end;
       end;{try}
@@ -1657,7 +1664,7 @@ begin
           //phase 3
           finalise_array(img_final, img_loaded, img_average,img_variance,img_temp, solution_vectorX,solution_vectorY, background, weightf,variance_factor);//add B to A
 
-          progress_indicator(10+60+round(0.33333*90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),' ■■■');{show progress}
+          progress_indicator(0.1+0.6+0.33333*0.9*counter/images_checked,' ■■■');{show progress}
           finally
         end;
       end;
@@ -1706,7 +1713,7 @@ var
     height_maxS,width_maxS                                                                                   : integer;
     value,weightF,hfd_min,aa,bb,cc,dd,ee,ff,delta_JD_required,target_background, JD_reference, hfd_measured  : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip   : boolean;
-    tempval,jd_fraction                                                                        : single;
+    jd_fraction                                                                        : single;
     background_correction : array[0..2] of single;
     img_temp,img_final,img_variance : Timage_array;
 begin
@@ -1897,7 +1904,7 @@ begin
           end;
 
         end;//solution
-        progress_indicator(10+round(0.5*90*(counter)/images_selected),' ■□');{show progress}
+        progress_indicator(0.1+0.5*0.9*counter/images_checked,' ■□');{show progress}
         finally
         end;
       end;{try}
@@ -2011,7 +2018,7 @@ begin
 
           init:=true;{initialize for first image done}
 
-          progress_indicator(10+45+round(0.5*90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),' ■■');{show progress}
+          progress_indicator(0.1+0.45+0.5*0.9*counter/images_checked,' ■■');{show progress}
           finally
         end;
       end;
@@ -2145,7 +2152,8 @@ begin
           begin
           //Find the equations for image destignation to image source!. Use this later to take four pixels fractions back to the reference image (inverse mapping).
           bin_and_find_stars(img_loaded, head,binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist2,mean_hfd,warning);{bin, measure background, find stars}
-          find_quads(false,starlist2, quad_star_distances2);{find quads for reference image}
+          max_stars:=length(starlist2[0]); //adapt max_stars to reference image
+          find_quads(false,length(starlist2[0]),starlist2, quad_star_distances2);{find quads for reference image}
           end
           else
           begin
@@ -2166,7 +2174,7 @@ begin
           begin
             //Find the equations for image destignation to image source!. Use this later to take four pixels fractions back to the reference image (inverse mapping).
             bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,max_stars,true{update hist},starlist1,mean_hfd,warning);{bin, measure background, find stars}
-            find_quads(false,starlist1, quad_star_distances1);{find star quads for new image}
+            find_quads(false,length(starlist2[0]),starlist1, quad_star_distances1);{find star quads for new image}
 
             if find_offset_and_rotation(3,strtofloat2(stackmenu1.quad_tolerance1.text)) then //Find the solution for inverse mapping. So from reference image to each new source image
                memo2_message(inttostr(nr_references)+' of '+ inttostr(nr_references2)+' quads selected matching within '+stackmenu1.quad_tolerance1.text+' tolerance.  '+solution_str)
@@ -2176,7 +2184,7 @@ begin
               files_to_process[c].name:=''; {remove file from list}
               solution:=false;
               ListView1.Items.item[files_to_process[c].listviewindex].SubitemImages[L_result]:=6;{mark 3th column with exclaimation}
-              ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='no solution';{no stack result}
+              ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[2]:='No match';{no stack result}
             end;
           end
           else
@@ -2270,7 +2278,7 @@ begin
           if save_fits(img_loaded,mainform1.memo1.lines,head,filename2,true)=false then exit;//exit if save error
           memo2_message('New aligned image created: '+filename2);
           report_results(object_name,inttostr(round(head.exposure)),0,-1 {color icon}, 5 {stack icon});{report result in tab result using modified filename2}
-          progress_indicator(10+round(90*(counter)/images_selected{length(files_to_process)}{(ListView1.items.count)}),'Cal');{show progress}
+          progress_indicator(0.1+0.9*counter/images_checked,'Cal');{show progress}
         end;
         finally
         end;

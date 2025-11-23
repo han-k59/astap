@@ -1470,7 +1470,7 @@ begin
     mainform1.image1.Canvas.brush.Style:=bsClear;
 
     text_counter:=0;
-    setlength(text_dimensions,200);
+    setlength(text_dimensions,1000);
 
     sincos(head.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance since it is for each pixel the same}
 
@@ -1615,17 +1615,20 @@ begin
               end;
               mainform1.image1.Canvas.textout(x1,y1,abbrv);
 
-              if ((extract_visible) and (length(naam2)>2){through filters}  and (text_counter<length(vsp_vsx_list)){<max}) then //special option to add objects to list for photometry
+              if ((extract_visible) and (length(naam2)>2){through filters}) then //special option to add objects to list for photometry
               begin
                 vsp_vsx_list[text_counter].ra:=ra2;
                 vsp_vsx_list[text_counter].dec:=dec2;
                 vsp_vsx_list[text_counter].abbr:=naam2;
                 vsp_vsx_list[text_counter].source:=0; //local
+                if text_counter+1>=length(vsp_vsx_list) then
+                   setlength(vsp_vsx_list,length(vsp_vsx_list)+1000);{increase size dynamic array. Probably too much already 1000 but makes is robust}
 
                 vsp_vsx_list_length:=text_counter;
               end;
               inc(text_counter);
-              if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+200);{increase size dynamic array}
+
+              if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+1000);{increase size dynamic array}
 
             end;
           end;{centre object visible}
@@ -1663,6 +1666,53 @@ begin
   end;
 
 end;{plot deep_sky}
+
+
+
+procedure get_database_passband(filterstr: string; out passband :string);//report local or online database and the database passband
+var
+  datab,filterstrUP :string;
+begin
+  datab:=stackmenu1.reference_database1.text;
+  if pos('Local',datab)>0 then //local or auto
+  begin
+    if pos('V',filterstrUP)>0  then passband:='V'
+    else
+    passband:='BP';
+    memo2_message('Local databasa as set in tab Photometry. Filter='+filterstr+'. Local database = '+passband);
+  end
+  else
+  begin  //online auto transformation
+    filterstrUP:=uppercase(filterstr);
+    if ((length(filterstrUP)=0) or (pos('CV',filterstrUP)>0))  then passband:='BP'  //Johnson-V, online
+    else
+    if ((pos('S',filterstrUP)>0) OR (pos('P',filterstrUP)>0)) then //Sloan SG,SR, SI   or Sloan Las Cumbres observatory (GP, RP, IP}
+    begin
+      if pos('G',filterstrUP)>0  then passband:='SG'  //SDSS-g
+      else
+      if pos('R',filterstrUP)>0  then passband:='SR'  //SDSS-r
+      else
+      if pos('I',filterstrUP)>0  then passband:='SI'  //SDSS-i
+      else
+      passband:='BP'  //online ; //unknown
+    end
+    else //Johnson-Cousins
+    if pos('G',filterstrUP)>0  then
+     passband:='V'  //TG, Johnson-V, online
+    else
+    if pos('V',filterstrUP)>0  then passband:='V'  //Johnson-V, online
+    else
+    if pos('B',filterstrUP)>0  then passband:='B'  //Johnson-B, online Blue
+    else
+    if pos('R',filterstrUP)>0  then passband:='R'  //Cousins-R, online red
+    else
+    if pos('I',filterstrUP)>0  then passband:='I'  //Cousins-R, online red
+    else
+    passband:='BP';  //online take clear view
+
+    memo2_message('Gaia online with database transformation as set in tab Photometry. Filter='+filterstr+'. Online Gaia ->'+passband);
+  end;
+end;
 
 
 procedure plot_vsx_vsp(extract_visible: boolean);{plot downloaded variable and comp stars}
@@ -1720,8 +1770,10 @@ begin
      nrcount:=0;
    end;
 
+    get_database_passband(head.filter_name,{out} head.passband_database);//select applicable passband for annotation in case photmetry is not calibrated
+
     text_counter:=0;
-    setlength(text_dimensions,200);
+    setlength(text_dimensions,1000);
 
     sincos(head.dec0,SIN_dec_ref,COS_dec_ref);{do this in advance since it is for each pixel the same}
 
@@ -1793,7 +1845,7 @@ begin
                  //  memo2_message(filename2+',  '+floattostr(jd_mid)+ ',   '+floattostr(delta));
             end;
 
-            if ((extract_visible) and (nrcount<length(vsp_vsx_list))) then //special option to add objects to list for photometry
+            if extract_visible then //special option to add objects to list for photometry
             begin
               vsp_vsx_list[nrcount].ra:=vsx[count].ra;
               vsp_vsx_list[nrcount].dec:=vsx[count].dec;
@@ -1802,6 +1854,7 @@ begin
               vsp_vsx_list[nrcount].index:=count;//to retrieve all mangitudes
               vsp_vsx_list_length:=nrcount;
               inc(nrcount);
+              if nrcount>=length(vsp_vsx_list) then setlength(vsp_vsx_list,nrcount+1000)
             end;
 
 
@@ -1812,14 +1865,23 @@ begin
 
             if ((pos('S',head.passband_database)>0) or (stackmenu1.reference_database1.itemindex>5)) then   //check passband_active in case auto selection is used.
             begin //Sloan filters used
-              if vsp[count].SGmag<>'?' then abbreviation:=abbreviation+'_SG='+vsp[count].Vmag+'('+vsp[count].Verr+')';
-              if vsp[count].SRmag<>'?' then abbreviation:=abbreviation+'_SR='+vsp[count].Bmag+'('+vsp[count].Berr+')';
-              if vsp[count].SImag<>'?' then abbreviation:=abbreviation+'_SI='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+              if vsp[count].SGmag<>'?' then abbreviation:=abbreviation+'_SG='+vsp[count].SGmag+'('+vsp[count].SGerr+')';
+              if vsp[count].SRmag<>'?' then abbreviation:=abbreviation+'_SR='+vsp[count].SRmag+'('+vsp[count].SRerr+')';
+              if vsp[count].SImag<>'?' then abbreviation:=abbreviation+'_SI='+vsp[count].SImag+'('+vsp[count].SIerr+')';
             end
             else
             begin //UBVR
-              if vsp[count].Bmag<>'?' then abbreviation:=abbreviation+'_B='+vsp[count].Bmag+'('+vsp[count].Berr+')';
-              if vsp[count].Rmag<>'?' then abbreviation:=abbreviation+'_R='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+              if head.passband_database<>'I' then
+              begin
+                if vsp[count].Bmag<>'?' then abbreviation:=abbreviation+'_B='+vsp[count].Bmag+'('+vsp[count].Berr+')';
+                if vsp[count].Rmag<>'?' then abbreviation:=abbreviation+'_R='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+              end
+              else
+              begin
+                if vsp[count].Rmag<>'?' then abbreviation:=abbreviation+'_R='+vsp[count].Rmag+'('+vsp[count].Rerr+')';
+                if vsp[count].Imag<>'?' then abbreviation:=abbreviation+'_I='+vsp[count].Imag+'('+vsp[count].Ierr+')';
+              end;
+
             end;
 
             if font_size>=5 then
@@ -1847,7 +1909,7 @@ begin
             end;
 
 
-            if ((extract_visible) and (nrcount<length(vsp_vsx_list))) then //special option to add objects to list for photometry
+            if extract_visible then //special option to add objects to list for photometry
             begin
               vsp_vsx_list[nrcount].ra:=vsp[count].ra;
               vsp_vsx_list[nrcount].dec:=vsp[count].dec;
@@ -1856,6 +1918,7 @@ begin
               vsp_vsx_list[nrcount].index:=count;//to retrieve all magnitudes
               vsp_vsx_list_length:=nrcount;
               inc(nrcount);
+              if nrcount>=length(vsp_vsx_list) then setlength(vsp_vsx_list,nrcount+1000)
             end;
           end;
 
@@ -1919,9 +1982,9 @@ begin
             end;
 
 
-              mainform1.image1.Canvas.textout(x1,y1,abbreviation_display);
+            mainform1.image1.Canvas.textout(x1,y1,abbreviation_display);
             inc(text_counter);
-            if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+200);{increase size dynamic array}
+            if text_counter>=length(text_dimensions) then setlength(text_dimensions,text_counter+1000);{increase size dynamic array}
 
             {plot deepsky object}
             mainform1.image1.Canvas.Pen.width :=1;//min(4,max(1,round(len/70)));
@@ -1941,7 +2004,6 @@ begin
       end;//while loop
     end;//plot vsx and vsp
 
-    text_dimensions:=nil;{remove used memory}
 
     //memo2_message('Added '+inttostr(text_counter)+ ' annotations.');
   end;
@@ -2008,51 +2070,6 @@ begin
 end;
 
 
-procedure get_database_passband(filterstr: string; out passband :string);//report local or online database and the database passband
-var
-  datab,filterstrUP :string;
-begin
-  datab:=stackmenu1.reference_database1.text;
-  if pos('Local',datab)>0 then //local or auto
-  begin
-    if pos('V',filterstrUP)>0  then passband:='V'
-    else
-    passband:='BP';
-    memo2_message('Local databasa as set in tab Photometry. Filter='+filterstr+'. Local database = '+passband);
-  end
-  else
-  begin  //online auto transformation
-    filterstrUP:=uppercase(filterstr);
-    if ((length(filterstrUP)=0) or (pos('CV',filterstrUP)>0))  then passband:='BP'  //Johnson-V, online
-    else
-    if pos('S',filterstrUP)>0 then //sloan
-    begin
-      if pos('G',filterstrUP)>0  then passband:='SG'  //SDSS-g
-      else
-      if pos('R',filterstrUP)>0  then passband:='SR'  //SDSS-r
-      else
-      if pos('I',filterstrUP)>0  then passband:='SI'  //SDSS-i
-      else
-      passband:='BP'  //online ; //unknown
-    end
-    else //Johnson-Cousins
-    if pos('G',filterstrUP)>0  then passband:='V'  //TG, Johnson-V, online
-    else
-    if pos('V',filterstrUP)>0  then passband:='V'  //Johnson-V, online
-    else
-    if pos('B',filterstrUP)>0  then passband:='B'  //Johnson-B, online Blue
-    else
-    if pos('R',filterstrUP)>0  then passband:='R'  //Cousins-R, online red
-    else
-    if pos('I',filterstrUP)>0  then passband:='I'  //Cousins-R, online red
-    else
-    passband:='BP';  //online take clear view
-
-    memo2_message('Gaia online with database transformation as set in tab Photometry. Filter='+filterstr+'. Online Gaia ->'+passband);
-  end;
-end;
-
-
 procedure plot_and_measure_stars(img : Timage_array; memo: tstrings; var head : Theader; flux_calibration,plot_stars, report_lim_magn: boolean);{flux calibration,  annotate, report limiting magnitude}
 var
   telescope_ra,telescope_dec,fov,ra2,dec2, magn,Bp_Rp, hfd1,star_fwhm,snr, flux, xc,yc, sep,SIN_dec_ref,COS_dec_ref,
@@ -2060,7 +2077,7 @@ var
   star_total_counter,len, max_nr_stars, area1,area2,area3,area4,nrstars_required2,count                                                       : integer;
   flip_horizontal, flip_vertical                        : boolean;
   flux_ratio_array,hfd_x_sd, flux_peak_ratio,snr_list   : array of double;
-  selected_passband : string;
+  selected_passband,firstletter : string;
   data_max          : single;
   starlist1         : Tstar_list;
 
@@ -2197,7 +2214,12 @@ begin
       begin
         if select_star_database(stackmenu1.star_database1.text,head.height*abs(head.cdelt2) {fov})=false then exit;
         memo2_message('Using star database '+uppercase(name_database));
-        if uppercase(copy(name_database,1,1))='V' then passband_active:='V' else passband_active:='BP';// for reporting
+        firstletter:=uppercase(copy(name_database,1,1));
+        if firstletter='V' then passband_active:='V'
+        else
+        if firstletter='I' then passband_active:='I'
+        else
+        passband_active:='BP';// for reporting
     end
     else
     begin  //Reading online database. Update if required
