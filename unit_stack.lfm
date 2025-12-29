@@ -1,15 +1,15 @@
 object stackmenu1: Tstackmenu1
-  Left = 285
+  Left = 137
   Height = 807
-  Top = 87
-  Width = 1631
+  Top = 147
+  Width = 1756
   HorzScrollBar.Page = 300
   HorzScrollBar.Range = 1920
   VertScrollBar.Visible = False
   AllowDropFiles = True
   Caption = 'stack menu'
   ClientHeight = 790
-  ClientWidth = 1631
+  ClientWidth = 1756
   Color = clForm
   Icon.Data = {
     7E03000000000100010010100000010018006803000016000000280000001000
@@ -75,7 +75,7 @@ object stackmenu1: Tstackmenu1
         Hint = 'Stack menu'
         Top = 0
         Width = 1920
-        ActivePage = tab_photometry1
+        ActivePage = lights
         Align = alClient
         AutoSize = True
         Images = ImageList2
@@ -83,7 +83,7 @@ object stackmenu1: Tstackmenu1
         ParentFont = False
         ParentShowHint = False
         ShowHint = True
-        TabIndex = 8
+        TabIndex = 0
         TabOrder = 0
         OnChange = pagecontrol1Change
         OnMouseMove = pagecontrol1MouseMove
@@ -3658,21 +3658,13 @@ object stackmenu1: Tstackmenu1
             Width = 221
             DropDownCount = 40
             ItemHeight = 19
-            ItemIndex = 6
+            ItemIndex = 2
             Items.Strings = (
               'None'
-              'Local DB mag 8 (AUID 👌)'
-              'Local DB mag 11 (AUID 👌)'
-              'Local DB mag 13 (AUID 👌)'
-              'Local DB mag 15 (AUID 👌)'
               'Local DB mag 8'
               'Local DB mag 11'
               'Local DB mag 13'
               'Local DB mag 15'
-              'Online DB mag 11 (AUID 👌)'
-              'Online DB mag 13 (AUID 👌)'
-              'Online DB mag 15 (AUID 👌)'
-              'Online DB mag 99 (AUID 👌)'
               'Online DB mag 11'
               'Online DB mag 13'
               'Online DB mag 15'
@@ -3681,6 +3673,7 @@ object stackmenu1: Tstackmenu1
               'Online DB mag 13 std field'
               'Online DB mag 15 std field'
               'Online DB mag 99 std field'
+              ''
             )
             OnChange = annotate_mode1Change
             ParentFont = False
@@ -3721,9 +3714,9 @@ object stackmenu1: Tstackmenu1
             WordWrap = True
           end
           object most_right9: TStaticText
-            Left = 1534
+            Left = 1624
             Height = 20
-            Top = 40
+            Top = 10
             Width = 3
             AutoSize = True
             Caption = '|'
@@ -3865,13 +3858,14 @@ object stackmenu1: Tstackmenu1
             TabOrder = 16
             Text = '30'
           end
-          object ignore_saturation1: TCheckBox
-            Left = 1480
+          object set_saturation1: TCheckBox
+            Left = 1552
             Height = 23
-            Hint = 'Increase image saturation level to 64000 instead the highest value in the image'
-            Top = 37
-            Width = 148
-            Caption = 'high saturation level'
+            Hint = 'Enter pixel saturation value manually instead of the highest value in the image.'
+            Top = 35
+            Width = 118
+            Caption = 'Saturation level'
+            OnChange = set_saturation1Change
             TabOrder = 17
           end
           object transformation2: TButton
@@ -3913,6 +3907,35 @@ object stackmenu1: Tstackmenu1
             ParentFont = False
             TabOrder = 19
             Text = '∞'
+          end
+          object with_auid_only1: TCheckBox
+            Left = 1168
+            Height = 23
+            Hint = 'Only annotate variables which have an AUID (identifier)'
+            Top = 34
+            Width = 75
+            Caption = 'AUID 👌'
+            TabOrder = 20
+          end
+          object saturation_level1: TEdit
+            Left = 1480
+            Height = 27
+            Hint = 'Enter here the maximum acceptable pixel value before saturation occurs.'
+            Top = 35
+            Width = 60
+            TabOrder = 21
+            Text = '64000'
+          end
+          object photometry_calibrate1: TCheckBox
+            Left = 459
+            Height = 23
+            Hint = 'Calibrate lights in advance and in case of raw OSC light, split it TR, TG, TB frames.'
+            Top = 34
+            Width = 78
+            Caption = 'Calibrate'
+            Checked = True
+            State = cbChecked
+            TabOrder = 22
           end
         end
         object tab_inspector1: TTabSheet
@@ -4191,13 +4214,13 @@ object stackmenu1: Tstackmenu1
           ImageIndex = 21
           object listview9: TListView
             Left = 0
-            Height = 427
+            Height = 424
             Hint = 'Double click to view image'
-            Top = 41
+            Top = 44
             Width = 1912
             Align = alClient
             AutoSortIndicator = True
-            BorderSpacing.Top = 41
+            BorderSpacing.Top = 44
             Checkboxes = True
             Columns = <            
               item
@@ -4397,7 +4420,7 @@ object stackmenu1: Tstackmenu1
             Left = 616
             Height = 23
             Hint = 'Write solution to a new separate header file only. (.wcs)'
-            Top = 19
+            Top = 20
             Width = 174
             Caption = 'Do not modify the lights'
             Checked = True
