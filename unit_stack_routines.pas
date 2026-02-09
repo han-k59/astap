@@ -1,5 +1,5 @@
 unit unit_stack_routines;
-{Copyright (C) 2017, 2024 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017-2026 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,6 +23,8 @@ procedure astrometric_to_vector(headA, headB : theader);{convert astrometric sol
 function test_bayer_matrix(img: Timage_array) :boolean;  {test statistical if image has a bayer matrix. Execution time about 1ms for 3040x2016 image}
 procedure stack_comet(process_as_osc:integer; var files_to_process : array of TfileToDo; out counter : integer); {stack using sigma clip average}
 procedure calc_newx_newy(headA, headB : theader; vector_based : boolean; fitsXfloat,fitsYfloat: double; out  x_new_float,  y_new_float : double); {apply either vector or astrometric correction. Fits in 1..width, out range 0..width-1}
+procedure pause2;//put stacking process in pause
+
 
 var
   SIN_dec0,    // image to add
@@ -145,50 +147,64 @@ begin
 end;
 
 
-procedure calculate_manual_vector(c: integer); //calculate the vector drift for the image scale one and 0..h, 0..w range.
+procedure calculate_manual_vector(referenceX,referenceY,lx,ly : double); //calculate the vector drift for the image scale one and 0..h, 0..w range.
 var
   ra1,dec1,x1,y1,shiftX,shiftY : double;
-  dummy : string;
+//  dummyX,dummyY : string;
 begin
   if head.cd1_1=0 then //pure manual stacking
   begin
     solution_vectorX[0]:=1;
     solution_vectorX[1]:=0;
-    solution_vectorX[2]:=referenceX{-1}-(strtofloat2(stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]){-1}); {calculate correction. The two subtractions are neutralizing each other}
+    solution_vectorX[2]:=referenceX{-1}- (lx {-1}); {calculate correction. The two subtractions are neutralizing each other}
     solution_vectorY[0]:=0;
     solution_vectorY[1]:=1;
-    solution_vectorY[2]:=referenceY{-1} - (strtofloat2(stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]){-1});//the two subtractions are neutralizing each other
+    solution_vectorY[2]:=referenceY{-1} - (ly {-1});//the two subtractions are neutralizing each other
   end
   else
   begin
-//    sincos(head.dec0,SIN_dec0,COS_dec0);//intilialize SIN_dec0,COS_dec0
-//    astrometric_to_vector(head,head_ref);{convert 1th order astrometric solution to a vector solution}
     astrometric_to_vector(head_ref,head);{convert 1th order astrometric solution to a vector solution}
 
-    dummy:=stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X];
-    dummy:=stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y];
+//    dummyX:=stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X];
+ //   dummyY:=stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y];
 
 
     //convert the astroid position to ra, dec
-    pixel_to_celestial(head,strtofloat2(stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]),
-                            strtofloat2(stackmenu1.ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]),1 {formalism},  ra1,dec1 );
+    pixel_to_celestial(head,lx,ly,1 {formalism},  ra1,dec1 );
     //calculate the astroid position to x,y coordinated of the reference image
     celestial_to_pixel(head_ref, ra1,dec1,true,x1,y1);//ra,dec  ref image to fitsX,fitsY second image
-
-
-    //convert the center based solution to solution with origin at 0,0
-    if solution_vectorX[0]<0  then
-       solution_vectorX[2]:=solution_vectorX[2]+head.width-1;
-
-    if solution_vectorY[1]<0  then
-       solution_vectorY[2]:=solution_vectorY[2]+head.height-1;
 
 
     shiftX:=x1 {-1} - referenceX{-1}; //The asteroid correction. The two subtractions are neutralizing each other
     shiftY:=y1 {-1} - referenceY{-1}; //The asteroid correction. The two subtractions are neutralizing each other
 
+   if solution_vectorX[0]<0  then //image is flipped in X, flip shift
+         shiftX:=-shiftX;
+   if solution_vectorY[1]<0  then //image is flipped in Y, flip shift
+         shiftY:=-shiftY;
+
+
     solution_vectorX[2]:=solution_vectorX[2]+shiftx;
     solution_vectorY[2]:=solution_vectorY[2]+shifty;
+  end;
+end;
+
+
+procedure pause2;//put stacking process in pause
+var
+  st :  string;
+begin
+  st:=stackmenu1.stack_button1.caption;
+  stackmenu1.stack_button1.caption:='PAUSED';
+  wait(500);
+  stackmenu1.stack_button1.caption:=st;
+  if stacking_paused then
+    wait(500)
+  else
+    application.processmessages;
+  if esc_pressed then
+  begin
+    stacking_paused:=false;//stop pause and exit
   end;
 end;
 
@@ -207,8 +223,8 @@ var
   br_factor_2, bg_factor_2, bb_factor_2,
   saturated_level,hfd_min,tempval,tempval2,
   aa,bb,cc,dd,ee,ff,
-  col1,col2,x_new,y_new,x_frac,y_frac                                                      : double;
-  init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip : boolean;
+  x_new,y_new,x_frac,y_frac,lx,ly,referenceX, referenceY                         : double;
+  init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,update_memo : boolean;
   warning               : string;
   starlist1,starlist2   : Tstar_list;
   img_temp,img_average  : Timage_array;
@@ -273,6 +289,7 @@ begin
 
       for c:=0 to high(files_to_process) do  {should contain reference,r,g,b,r2,g2,b2,gb,l}
       begin
+        while stacking_paused do pause2;
         if c=7 then {all colour files added, correct for the number of pixel values added at one pixel. This can also happen if one colour has an angle and two pixel fit in one!!}
         begin {fix RGB stack}
           memo2_message('Correcting the number of pixels added together.');
@@ -335,7 +352,9 @@ begin
             {load image}
             Application.ProcessMessages;
             if esc_pressed then begin memo2_message('ESC pressed.');exit;end;
-            if load_fits(filename2,true {light},true,init=false {update memo only for first ref img},0,mainform1.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+            update_memo:=((init=false {update memo only for first ref img}) or (use_ephemeris_alignment){to read annotation positions});
+            if load_fits(filename2,true {light},true,update_memo,0,mainform1.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
 
             if init=false then
               head_ref:=head;{backup solution}
@@ -347,42 +366,36 @@ begin
             begin
                get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
                background_r:=head.backgr;
-               //cblack:=round( background_r);
                counterR:=head.light_count ;counterRdark:=head.dark_count; counterRflat:=head.flat_count; counterRbias:=head.flatdark_count; exposureR:=round(head.exposure);temperatureR:=head.set_temperature;{for historical reasons}
             end;
             if c=2 then
             begin
               get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
               background_g:=head.backgr;
-              //cblack:=round( background_g);
               counterG:=head.light_count;counterGdark:=head.dark_count; counterGflat:=head.flat_count; counterGbias:=head.flatdark_count; exposureG:=round(head.exposure);temperatureG:=head.set_temperature;
             end;
             if c=3 then
             begin
               get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
               background_b:=head.backgr;
-              //cblack:=round( background_b);
               counterB:=head.light_count; counterBdark:=head.dark_count; counterBflat:=head.flat_count; counterBbias:=head.flatdark_count; exposureB:=round(head.exposure);temperatureB:=head.set_temperature;
             end;
             if c=4 then
             begin
                get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
                background_r2:=head.backgr;
-               //cblack:=round( background_r);
                counterR2:=head.light_count ;counterR2dark:=head.dark_count; counterR2flat:=head.flat_count; counterR2bias:=head.flatdark_count; exposureR2:=round(head.exposure);temperatureR2:=head.set_temperature;{for historical reasons}
             end;
             if c=5 then
             begin
               get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
               background_g2:=head.backgr;
-              //cblack:=round( background_g);
               counterG2:=head.light_count;counterG2dark:=head.dark_count; counterG2flat:=head.flat_count; counterG2bias:=head.flatdark_count; exposureG2:=round(head.exposure);temperatureG2:=head.set_temperature;
             end;
             if c=6 then
             begin
               get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
               background_b2:=head.backgr;
-              //cblack:=round( background_b);
               counterB2:=head.light_count; counterB2dark:=head.dark_count; counterB2flat:=head.flat_count; counterB2bias:=head.flatdark_count; exposureB2:=round(head.exposure);temperatureB2:=head.set_temperature;
             end;
 
@@ -390,7 +403,6 @@ begin
             begin
               get_background(0,img_loaded,head,true,false);{unknown, do not calculate noise_level}
               background_L:=head.backgr;
-              //cblack:=round( background_L);
               counterL:=head.light_count; counterLdark:=head.dark_count; counterLflat:=head.flat_count; counterLbias:=head.flatdark_count; exposureL:=round(head.exposure);temperatureL:=head.set_temperature;
             end;
 
@@ -405,8 +417,13 @@ begin
             begin
               if ((use_manual_align) or (use_ephemeris_alignment)) then
               begin
-                referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
-                referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+                if files_to_process[0].listviewindex>=0 then // the file are in the listview1
+                begin
+                  referenceX:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
+                  referenceY:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+                end
+                else //listviewindex=-1
+                  get_annotation_position(mainform1.memo1.Lines,{out}referenceX,referenceY);//get the x,y of the annotation position. This is called in the final phase of the stack routine
               end
               else
               begin
@@ -442,7 +459,15 @@ begin
               begin
                 if ((use_manual_align) or (use_ephemeris_alignment)) then
                 begin {manual alignment}
-                  calculate_manual_vector(c);//includes memo2_message with solution vector
+                  if files_to_process[0].listviewindex>=0 then // the files are in the listview1
+                  begin
+                    lx:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]); {reference offset}
+                    ly:=strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]); {reference offset}
+                  end
+                  else //listviewindex=-1
+                    get_annotation_position(mainform1.memo1.Lines,{out}lx,ly);//get the x,y of the annotation position. This is called in the final phase of the stack routine
+
+                  calculate_manual_vector(referenceX,referenceY,lx,ly)
                 end
                 else
                 begin{internal alignment}
@@ -677,6 +702,7 @@ end;
 procedure compensate_solar_drift(head : theader; var solution_vectorX,solution_vectorY : Tsolution_vector);//compendate movement solar objects
 var
   ra_movement,dec_movement,posX,posY,SIN_dec_ref,COS_dec_ref : double;
+  i : integer;
 begin
   ra_movement:=(jd_mid-jd_mid_reference)*strtofloat2(stackmenu1.solar_drift_ra1.text {arcsec/hour})*(pi/180)*24/3600;//ra movement in radians
 
@@ -770,6 +796,7 @@ begin
     for c:=0 to high(files_to_process) do
       if length(files_to_process[c].name)>0 then
       begin
+        while stacking_paused do pause2;
         if load_fits(files_to_process[c].name,true {light},false{load data},false {update memo} ,0,mainform1.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
 
         if init=false then
@@ -797,8 +824,8 @@ begin
     for c:=0 to high(files_to_process) do
     if length(files_to_process[c].name)>0 then
     begin
-
       try { Do some lengthy operation }
+        while stacking_paused do pause2;
         ListView1.Selected :=nil; {remove any selection}
         ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
         Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False);{scroll to selected item}
@@ -937,7 +964,7 @@ end;
 procedure stack_average(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer);{stack average}
 var
     fitsX,fitsY,c,width_max, height_max,old_width, old_height,x_new,y_new,col,binning,max_stars,old_naxis3,mm,ccc                  : integer;
-    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal,dummy,mean_hfd                                                      : double;
+    background, weightF,hfd_min,aa,bb,cc,dd,ee,ff,pedestal,dummy,mean_hfd,referenceX, referenceY                                   : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,solar_drift_compensation,
     use_star_alignment                                                                                                         : boolean;
     tempval                                                                                                                    : single;
@@ -974,6 +1001,7 @@ begin
       for c:=0 to high(files_to_process) do
       if length(files_to_process[c].name)>0 then
       begin
+        while stacking_paused do pause2;
 
         try { Do some lengthy operation }
           ListView1.Selected :=nil; {remove any selection}
@@ -986,6 +1014,11 @@ begin
           {load image}
           if esc_pressed then begin memo2_message('ESC pressed.');exit;end;
           if load_fits(filename2,true {light},true,init=false {update memo only for first ref img},0,mainform1.memo1.Lines,head,img_loaded)=false then begin memo2_message('Error loading '+filename2);exit;end;
+
+          //add_text(mainform1.memo1.lines,'COMMENT  ',copy(filename2,40,999));
+          //add_text(mainform1.memo1.lines,'COMMENT  ',inttostr(c));
+          //add_text(mainform1.memo1.lines,'COMMENT  ',head.date_obs);
+          //add_text(mainform1.memo1.lines,'COMMENT  ',floattostr2(jd_sum/(c+1)));
 
           if init=false then
           begin {init is false, first image}
@@ -1085,7 +1118,9 @@ begin
               get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
               if ((use_manual_align) or (use_ephemeris_alignment)) then
               begin {manual alignment}
-                calculate_manual_vector(c);//includes memo2_message with solution vector
+                calculate_manual_vector(referenceX,referenceY,strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]),
+                                                               strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]));
+
               end;
             end
           end;
@@ -1162,7 +1197,7 @@ type
 var
     solutions      : array of tsolution;
     fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col ,binning,max_stars,old_naxis3,ccc        : integer;
-    variance_factor, value,weightF,hfd_min,dummy,mean_hfd                                                              : double;
+    variance_factor, value,weightF,hfd_min,dummy,mean_hfd,referenceX, referenceY                                        : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip, solar_drift_compensation,
     use_star_alignment                                                                                                 : boolean;
     tempval, sumpix, newpix, background, pedestal,val                                                                  : single;
@@ -1202,6 +1237,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
       try { Do some lengthy operation }
+        while stacking_paused do pause2;
         ListView1.Selected :=nil; {remove any selection}
         ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
         Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False);{scroll to selected item}
@@ -1312,7 +1348,9 @@ begin
             get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
             if ((use_manual_align) or (use_ephemeris_alignment)) then //<> use_astrometry_internal
             begin {manual alignment}
-              calculate_manual_vector(c);//includes memo2_message with solution vector
+              calculate_manual_vector(referenceX,referenceY,strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]),
+                                                             strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]));
+
               solutions[c].solution_vectorX:= solution_vectorX;{store solutions}
               solutions[c].solution_vectorY:= solution_vectorY;
             end;
@@ -1374,6 +1412,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
         try { Do some lengthy operation }
+          while stacking_paused do pause2;
           ListView1.Selected :=nil; {remove any selection}
           ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
           Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False); {scroll to selected item}
@@ -1459,6 +1498,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
         try { Do some lengthy operation }
+          while stacking_paused do pause2;
           ListView1.Selected :=nil; {remove any selection}
           ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
           Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False);{scroll to selected item}
@@ -1571,9 +1611,8 @@ type
    end;
 var
     solutions      : array of tsolution;
-    fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col, old_naxis3,
-    height_maxS,width_maxS                                                                                   : integer;
-    value,weightF,hfd_min,aa,bb,cc,dd,ee,ff,delta_JD_required,target_background, JD_reference, hfd_measured  : double;
+    fitsX,fitsY,c,width_max, height_max, old_width, old_height,x_new,y_new,col, old_naxis3,  height_maxS,width_maxS                   : integer;
+    value,weightF,hfd_min,aa,bb,cc,dd,ee,ff,delta_JD_required,target_background, JD_reference, hfd_measured,referenceX, referenceY    : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip   : boolean;
     jd_fraction                                                                        : single;
     background_correction : array[0..2] of single;
@@ -1604,6 +1643,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
       try { Do some lengthy operation }
+        while stacking_paused do pause2;
         ListView1.Selected :=nil; {remove any selection}
         ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
         Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False);{scroll to selected item}
@@ -1683,7 +1723,9 @@ begin
         solution:=true;
 
         if init=true then {second image}
-          calculate_manual_vector(c)//includes memo2_message with solution vector
+          calculate_manual_vector(referenceX,referenceY,strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]),
+                                                         strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]))
+
 
 
         else
@@ -1780,6 +1822,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
         try { Do some lengthy operation }
+          while stacking_paused do pause2;
           ListView1.Selected :=nil; {remove any selection}
           ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
           Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False);{scroll to selected item}
@@ -1834,7 +1877,8 @@ begin
               end
               else
               begin
-                calculate_manual_vector(c);
+                calculate_manual_vector(referenceX,referenceY,strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]),
+                                                               strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]));
               end;
             end
             else
@@ -1918,7 +1962,7 @@ end;   {comet and stars sharp}
 procedure calibration_and_alignment(process_as_osc :integer; var files_to_process : array of TfileToDo; out counter : integer); {calibration_and_alignment only}
 var
     fitsX,fitsY,c, old_width, old_height,col, binning, max_stars,old_naxis3,height_average,width_average,ccc  : integer;
-    background, hfd_min,pedestal,mean_hfd,value                                                           : double;
+    background, hfd_min,pedestal,mean_hfd,value, referenceX, referenceY                                       : double;
     init, solution,use_manual_align,use_ephemeris_alignment, use_astrometry_internal,use_sip,use_star_alignment: boolean;
     warning             : string;
     starlist1,starlist2 : Tstar_list;
@@ -1948,6 +1992,7 @@ begin
       if length(files_to_process[c].name)>0 then
       begin
       try { Do some lengthy operation }
+        while stacking_paused do pause2;
         ListView1.Selected :=nil; {remove any selection}
         ListView1.ItemIndex := files_to_process[c].listviewindex;{show wich file is processed}
         Listview1.Items[files_to_process[c].listviewindex].MakeVisible(False);{scroll to selected item}
@@ -2054,7 +2099,8 @@ begin
             get_background(0,img_loaded,head,true,false);//get background. For internal alignment this is calculated in bin_and_find_stars
             if ((use_manual_align) or (use_ephemeris_alignment)) then
             begin {manual alignment}
-              calculate_manual_vector(c);//includes memo2_message with solution vector
+              calculate_manual_vector(referenceX,referenceY,strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_X]),
+                                                             strtofloat2(ListView1.Items.item[files_to_process[c].listviewindex].subitems.Strings[L_Y]));
             end;
           end
         end;
@@ -2064,15 +2110,11 @@ begin
 
         if solution then
         begin
-//          if use_astrometry_internal then
-//            sincos(head.dec0,SIN_dec0,COS_dec0); {do this in advance since it is for each pixel the same}
           if use_astrometry_internal then
             astrometric_to_vector(head_ref,head);{convert 1th order astrometric solution to vector solution}
 
           inc(counter);
           background:=head.backgr;//calculated in bin_find_stars
-
-
 
           for fitsY:=0 to height_average-1 do
             for fitsX:=0 to width_average-1 do

@@ -1,5 +1,5 @@
 unit astap_main;
-{Copyright (C) 2017, 2026 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017-2026 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -9,7 +9,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 
 {Notes on MacOS pkg making:
    1) Modify app in applications via "show contents", add updated files.
-   2) Add the app in program packages
+   2) Add the app in program Packages
    3) Build package. Will produce PKG file containing the app.
 
    Compiler settings for macOS:
@@ -48,16 +48,16 @@ https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/41800
 
 interface
 uses
- {$ifdef mswindows}
+  {$ifdef mswindows}
   Windows,
   Classes, Controls, Dialogs,StdCtrls, ExtCtrls, ComCtrls, Menus,
   windirs,{for directories from Windows}
- {$else} {unix}
+  {$else} {unix}
   LCLType, {for vk_...}
   Unix,  {for console}
   Classes, Controls, Dialogs,StdCtrls, ExtCtrls, ComCtrls, Menus,process,
   BaseUnix, {for fpchmod}
- {$endif}
+  {$endif}
   LCLIntf,{for selectobject, openURL}
   LCLProc,
   FPImage,
@@ -72,7 +72,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2026.01.06a';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2026.02.09';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -1478,7 +1478,7 @@ begin
             end;
           end
           else
-          if ((header[i+2]='-') and (header[i+3]='A') and (header[i+4]='G')) then //JD_AVG
+          if ((header[i+2]='-') and (header[i+3]='A') and (header[i+4]='G')) then //JD-AVG
           begin
          //   if head.date_avg='' then {DATE-AVG overrules any JD value}
             begin
@@ -4099,6 +4099,9 @@ begin {set form keypreview:=on}
    if key=#27 then
    begin
      esc_pressed:=true;
+     stacking_paused:=false;
+     stacking_running:=false;
+
      memo2_message('ESC pressed. Stopped processing.');
 
      if copy_paste then
@@ -12599,12 +12602,26 @@ end;
 
 
 procedure Tmainform1.DisplayHint(Sender: TObject);
+var
+  hintStr: string;
 begin
-  if ((length(GetlongHint(Application.Hint))>0)) then
+  hintStr := GetLongHint(Application.Hint);
+  if length(hintstr)>0 then
   begin
-     //  mainform1.Caption:=GetlongHint(Application.Hint);
-    statusbar1.SimplePanel:=true;
-    statusbar1.Simpletext:=GetlongHint(Application.Hint);
+    if (Copy(hintStr, 1, 1) = '#') then
+    begin
+      if Assigned(Screen.ActiveForm) and (Screen.ActiveForm is Tstackmenu1) then
+      begin
+        Screen.ActiveForm.Caption := Copy(hintStr, 2, 999);
+        Exit; // Don't show in statusbar
+      end;
+    end
+    else
+    begin
+      statusbar1.SimplePanel:=true;
+      statusbar1.Simpletext:=hintStr;
+      stackmenu1.Caption:='Stack menu'; // Or empty string, or default
+    end;
   end
   else
   statusbar1.SimplePanel:=false;
@@ -12750,7 +12767,7 @@ var
   count1,x1,y1,x2,y2,pos1,charnr,i : integer;
   typ     : double;
   List: TStrings;
-  annotation,magn,dummy : string;
+  annotation,magn : string;
 begin
   if head.naxis=0 then exit; {file loaded?}
 
@@ -12790,7 +12807,6 @@ begin
           for i:=0 to high(fshapes) do
           if ((Fshapes[i].shape<>nil) and ( abs(fshapes[i].fitsX-(x1+x2)/2) <30) and (abs(fshapes[i].fitsY-(y1+y2)/2)<30)) then
           begin
-//            var_lock:=list[5];
             mainform1.fshapes[i].shape.HINT:=list[5];
             memo2_message('Locked on object: '+list[5]);
           end;
@@ -12814,7 +12830,7 @@ begin
               pos1:=posex('\u',annotation,pos1);
               if pos1>0 then
               begin
-                  dummy:=copy(annotation,pos1+2,4);
+                  //dummy:=copy(annotation,pos1+2,4);
                   charnr:=hex2dec(copy(annotation,pos1+2,4));
                   delete(annotation,pos1,6);
                   insert(widechar(charnr),annotation,pos1);
@@ -14254,7 +14270,7 @@ end;
 
 
 procedure crop_image(x1,y1,x2,y2 {array coordinates,[0..]} : integer; var img : timage_array;var head : theader; const memo : tstrings);
-var fitsX,fitsY,col,dum, formalism      : integer;
+var fitsX,fitsY,col, formalism      : integer;
     fxc,fyc, ra_c,dec_c, ra_n,dec_n,ra_m, dec_m, delta_ra   : double;
     img_temp : Timage_array;
 begin
@@ -15325,7 +15341,6 @@ begin
     x1:=(stopX+startX) div 2;
     y1:=(stopY+startY) div 2;
     url:='http://simbad.u-strasbg.fr/simbad/sim-sam?submit=submit+query&maxObject=1000&Criteria=(maintype!=*)'+'%26+region(box,'+ra8+sgn+dec8+',+'+floattostr4(ang_w)+'s+'+floattostr4(ang_h)+'s)&OutputMode=LIST&output.format=ASCII';
-//    http://simbad.u-strasbg.fr/simbad/sim-sam?submit=submit+query&maxObject=1000&Criteria=(Vmag<15+|+Bmag<15+)%26+region(box,60.2175d%2B25.5763d,+32.3592m+38.5229m)&OutputMode=LIST&output.format=ASCII'
     plot_simbad(get_http(url));
     Screen.Cursor:=crDefault;
     exit;
@@ -15340,7 +15355,6 @@ begin
     x1:=(stopX+startX) div 2;
     y1:=(stopY+startY) div 2;
     url:='http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=RA_ICRS,DE_ICRS,Gmag,BPmag,RPmag&-c='+ra8+sgn+dec8+window_size+'&-out.max=10000&Gmag=<'+trim(annotation_magn);
-//    url:='http://vizier.u-strasbg.fr/viz-bin/asu-txt?-source=I/355/Gaiadr3&-out=RA_ICRS,DE_ICRS,Gmag,BPmag,RPmag&-c='+ra8+sgn+dec8+'&-c.bs=533.293551/368.996043&-out.max=1000&Gmag=%3C23
     plot_vizier(get_http(url),magn_type);
     Screen.Cursor:=crDefault;
     exit;
@@ -15777,7 +15791,7 @@ begin
       if distance_top_value<distance_histogram[r_aperture] then distance_top_value:=distance_histogram[r_aperture]; {this should be 2*pi*r_aperture if it is nice defocused star disk}
     until ( (r_aperture>=rs) or (HistStart and (distance_histogram[r_aperture]<=0.1*distance_top_value {drop-off detection})));{find a distance where there is no pixel illuminated, so the border of the star image of interest}
     if r_aperture>=rs then
-        exit; {star is equal or larger then box, abort}
+      exit; {star is equal or larger then box, abort}
 
     if (r_aperture>2)and(illuminated_pixels<0.35*sqr(r_aperture+r_aperture-2)){35% surface} then
        exit;  {not a star disk but stars, abort with hfd 999}

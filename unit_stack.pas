@@ -1,6 +1,6 @@
 unit unit_stack;
 
-{Copyright (C) 2017, 2023 by Han Kleijn, www.hnsky.org
+{Copyright (C) 2017-2026 by Han Kleijn, www.hnsky.org
  email: han.k.. at...hnsky.org
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -141,7 +141,6 @@ type
     artificial_image_gradient1: TCheckBox;
     auto_background1: TCheckBox;
     auto_background_level1: TButton;
-    auto_rotate1: TCheckBox;
     bayer_pattern1: TComboBox;
     bb1: TEdit;
     bg1: TEdit;
@@ -776,6 +775,8 @@ type
     procedure apply_unsharp_mask1Click(Sender: TObject);
     procedure classify_dark_temperature1Change(Sender: TObject);
     procedure contour_gaussian1Change(Sender: TObject);
+    procedure lightsContextPopup(Sender: TObject; MousePos: TPoint;
+      var Handled: Boolean);
     procedure set_saturation1Change(Sender: TObject);
     procedure listview7ItemChecked(Sender: TObject; Item: TListItem);
     procedure list_to_clipboard_swapped_7Click(Sender: TObject);
@@ -1024,8 +1025,6 @@ type
 
   public
     { Public declarations }
-    procedure DisplayHint(Sender: TObject);//for popup menu hints
-
   end;
 
 var
@@ -1082,7 +1081,6 @@ var
   exposureR2, exposureG2, exposureB2,
   exposureRGB, exposureL: integer;
   sum_exp, sum_temp : double;
-  referenceX, referenceY: double;{reference position used stacking}
   jd_mid: double;{julian day of mid head.exposure}
   jd_mid_reference :double; { julian day of mid head.exposure for reference image}
   jd_sum,airmass_sum: double;{sum of julian days}
@@ -1125,6 +1123,9 @@ var  {################# initialised variables #########################}
   groupsizeStr : string='';
   images_checked: integer=0;
   dark_norm_value: double=0;
+  stacking_running : boolean=false;
+  stacking_paused : boolean=false;
+
 
 
 const
@@ -1168,6 +1169,9 @@ procedure analyse_listview(lv: tlistview; light, full, refresh: boolean);{analys
 function julian_calc(yyyy, mm: integer; dd, hours, minutes, seconds: double): double;{##### calculate julian day, revised 2017}
 function RemoveSpecialChars(const STR: string): string; {remove ['.','\','/','*','"',':','|','<','>']}
 function calc_saturation_level(head :theader) : double;//calculate saturation level image
+function get_annotation_position(const memo : tstrings; out x,y : double) : boolean;//find the position of the specified asteroid annotation
+function standardise_filter_name(inp :string): string;//standardise filter name
+
 
 const
   L_object = 0; {lights, position in listview1}
@@ -1568,11 +1572,11 @@ end;
 function count_checked(lv : tlistview) : integer;
 {report the number of lights selected in images_selected and update menu indication}
 var
-  c: integer;
+  item: TListItem;
 begin
   result:=0;
-  for c:=0 to lv.items.Count - 1 do
-    if lv.Items[c].Checked then Inc(result, 1);
+  for item in lv.items do
+    if Item.Checked then Inc(result, 1);
   stackmenu1.nr_selected1.Caption:=IntToStr(result);{update menu info}
 
   {temporary fix for CustomDraw not called}
@@ -1599,7 +1603,9 @@ begin
       c:=0;
       quality_mean:=0;
       nr_good_images:=0;
-      repeat
+
+      for c := 0 to counts do
+      begin
         if ((ListView1.Items.item[c].Checked) and
           (key = ListView1.Items.item[c].subitems.Strings[L_result])) then
         begin {checked}
@@ -1610,7 +1616,6 @@ begin
             quality:=StrToInt(ListView1.Items.item[c].subitems.Strings[L_quality]);
             quality_mean:=quality_mean + quality;
             Inc(nr_good_images);
-
             if quality > best then
             begin
               best:=quality;
@@ -1618,25 +1623,25 @@ begin
             end;
           end;
         end;
-        Inc(c); {go to next file}
-      until c > counts;
+      end;
+
       if nr_good_images > 0 then quality_mean:=quality_mean / nr_good_images
       else
         exit; //quality_mean:=0;
 
       {calculate standard deviations}
       begin
-        c:=0;
         quality_sd:=0;
-        repeat {check all files, remove darks, bias}
+        for c := 0 to counts do
+        begin {check all files, remove darks, bias}
           if ((ListView1.Items.item[c].Checked) and
             (key = ListView1.Items.item[c].subitems.Strings[L_result])) then
           begin {checked}
             quality:=StrToInt(ListView1.Items.item[c].subitems.Strings[L_quality]);
             quality_sd:=quality_sd + sqr(quality_mean - quality);
           end;
-          Inc(c); {go to next file}
-        until c > counts;
+        end;
+
         quality_sd:=sqrt(quality_sd / nr_good_images);
         memo2_message('Analysing group ' + key + ' for outliers.' + #9 +
           #9 + ' Average image quality (nrstars/sqr(hfd*binning))=' + floattostrF(quality_mean, ffFixed, 0, 0) +
@@ -1652,14 +1657,14 @@ begin
         end
         else
           sd_factor:=strtofloat2(sd);
-        c:=0;
-        repeat
+
+        for c := 0 to counts do
+        begin
           if ((ListView1.Items.item[c].Checked) and
             (key = ListView1.Items.item[c].subitems.Strings[L_result])) then
           begin {checked}
             ListView1.Items.item[c].subitems.Strings[L_result]:='';{remove key, job done}
             quality:=StrToInt(ListView1.Items.item[c].subitems.Strings[L_quality]);
-
             if (quality_mean - quality) > sd_factor * quality_sd then
             begin {remove low quality outliers}
               ListView1.Items.item[c].Checked:=False;
@@ -1668,8 +1673,7 @@ begin
               memo2_message(ListView1.Items.item[c].Caption + ' unchecked due to low quality = nr stars detected / hfd.');
             end;
           end;
-          Inc(c); {go to next file}
-        until c > counts;
+        end;
       end;{throw outliers out}
 
       if best <> 0 then
@@ -1680,6 +1684,7 @@ begin
     end;
   end;{with stackmenu1}
 end;
+
 
 procedure analyse_image(img: Timage_array; var head: Theader; snr_min: double; report_type: integer{; out star_counter: integer; out bck:Tbackground; out hfd_median: double});//find background, number of stars, median HFD
 var
@@ -2074,30 +2079,26 @@ end;
 
 
 
-procedure get_annotation_position(c:integer; const memo : tstrings);
-{find the position of the specified asteroid annotation}
+function get_annotation_position(const memo : tstrings; out x,y : double) : boolean;//find the position of the specified asteroid annotation
 var
   count1: integer;
   x1, y1, x2, y2: double;
   Name,dummy: string;
   List: TStrings;
 begin
+  result:=false;
   List:=TStringList.Create;
   list.StrictDelimiter:=True;
   Name:=stackmenu1.ephemeris_centering1.Text;{asteroid to center on}
-  count1:=memo.Count - 1;
   try
-    while count1 >= 0 do {plot annotations}
+    for count1 := memo.Count - 1 downto 0 do {plot annotations}
     begin
-
       if copy(memo[count1], 1, 8) = 'ANNOTATE' then {found}
       begin
         dummy:=memo[count1];
-
         List.Clear;
         ExtractStrings([';'], [],
           PChar(copy(memo[count1], 12, 80 - 12)), List);
-
         if list.Count >= 6 then {correct annotation}
         begin
           if list[5] = Name then {correct name}
@@ -2106,11 +2107,13 @@ begin
             y1:=strtofloat2(list[1]);
             x2:=strtofloat2(list[2]);
             y2:=strtofloat2(list[3]);
-            listview_add_xy(c,(x1 + x2) / 2, (y1 + y2) / 2); {add center annotation to x,y for stacking}
+            x:=(x1 + x2) / 2;
+            y:=(y1 + y2) / 2;
+            result:=true;
+            break;//found and leave
           end;
         end;
       end;
-      count1:=count1 - 1;
     end;
   finally
     List.Free;
@@ -2196,12 +2199,11 @@ end;
 procedure analyse_tab_lights(analyse_level : integer);
 var
   c,  i, counts,binning                     : integer;
-  alt, az                                   : double;
+  alt, az,x,y                               : double;
   red, green, blue, planetary               : boolean;
   key, filename1, rawstr      : string;
   img,img_binned              : Timage_array;
   headx                       : theader;
-
 begin
   with stackmenu1 do
   begin
@@ -2211,21 +2213,16 @@ begin
       memo2_message('Abort, no images to analyse! Browse for images, darks and flats. They will be sorted automatically.');
       exit;
     end;
-
     Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
     esc_pressed:=False;
-
     if ((process_as_osc=2) and (make_osc_color1.Checked=false)) then process_as_osc:=0
     else
     if ((process_as_osc=0) and (make_osc_color1.Checked)) then process_as_osc:=2;
     //else it is set automatically below during analysing.
-
     if classify_filter_light1.checked then  process_as_osc:=0;
-
     jd_sum:= 0;{for sigma clip advanced average}
     airmass_sum:=0;
     planetary:= planetary_image1.Checked;
-
     if analyse_level=2 then
     begin
       listview1.columns[9].caption:='Streaks';
@@ -2238,24 +2235,20 @@ begin
       else
       listview1.columns[9].caption:='-';
     end;
-
     red:=False;
     green:=False;
     blue:=False;
-
     Listview1.Selected:=nil; {remove any selection}
-    c:=0;
+
     {convert any non FITS file}
-    while c <= counts {check all} do
+    for c := 0 to counts do {check all}
     begin
       if ListView1.Items.item[c].Checked then
       begin
         filename1:=ListView1.items[c].Caption;
-
         if fits_tiff_file_name(filename1) = False  {fits or tiff file name?} then
         begin
           memo2_message('Converting ' + filename1 + ' to FITS file format');
-
           ListView1.ItemIndex:=c;  // mark where we are, set in object inspector    Listview1.HideSelection:=false; Listview1.Rowselect:=true
           Listview1.Items[c].MakeVisible(False);{scroll to selected item}
           Application.ProcessMessages;
@@ -2264,6 +2257,7 @@ begin
             screen.Cursor:=crDefault;    { back to normal }
             exit;
           end;
+          while stacking_paused do pause2;
           if convert_to_fits(filename1) {convert to fits} then
             ListView1.items[c].Caption:=filename1 {change listview name to FITS.}
           else
@@ -2273,8 +2267,8 @@ begin
           end;
         end;
       end;{checked}
-      Inc(c);
     end;
+
     c:=0;
     repeat {check for double entries}
       i:=c + 1;
@@ -2293,12 +2287,9 @@ begin
       Inc(c);
     until c > counts;
 
-//    if use_ephemeris_alignment1.Checked then
-//      header_2:=tstringlist.create;
-
     counts:=ListView1.items.Count - 1;
     c:=0;
-    repeat {check all files, remove darks, bias}
+    repeat {check all files, remove darks, bias. Repeat because of Delete operations}
       if ((ListView1.Items.item[c].Checked) and
       (
       (analyse_level=1) or  (length(ListView1.Items.item[c].subitems.Strings[L_hfd]) = 0){hfd empthy}) or
@@ -2306,12 +2297,10 @@ begin
        (new_analyse_required))
        then
       begin {checked}
-
         if counts <> 0 then progress_indicator(0.1 * c / counts, ' Analysing');
         Listview1.Selected:=nil; {remove any selection}
         ListView1.ItemIndex:=c;  // mark where we are, set in object inspector    Listview1.HideSelection:=false; Listview1.Rowselect:=true
         Listview1.Items[c].MakeVisible(False);{scroll to selected item}
-
         filename2:=ListView1.items[c].Caption;
         Application.ProcessMessages;
         if esc_pressed then
@@ -2319,8 +2308,8 @@ begin
           screen.Cursor:=crDefault;    { back to normal }
           exit;
         end;
-
-
+        while stacking_paused do
+          pause2;
         if load_fits(filename2, True { update headx.ra0..}, analyse_level<>0, use_ephemeris_alignment1.Checked  {update memo}, 0,memox, headx, img) = False then {load in memory. Use headx to protect head against overwriting head}
         begin {failed to load}
           ListView1.Items.item[c].Checked:=False;
@@ -2381,13 +2370,11 @@ begin
               headx.star_level:= 0;
               headx.hfd_median:=-1;
             end;
-
             ListView1.Items.BeginUpdate;
             try
               begin
                 ListView1.Items.item[c].subitems.Strings[L_object]:=object_name; {object name, without spaces}
                 ListView1.Items.item[c].subitems.Strings[L_filter]:=headx.filter_name; {filter name, without spaces}
-
                 if headx.naxis3 >= 3 then
                 begin
                   ListView1.Items.item[c].subitems.Strings[L_filter]:='colour';
@@ -2398,14 +2385,9 @@ begin
                   ListView1.Items.item[c].SubitemImages[L_filter] :=25  //raw OSC file
                 else
                   ListView1.Items.item[c].SubitemImages[L_filter] :=get_filter_icon(headx.filter_name,{out} red,green, blue);
-
-
-                ListView1.Items.item[c].subitems.Strings[L_bin]:=floattostrf(headx.Xbinning, ffgeneral, 0, 0) + ' x ' + floattostrf( headx.Ybinning, ffgeneral, 0, 0);
-                {Binning CCD}
-
+                ListView1.Items.item[c].subitems.Strings[L_bin]:=floattostrf(headx.Xbinning, ffgeneral, 0, 0) + ' x ' + floattostrf( headx.Ybinning, ffgeneral, 0, 0); {Binning CCD}
                 ListView1.Items.item[c].subitems.Strings[L_hfd]:= floattostrF(headX.hfd_median, ffFixed, 0, 1);
                 ListView1.Items.item[c].subitems.Strings[L_quality]:= inttostr5(round(headx.hfd_counter / sqr(headX.hfd_median*headx.Xbinning))); {quality number of stars divided by hfd, binning neutral}
-
                 if headX.hfd_median >= 99 then
                   ListView1.Items.item[c].Checked:=False {no stars, can't process this image}
                 else
@@ -2413,12 +2395,10 @@ begin
                   ListView1.Items.item[c].subitems.Strings[L_nrstars]:= inttostr5(round(headx.hfd_counter));//nr of stars
                   ListView1.Items.item[c].subitems.Strings[L_background]:=inttostr5(round(headx.backgr));
                   if headx.backgr<0 then ListView1.Items.item[c].SubitemImages[L_background]:=icon_exclamation else ListView1.Items.item[c].SubitemImages[L_background]:=-1;
-
                   if planetary then ListView1.Items.item[c].subitems.Strings[L_streaks] :=floattostrF(image_sharpness(img), ffFixed, 0, 3)  {sharpness test}
                   else
                   if analyse_level>1 then
                   begin
-
                     contour(false,img, headx,strtofloat2(contour_gaussian1.text),strtofloat2(contour_sigma1.text));//find contour and satellite lines in an image
                     if nr_streak_lines>0 then
                       ListView1.Items.item[c].subitems.Strings[L_streaks]:=inttostr(nr_streak_lines)
@@ -2428,17 +2408,13 @@ begin
                   else
                   ListView1.Items.item[c].subitems.Strings[L_streaks]:='';
                 end;
-
                 if headx.exposure >= 10 then
-                  ListView1.Items.item[c].subitems.Strings[L_exposure]:=IntToStr(round(headx.exposure))
-                {round values above 10 seconds}
+                  ListView1.Items.item[c].subitems.Strings[L_exposure]:=IntToStr(round(headx.exposure)) {round values above 10 seconds}
                 else
                   ListView1.Items.item[c].subitems.Strings[L_exposure]:=floattostrf(headx.exposure, ffgeneral, 6, 0);
-
                 if headx.set_temperature <> 999 then ListView1.Items.item[c].subitems.Strings[L_temperature]:= IntToStr(headx.set_temperature);
                 ListView1.Items.item[c].subitems.Strings[L_width]:=IntToStr(headx.Width); {width}
                 ListView1.Items.item[c].subitems.Strings[L_height]:=IntToStr(headx.Height);{height}
-
                 if raw_box1.enabled=false then  process_as_osc:=0 //classify_filter_light1 is checked
                 else
                 if stackmenu1.make_osc_color1.Checked then process_as_osc:= 2//forced process as OSC images
@@ -2447,41 +2423,31 @@ begin
                   process_as_osc:=1
                 else
                   process_as_osc:=0;//disable demosaicing
-
                 if ((headx.naxis3 = 1) and (headx.Xbinning = 1) and (bayerpat <> '')) then rawstr:=' raw' else rawstr:= '';
-
                 ListView1.Items.item[c].subitems.Strings[L_type]:= copy(imagetype, 1, 5) + IntToStr(headx.nrbits) + rawstr;{type}
-
                 if headx.date_obs<>'' then
                   ListView1.Items.item[c].subitems.Strings[L_datetime]:=copy(StringReplace(headx.date_obs, 'T', ' ', []), 1, 23) {date/time up to ms}
                 else
                   ListView1.Items.item[c].subitems.Strings[L_datetime]:=copy(StringReplace(headx.date_avg, 'T', ' ', []), 1, 23);{date/time up to ms}
+                ListView1.Items.item[c].subitems.Strings[L_position]:=prepare_ra5(headx.ra0, ': ') + ', ' + prepare_dec4(headx.dec0, '° '); {give internal position}
 
-                ListView1.Items.item[c].subitems.Strings[L_position]:=prepare_ra5(headx.ra0, ': ') + ', ' + prepare_dec4(headx.dec0, '° ');
-                {give internal position}
-
-                {is internal solution available?}
-                if A_ORDER>0 then
+                if A_ORDER>0 then {is internal solution available?}
                   stackmenu1.ListView1.Items.item[c].subitems.Strings[L_solution]:='✓✓'
                 else
                 if headx.cd1_1 <> 0 then
                   ListView1.Items.item[c].subitems.Strings[L_solution]:='✓'
                 else
                   ListView1.Items.item[c].subitems.Strings[L_solution]:='-';
-
-                ListView1.Items.item[c].subitems.Strings[L_calibration]:=headx.calstat;
-                {status calibration}
+                ListView1.Items.item[c].subitems.Strings[L_calibration]:=headx.calstat; {status calibration}
                 if focus_pos <> 0 then
                   ListView1.Items.item[c].subitems.Strings[L_focpos]:= IntToStr(focus_pos);
                 if focus_temp <> 999 then
                   ListView1.Items.item[c].subitems.Strings[L_foctemp]:=floattostrF(focus_temp, ffFixed, 0, 1);
-
                 if headx.egain<>'' then
                   ListView1.Items.item[c].subitems.Strings[L_gain]:=headx.egain {e-/adu}
                 else
                 if headx.gain<>'' then
                   ListView1.Items.item[c].subitems.Strings[L_gain]:=headx.gain;
-
                 if centalt = '' then
                 begin
                   calculate_az_alt(0 {try to use header values}, headx,{out}az, alt);
@@ -2491,11 +2457,8 @@ begin
                     centaz :=floattostrf(az, ffgeneral, 3, 0); {azimuth}
                   end;
                 end;
-
                 ListView1.Items.item[c].subitems.Strings[L_centalt]:=centalt;
                 ListView1.Items.item[c].subitems.Strings[L_centaz]:=centaz;
-
-
                 if SQM_key='FOV     ' then
                 begin
                   if headx.cdelt2<>0 then
@@ -2506,9 +2469,11 @@ begin
                 end
                 else
                 ListView1.Items.item[c].subitems.Strings[L_sqm]:=sqm_value;
-
                 if use_ephemeris_alignment1.Checked then {ephemeride based stacking}
-                  get_annotation_position(c,memox);{fill the x,y with annotation position}
+                begin
+                  if  get_annotation_position(memox,{out}x,y) then {get the x,y of the annotation position}
+                     listview_add_xy(c,x,y); {add center annotation to x,y for stacking}
+                end;
               end;
             finally
               ListView1.Items.EndUpdate;
@@ -2521,11 +2486,11 @@ begin
 
     if ((green) and (blue) and (classify_filter_light1.Checked = False)) then
       memo2_message( '■■■■■■■■■■■■■ Hint, colour filters detected in light. For colour stack set the check-mark classify by Image filter! ■■■■■■■■■■■■■');
-
     if (stackmenu1.uncheck_outliers1.Checked) then
     begin
       {give list an indentification key label based on object, filter and headx.exposure time}
-      for c:=0 to ListView1.items.Count - 1 do
+      counts := ListView1.items.Count - 1;
+      for c := 0 to counts do
       begin
         if ListView1.Items.item[c].SubitemImages[L_quality] = icon_thumb_down then  {marked at outlier}
         begin
@@ -2559,9 +2524,7 @@ begin
         until c > counts;
       until key = '';{until all keys are used}
     end;
-
-    images_checked:=count_checked(stackmenu1.listview1);
-    {report the number of lights selected in images_selected and update menu indication}
+    images_checked:=count_checked(stackmenu1.listview1); {report the number of lights selected in images_selected and update menu indication}
     new_analyse_required:=False; {back to normal, headx.filter_name is not changed, so no re-analyse required}
     screen.Cursor:=crDefault;    { back to normal }
     progress_indicator(-100, '');{progresss done}
@@ -2935,17 +2898,6 @@ begin
 end;
 
 
-procedure Tstackmenu1.displayhint(Sender: TObject);
-var
-  hintstr: string;
-begin
-   hintStr:=application.hint;    // Set the form's caption to the hint string
-   if ((length(hintstr)>0) and (copy(hintstr,1,1)='#')) then //# A marker indicating this is coming from a popupmenu. Enter this # at every hint
-      self.Caption:=copy(hintstr,2,999)
-    else
-      self.Caption:='Stack menu'; // Or empty string, or default
-end;
-
 procedure Tstackmenu1.FormCreate(Sender: TObject);
 var
   RealFontSize: integer;
@@ -2962,8 +2914,6 @@ begin
   {$IfDef Darwin}// for MacOS
   if commandline_execution=false then update_stackmenu_mac;
   {$endif}
-
-  Application.OnHint:=DisplayHint;
 end;
 
 procedure Tstackmenu1.FormKeyPress(Sender: TObject; var Key: char);
@@ -2971,6 +2921,8 @@ begin
   if key = #27 then
   begin
     esc_pressed:=True;
+    stacking_paused:=false;
+    stacking_running:=false;
     memo2_message('ESC pressed. Execution stopped.');
   end;
 
@@ -3874,6 +3826,8 @@ begin
           update_text(mainform1.memo1.lines,keyw + '=', #39 + new_date + #39);//new date
           update_text(mainform1.memo1.lines,keywOldTime+'=', #39 + head.date_obs + #39+'/ Backup of previous DATE-OBS'); //backup date in unused keyword
           memo2_message('Old date is stored in '+keywOldTime+'. To recover delete keyword DATE-OBS and rename '+keywOldTime+' to DATE-OBS.');
+          remove_key(mainform1.memo1.lines,'JD      =',false{all});//remove
+          remove_key(mainform1.memo1.lines,'JD-AVG  =',false{all});//remove
 
           if tl = stackmenu1.listview1 then
             tl.Items.item[index].subitems.Strings[L_datetime]:=new_date;{update light}
@@ -4130,15 +4084,15 @@ begin
 end;
 
 
-procedure listview_unselect(tl: tlistview);
+procedure listview_unselect(tl: TListView);
 var
-  index: integer;
+  item: TListItem;
 begin
   tl.Items.BeginUpdate;
-  for index:=0 to tl.Items.Count - 1 do
+  for item in tl.Items do
   begin
-    if tl.Items[index].Selected then
-      tl.Items[index].Checked:=False;
+    if item.Selected then
+      item.Checked := False;
   end;
   tl.Items.EndUpdate;
 end;
@@ -4236,6 +4190,16 @@ begin
   else
     Compare:=CompareAnything(Item1.SubItems[SortedColumn - 1], Item2.SubItems[SortedColumn - 1]);
 
+
+  if compare=0 then // Secondary sort on date
+  begin
+    if tlistview(sender)=listview7 then
+       compare := CompareText(Item1.SubItems[P_jd_mid], Item2.SubItems[P_jd_mid]) //sort listview7 secondary always on date. Use jd_mid for stacks and not star date. Especially for sort on filter
+    else
+    if tlistview(sender)=listview1 then
+       compare := CompareText(Item1.SubItems[L_datetime], Item2.SubItems[L_datetime]);//sort listview1 secondary always on date
+  end;
+
   if TListView(Sender).SortDirection = sdDescending then  Compare:=-Compare;
 end;
 
@@ -4300,13 +4264,43 @@ begin
 end;
 
 
+function standardise_filter_name(inp :string): string;//standardise filter name.
+begin
+  inp:=uppercase(inp);
+  if ((pos('S',inp)>0) or (pos('P',inp)>0)) then //Sloan SG,SR, SI   or Sloan Las Cumbres observatory (GP, RP, IP}
+  begin
+    if pos('G',inp)>0  then  result:='SG'
+    else
+    if pos('R',inp)>0  then  result:='SR'
+    else
+    if pos('I',inp)>0  then  result:='SI'
+    else
+    result:='BP';//unknown
+  end
+  else
+  begin
+    if ((length(inp)=0) or (pos('CV',inp)>0)) then result:='BP'  //Johnson-V, online
+    else
+    if pos('V',inp)>0 then result:='V'
+    else
+    if pos('G',inp)>0 then result:='V' //V, TG, Green
+    else
+    if pos('B',inp)>0  then result:='B' //B, TB, Blue
+    else
+    if pos('R',inp)>0 then result:='R'
+    else
+    if pos('I',inp)>0 then result:='I'
+    else
+    result:='BP';
+  end;
+end;
 
-procedure analyse_listview(lv: tlistview; light, full, refresh: boolean);
-{analyse list of FITS files}
+
+procedure analyse_listview(lv: tlistview; light, full, refresh: boolean); {analyse list of FITS files}
 var
   c, counts, i, iterations, hfd_counter, tabnr: integer;
   hfd_median2, hjd, sd, dummy, alt, az, ra_jnow, dec_jnow, ra_mount_jnow,  dec_mount_jnow, ram, decm, adu_e :double;
-  filename1,filterstr,filterstrUP  : string;
+  filename1,filterstrUP,standarised_filter_name  : string;
   loaded, red, green, blue         : boolean;
   img: Timage_array;
   headx : theader;
@@ -4513,9 +4507,10 @@ begin
               lv.Items.item[c].subitems.Strings[P_filter]:=headx.filter_name;
 
 
-              filterstr:=headx.filter_name;// R, G or V, B or TG
-              filterstrUP:=uppercase(filterstr);
-              if ((length(filterstr)=0) or (pos('CV',filterstrUP)>0) or (pos('LUM',filterstrUP)>0))  then
+              filterstrUP:=uppercase(headx.filter_name);// R, G or V, B or TG
+              standarised_filter_name:=standardise_filter_name(filterstrUP);//standarise filter name
+
+              if ((length(filterstrUP)=0) or (pos('CV',filterstrUP)>0) or (pos('LUM',filterstrUP)>0))  then
               begin
                 if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
                   Lv.Items.item[c].SubitemImages[P_filter] :=25  //raw OSC file
@@ -4523,61 +4518,47 @@ begin
                 lv.Items.item[c].SubitemImages[P_filter]:=4 //assume CV
               end
               else
-              if ((pos('S',filterstrUP)>0) or (pos('P',filterstrUP)>0)) then //Sloan SB, SG, SI or Sloan Las Cumbres GP, RP, IP
-              begin
-                if pos('I',filterstrUP)>0  then
-                begin
-                   lv.Items.item[c].SubitemImages[P_filter]:=21; //SDSS-i
-                   all_filters.SI:=true;
-                end
-                else
-                if pos('R',filterstrUP)>0  then
-                begin
-                  lv.Items.item[c].SubitemImages[P_filter]:=22; //SDSS-r
-                  all_filters.SR:=true;
-                end
-                else
-                if pos('G',filterstrUP)>0  then
-                begin
-                  lv.Items.item[c].SubitemImages[P_filter]:=23; //SDSS-g
-                  all_filters.SG:=true;
-                end
-                else
-                lv.Items.item[c].SubitemImages[P_filter]:=-1; //unknown
-              end
-              else //Johnson-Cousins
-              if pos('V',filterstrUP)>0  then
+              if  standarised_filter_name='V'  then
               begin
                 lv.Items.item[c].SubitemImages[P_filter]:=1; //Green or G or TG
                 all_filters.V:=true;
               end
               else
-              if pos('G',filterstrUP)>0 then
-              begin
-                lv.Items.item[c].SubitemImages[P_filter]:=1; //GREEN, G, TG
-                all_filters.V:=true;
-              end
-              else
-              if pos('B',filterstrUP)>0  then
+              if  standarised_filter_name='B'  then
               begin
                 lv.Items.item[c].SubitemImages[P_filter]:=2; //BLUE, B, TB
                 all_filters.B:=true;
               end
               else
-              if pos('RED',filterstrUP)>0  then
+              if  standarised_filter_name='R'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=0; //rgb RED, INVALID
+                if length(filterstrUP)>1  then
+                   lv.Items.item[c].SubitemImages[P_filter]:=0 //rgb RED, INVALID
+                else
+                  //The official abbreviation for Cousins R is R. See https://www.aavso.org/filters
+                  lv.Items.item[c].SubitemImages[P_filter]:=24; //Cousins-red. Note Green also contains a R so first test Green
                 all_filters.R:=true;
               end
               else
-              if pos('R',filterstrUP)>0  then
+              if standarised_filter_name='SI'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=24; //Cousins-red. Note Green also contains a R so first test Green
-                all_filters.R:=true;
-
+                 lv.Items.item[c].SubitemImages[P_filter]:=21; //SDSS-i
+                 all_filters.SI:=true;
               end
-              else                                                                         //The official abbreviation for Cousins R is R. See https://www.aavso.org/filters
-              if pos('I',filterstrUP)>0 then
+              else
+              if  standarised_filter_name='SR'  then
+              begin
+                lv.Items.item[c].SubitemImages[P_filter]:=22; //SDSS-r
+                all_filters.SR:=true;
+              end
+              else
+              if  standarised_filter_name='SG'  then
+              begin
+                lv.Items.item[c].SubitemImages[P_filter]:=23; //SDSS-g
+                all_filters.SG:=true;
+              end
+              else
+              if  standarised_filter_name='I'  then
               begin
                 lv.Items.item[c].SubitemImages[P_filter]:=28; // Bessel
                 all_filters.I:=true;
@@ -5477,55 +5458,6 @@ begin
 end;
 
 
-procedure scroll_up_down(lv:tlistview; up: boolean);
-var
-  c, step,watchdog: integer;
-  checkf : boolean;
-begin
-  watchdog:=0;
-  if lv.items.Count <= 1 then exit; {no files}
-
-  if up=False then step:=-1  else   step:=1;{forward/ backwards}
-
-  c:=listview_find_selection(lv); {find the row selected}
-
-  repeat // find checked file
-    Inc(c, step);
-    if c >= lv.items.Count then c:=0;
-    if c < 0 then c:=lv.items.Count - 1;
-
-    checkf:=lv.Items.item[c].Checked;
-    if checkf then
-    begin
-      lv.Selected:=nil;//remove any selection
-      lv.ItemIndex:=c; {mark where we are. Important set in object inspector    lv.HideSelection:=false; lv.Rowselect:=true}
-      lv.Items[c].MakeVisible(False);{scroll to selected item}
-      filename2:=lv.items[c].Caption;
-      mainform1.Caption:=filename2;
-
-      {load image}
-      if load_fits(filename2, True {light}, True, True {update memo}, 0,mainform1.memo1.lines, head,img_loaded) = False then
-      begin
-        memo2_message('repeat exit');
-
-        Screen.Cursor:=crDefault;
-        exit;
-      end;
-     plot_histogram(img_loaded, True {update}); {plot histogram, set sliders}
-     plot_image(mainform1.image1, False {re_center});
-
-     {show alignment marker}
-      if (stackmenu1.use_manual_alignment1.Checked) then
-        show_shape_manual_alignment(c) {show the marker on the reference star}
-      else
-        mainform1.shape_manual_alignment1.Visible:=False;
-
-    end; //checkf=true
-    inc(watchdog);
-  until ((checkf) or (esc_pressed) or (watchdog>300));
-end;
-
-
 procedure listview_insert(var lv: tlistview; index:integer;filen : string; nrfields : integer);//insert a row
 var
   ListItem     : TListItem;
@@ -5584,8 +5516,8 @@ procedure Tstackmenu1.listview1KeyDown(Sender: TObject; var Key: word;
   Shift: TShiftState);  // for all listviexX. does not intefere with other typing
 begin
   if ((shift=[]) and (key = vk_delete) ) then listview_removeselect(TListView(Sender));
-  if key = vk_left then scroll_up_down(tlistview(sender), false);
-  if key = vk_right then scroll_up_down(tlistview(sender), true );
+//  if key = vk_left then scroll_up_down(tlistview(sender), false);
+//  if key = vk_right then scroll_up_down(tlistview(sender), true );
 end;
 
 
@@ -6355,11 +6287,12 @@ begin
   stackmenu1.ListView1Compare(stackmenu1.ListView1, Item1, Item2, ParamSort, Result);
 end;
 
+
 procedure Tstackmenu1.aavso_button1Click(Sender: TObject);
 begin
-  if ((measuring_method1.itemindex=0) and (length(mainform1.fshapes)<2)) then
+  if ((measuring_method1.itemindex=0) and (length(mainform1.fshapes)<1)) then
   begin
-    application.messagebox('First click on the three stars minimum (VAR, CHECK,COMP) of the first image. Or select mode measure all. Then press on play to measure.','Can not proceed!',0);
+    application.messagebox('No star(s) selected. Display the first image in the viewer by double click on it and then select stars in the image by clicking on them. Or select mode measure all and select later. Then press on play to measure.','Can not proceed!',0);
     exit;
   end;
 
@@ -7183,6 +7116,9 @@ var
   index, counter, oldindex, position, i: integer;
   ListItem: TListItem;
 begin
+  memo2_message('Moving images to light tab for calibration! This could take some time. If this is not desired, uncheck option "Calibrate".');
+  application.processmessages;
+
   position:=-1;
   index:=0;
   listview1.Items.beginUpdate;
@@ -7235,7 +7171,7 @@ end;
 
 procedure Tstackmenu1.photom_green1Click(Sender: TObject);
 var
-  c,nr,selcnt,progress : integer;
+  c,nr,selcnt,progress,i : integer;
   fn, ff, fnBlue, fnRed : string;
 begin
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
@@ -7276,6 +7212,7 @@ begin
           fnRed:=extract_raw_colour_to_file(ff, 'TR', 1, 1); {extract green red or blue channel}
 
           listview7.Items.beginupdate;
+
           if fnBlue<>'' then listview_add(ListView7,fnBlue,true,P_nr);
           if fnRed<>'' then listview_add(ListView7,fnRed,true,P_nr);;
           listview7.Items.endupdate;
@@ -7286,6 +7223,8 @@ begin
         if fn <> '' then
         begin
           ListView7.items[c].Caption:=fn;//replace by green channel
+          for i:=1 to P_nr-1 do
+                listView7.Items.item[c].subitems.Strings[i]:=('');//clear old values
         end;
 
         inc(progress);
@@ -7293,6 +7232,10 @@ begin
   end;
   analyse_listview(listview7, True {light}, False {full fits}, True{refresh});
   {refresh list}
+
+  SortedColumn:=P_date+1;
+  ListView7.SortDirection:=sdAscending;
+  listview7.sort;//Sort on date
 
   progress_indicator(-100,'');{back to normal}
   Screen.Cursor:=crDefault;  { Always restore to normal }
@@ -8033,7 +7976,7 @@ begin
     if found=false then
     begin
        vsp_vsx_list[i].abbr:=prepare_IAU_designation(ra2, dec2);
-       vsp_vsx_list[i].source:=3;//not is AAVSO database
+       vsp_vsx_list[i].source:=3;//not AAVSO database
     end;
   end;
   vsp_vsx_list_length:=nrstars-1;
@@ -8064,10 +8007,10 @@ var
   apert, annul,aa,bb,cc,dd,ee,ff, xn, yn, adu_e,sep,az,alt, snr_min               : double;
   saturation_level:  single;
   c, i, x_new, y_new, fitsX, fitsY, col,{first_image,}size, starX, starY,
-  database_col,j,ww                                                               : integer;
+  database_col,j,ww,measuring_method                                               : integer;
   flipvertical, fliphorizontal, refresh_solutions, analysedP, store_annotated,
   warned, success,new_object,listview_updating, reference_defined,calibratedP,
-  oscP ,none_manual                                                               : boolean;
+  oscP                                                                            : boolean;
   starlistx                                     : Tstar_list;
   astr, filename1,totalnrstr,mess               : string;
   oldra0 : double=0;
@@ -8125,9 +8068,12 @@ begin
   esc_pressed:=false;
   if listview7.items.Count <= 0 then exit; {no files}
 
-  if ((measuring_method1.itemindex=0) and (length(mainform1.fshapes)<2)) then
+  measuring_method:=measuring_method1.itemindex;
+
+  if ((measuring_method=0) and (length(mainform1.fshapes)<1)) then
   begin
-    application.messagebox('First click on the three stars minimum (VAR, CHECK, COMP) of the first image'+#10+#13+#10+#13+'Or select mode measure all and select later.','Can not proceed!',MB_OK);
+    application.messagebox('No star(s) selected. Display the first image in the viewer by double click on it and then select stars in the image by clicking on them. Or select mode measure all and select later. Then press on play to measure.','Can not proceed!',0);
+//    application.messagebox('First click on the three stars minimum (VAR, CHECK, COMP) of the first image'+#10+#13+#10+#13+'Or select mode measure all and select later.','Can not proceed!',MB_OK);
     exit;
   end;
 
@@ -8393,7 +8339,7 @@ begin
           begin
             variable_star_annotation(head, true {extract AAVSO database  to vsp_vsx_list});
 
-            if stackmenu1.measuring_method1.itemindex=2 then //add none AAVSO stars
+            if measuring_method=2 then //add none AAVSO stars
               create_all_star_list;//collect any star in the vsp_vsx_list
 
             oldra0:=head.ra0;
@@ -8408,54 +8354,50 @@ begin
 
           snr_min:=strtofloat2(snr_min_photo1.text); //only bright enough stars
 
-          none_manual:=stackmenu1.measuring_method1.itemindex>0;
 
           if vsp_vsx_list_length>0 then //measure the stars
           begin
-            for j:=0 to vsp_vsx_list_length do
+            for j:=0 to vsp_vsx_list_length-1 do //measure the vsp_vsx list
             begin
-              if ((none_manual) or (vsp_vsx_list[j].manual_match)) then //none_manual is all else only the matches with the manual marked stars
+              celestial_to_pixel(head, vsp_vsx_list[j].ra, vsp_vsx_list[j].dec,true, xn, yn);
+              if ((xn>0) and (xn<head.width-1) and (yn>0) and (yn<head.height-1)) then {within image1}
               begin
-                celestial_to_pixel(head, vsp_vsx_list[j].ra, vsp_vsx_list[j].dec,true, xn, yn);
-                if ((xn>0) and (xn<head.width-1) and (yn>0) and (yn<head.height-1)) then {within image1}
+             //   if pos('-944',vsp_vsx_list[j].abbr)>0 then
+             //   beep;
+
+                astr:=measure_star(xn, yn); //measure in the orginal image, not later when it is alligned/transformed to the reference image
+                if ((snr>=snr_min) or (measuring_method=0)) then //no SNR filter for manual
                 begin
-               //   if pos('-944',vsp_vsx_list[j].abbr)>0 then
-               //   beep;
-
-                  astr:=measure_star(xn, yn); //measure in the orginal image, not later when it is alligned/transformed to the reference image
-                  if snr>=snr_min then
+                  new_object:=true;
+                  for i:=p_nr_norm to p_nr-3 do
                   begin
-                    new_object:=true;
-                    for i:=p_nr_norm to p_nr-3 do
-                    begin
-                      if ((  frac((i-p_nr_norm)/3)=0 ){tagnr column} and (stackmenu1.listview7.Column[i+1].Caption=vsp_vsx_list[j].abbr)) then //find the  correct column. If image share not 100% aligned there could be more or less objects
-                      begin //existing object column
+                    if ((  frac((i-p_nr_norm)/3)=0 ){tagnr column} and (stackmenu1.listview7.Column[i+1].Caption=vsp_vsx_list[j].abbr)) then //find the  correct column. If image share not 100% aligned there could be more or less objects
+                    begin //existing object column
 
-                       listview7.Items.item[c].subitems.Strings[i]:= astr;
-                       listview7.Items.item[c].subitems.Strings[i+1]:= IntToStr(round(snr));
-                       listview7.Items.item[c].subitems.Strings[i+2]:= IntToStr(round(flux));
-                       new_object:=false;
-                       break;
-                      end;
+                     listview7.Items.item[c].subitems.Strings[i]:= astr;
+                     listview7.Items.item[c].subitems.Strings[i+1]:= IntToStr(round(snr));
+                     listview7.Items.item[c].subitems.Strings[i+2]:= IntToStr(round(flux));
+                     new_object:=false;
+                     break;
                     end;
-                    if new_object then
-                    begin
-                      with listview7 do
-                      begin //add column
-                        listview7_add_column(vsp_vsx_list[j].abbr);
-                        listview7_add_column('SNR');
-                        listview7_add_column('Flux');
-                        memo2_message('Added columns for '+vsp_vsx_list[j].abbr);
-                      end;
-                      listview7.Items.item[c].subitems.Strings[P_nr-3]:= astr;
-                      listview7.Items.item[c].subitems.Strings[P_nr-2]:= IntToStr(round(snr));
-                      listview7.Items.item[c].subitems.Strings[P_nr-1]:= IntToStr(round(flux));
-                      stackmenu1.listview7.column[P_nr-3+1].tag:=j; //store star position in the variable list. Caption position is always one position higher then data
-                    end;//new object
-                  end;//enough snr
-                end;
-
+                  end;
+                  if new_object then
+                  begin
+                    with listview7 do
+                    begin //add column
+                      listview7_add_column(vsp_vsx_list[j].abbr);
+                      listview7_add_column('SNR');
+                      listview7_add_column('Flux');
+                      memo2_message('Added columns for '+vsp_vsx_list[j].abbr);
+                    end;
+                    listview7.Items.item[c].subitems.Strings[P_nr-3]:= astr;
+                    listview7.Items.item[c].subitems.Strings[P_nr-2]:= IntToStr(round(snr));
+                    listview7.Items.item[c].subitems.Strings[P_nr-1]:= IntToStr(round(flux));
+                    stackmenu1.listview7.column[P_nr-3+1].tag:=j; //store star position in the variable list. Caption position is always one position higher then data
+                  end;//new object
+                end;//enough snr
               end;
+
             end; //for j:=0 to vsp_vsx_list_length do
           end;
           memo2_message('Detected a total '+inttostr((p_nr-p_nr_norm) div 3)+' stars');
@@ -8519,7 +8461,7 @@ begin
           mainform1.image1.Canvas.Pen.mode:=pmCopy;
 
           with mainform1 do
-          if ((measuring_method1.itemindex=0) and (Fshapes<>nil)) then
+          if ((measuring_method=0) and (Fshapes<>nil)) then
           begin
             for i:=0 to high(Fshapes) do
              if Fshapes[i].shape<>nil then
@@ -9232,42 +9174,83 @@ end;
 
 procedure Tstackmenu1.stack_groups1Click(Sender: TObject);
 var
-  index, counter, oldindex, position, i,groupsize,count: integer;
+  index, counter, oldindex, position, i,j,groupsize,count,ColumnIndex, new_counter: integer;
+  jdf,oldjdf : double;
   ListItem: TListItem;
+  same_filter : boolean;
+  new_files   : array of string;
+  st:string;
 begin
-  groupsizeStr:=InputBox('Stack selected file in groups, mode average',
-  'The selected files should be sorted on date.'+#10+#10+
+  stacking_paused:=false;
+//  if listview7.Items.item[listview7.Items.Count-1].subitems.Strings[p_date]='' then //check if thelast image has a date
+//  begin
+//    ShowMessage('First analyse the images to add the dates to the listview!');
+//    exit;
+//  end;
+
+  groupsizeStr:=InputBox('Stack all file in groups, mode average',
+//  'The selected files should be sorted on date.'+#10+#10+
   'How many images per stack?:',groupsizeStr);
   if groupsizeStr=''  then exit; {cancel used}
   groupsize:=strtoint2(groupsizeStr,0);
   if groupsize=0 then exit;
 
+
   esc_pressed:=false;
+
+  if listview7.Items.item[listview7.Items.Count-1].subitems.Strings[p_date]='' //check if thelast image has a date
+  then
+  begin
+    analyse_listview(listview7, True {light}, False {full fits}, True{refresh});
+    memo2_message('Analysing for filter and date');
+  end;
+  memo2_message('Sorting on filter and secondary on date');//see procedure listview1Compare
+  SortedColumn:=P_filter+1;
+  ListView7.SortDirection:=sdAscending;
+  listview7.sort;//Sort on filter & date
+  application.processmessages;
 
   position:=-1;
   index:=0;
   listview1.Clear;
   counter:=listview7.Items.Count;
+  setlength(new_files,10+counter div groupsize); //enough space plus some extra due to filters
+  new_counter:=0;
+  listview7.Selected:=nil; {remove any selection for scrolling to active file}
+
 
   repeat
+    listview7.ItemIndex:=index;  {mark where we are. Important set in object inspector    Listview7.HideSelection:=false; Listview7.Rowselect:=true}
+    listview7.Items[index].MakeVisible(False);{scroll to selected item}
+    application.processmessages;
+
+
     listview1.Items.beginUpdate;
     count:=0;
+
     while index < counter do
     begin
-      if listview7.Items[index].Selected then
+      if listview7.Items[index].checked then
       begin
         if position < 0 then position:=index;//store first position
-        listview_add(listview1, listview7.items[index].Caption, True, L_nr); // add to tab light
 
-        inc(count);
-        if count>=groupsize then
+        if count>0 then
+           same_filter:=ListView7.Items.item[index].subitems.Strings[P_filter]=ListView7.Items.item[max(0,index-1)].subitems.Strings[P_filter] ////allow stacking groups but it should be equal filter
+        else
+           same_filter:=true;//start with new filter
+
+        if ((same_filter=true) and (count<groupsize)) then
         begin
-          Inc(index);
+          st:=listview7.items[index].Caption;
+          listview_add(listview1, listview7.items[index].Caption, True, L_nr); // add to tab light
+          inc(count);
+          Inc(index);{go to next file}
+        end
+        else
           break;//group is ready
-        end;
-      end;
-      Inc(index); {go to next file}
-
+      end
+      else
+        Inc(index);{go to next file}
     end;
     listview1.Items.endUpdate;
 
@@ -9282,33 +9265,34 @@ begin
 
     oldindex:=stack_method1.ItemIndex;
     stack_method1.ItemIndex:=0; //average
-
     stack_button1Click(Sender);// stack the files in tab lights
     if esc_pressed then break;
 
     // add calibrated files
-    listview7.Items.BeginUpdate;
-    with listview7 do
-    begin
-      ListItem:=Items.add;
-      ListItem.Caption:=filename2; // contains the stack file name
-      ListItem.Checked:=True;
-      for i:=1 to P_nr do
-        ListItem.SubItems.Add(''); // add the other columns
-    end;
-    listview7.Items.EndUpdate;
+    new_files[new_counter]:=filename2;
+    inc(new_counter);
 
     listview1.Clear;
-    application.processmessages;
-
   until index >=counter; //ready ??
 
-  listview_removeselect(listview7);
+  // add stacked files to listview7
+  listview7.Items.BeginUpdate;
+  listview7.Clear;
+  with listview7 do
+  begin
+    for j:=0 to new_counter-1 do
+      listview_add(listview7,new_files[j], True, P_nr);{move to darks}
+  end;
+  listview7.Items.EndUpdate;
+
 
   stack_method1.ItemIndex:=oldindex;//return old setting
   save_settings2;
 
   analyse_listview(listview7, True {light}, False {full fits}, True{refresh});
+
+  progress_indicator(-100,'');
+
   {refresh list}
 end;
 
@@ -9746,6 +9730,13 @@ begin
   new_analyse_required:=true;
 end;
 
+procedure Tstackmenu1.lightsContextPopup(Sender: TObject; MousePos: TPoint;
+  var Handled: Boolean);
+begin
+
+end;
+
+
 procedure Tstackmenu1.set_saturation1Change(Sender: TObject);
 begin
   saturation_level1.enabled:=set_saturation1.checked;
@@ -9833,8 +9824,7 @@ begin
   plot_image(mainform1.image1,false);
 end;
 
-procedure Tstackmenu1.FormKeyDown(Sender: TObject; var Key: Word;
-  Shift: TShiftState);
+procedure Tstackmenu1.FormKeyDown(Sender: TObject; var Key: Word;   Shift: TShiftState);
 var
   tabind: integer;
 begin
@@ -10542,6 +10532,7 @@ begin
 
   progress_indicator(-100,'');{back to normal}
   Screen.Cursor:=crDefault;{back to normal }
+  memo2_message('Ready');
 end;
 
 procedure Tstackmenu1.report_sqm1Click(Sender: TObject);
@@ -12638,17 +12629,34 @@ end;
 procedure Tstackmenu1.stack_button1Click(Sender: TObject);
 var
   i, c, nrfiles, image_counter, object_counter,
-  first_file, total_counter, counter_colours,analyse_level, referenceX,referenceY,filter_icon :   integer;
+  first_file, total_counter, counter_colours,analyse_level, referenceX,referenceY,filter_icon,k :   integer;
   filter_name1, filter_name2, defilter, filename3,
   extra1, extra2, object_to_process, stack_info, thefilters                       : string;
   lrgb, solution, monofile, ignore, cal_and_align,
   stitching_mode, sigma_clip, calibration_mode, calibration_mode2, skip_combine,
   success, classify_filter, classify_object, sender_photometry, sender_stack_groups,comet  : boolean;
   startTick: qword;{for timing/speed purposes}
-  min_background, max_background,back_gr    : double;
+  min_background, max_background,back_gr,x,y    : double;
   filters_used: array [0..6] of string;//r,g,b,r2,g2,b2,L
 begin
   save_settings2;{too many lost selected files, so first save settings}
+
+  if esc_pressed then
+  begin
+     stacking_running:=false;//for case esc is forced
+     stacking_paused:=false;
+  end
+  else
+  if stacking_running then
+  begin
+    stacking_paused:=not stacking_paused;
+    if stacking_paused then
+       memo2_message('Stacking is paused. Hit the stack button to continue.');
+    exit;
+  end;
+
+  stacking_running:=true;
+//  stacking_paused:=false;
   esc_pressed:=False;
 
   memo2_message('Stack method ' + stack_method1.Text);
@@ -12707,7 +12715,7 @@ begin
     else
       analyse_level:=0; //almost none
 
-
+  //  exit;
     analyse_tab_lights(analyse_level); {analyse any image not done yet. For calibration mode skip hfd and background measurements}
     if esc_pressed then exit;
 
@@ -12822,6 +12830,7 @@ begin
       if ((ignore) or (pos('✓',stackmenu1.ListView1.Items.item[c].subitems.Strings[L_solution])=0)) then  //no internal solution
       begin
         try { Do some lengthy operation }
+          while stacking_paused do pause2;
           ListView1.Selected:=nil; {remove any selection}
           ListView1.ItemIndex:=c;{show wich file is processed}
           Listview1.Items[c].MakeVisible(False);{scroll to selected item}
@@ -12877,59 +12886,15 @@ begin
     end;
   end;
 
-  if ((use_ephemeris_alignment1.checked) and (stackmenu1.auto_rotate1.Checked)) then {fix rotations}
-  begin
-    memo2_message('Checking orientations');
-    for c:=0 to ListView1.items.Count - 1 do
-      if ((ListView1.items[c].Checked = True) and (pos('✓',ListView1.Items.item[c].subitems.Strings[L_solution])>0 {solution})) then
-      begin
-        try { Do some lengthy operation }
-          ListView1.Selected:=nil; {remove any selection}
-          ListView1.ItemIndex:=c;{show wich file is processed}
-          Listview1.Items[c].MakeVisible(False);{scroll to selected item}
-
-          progress_indicator(0.1 * c / ListView1.items.Count, ' rotating'); {indicate 0 to 10% for plate solving}
-
-          filename2:=ListView1.items[c].Caption;
-
-          Application.ProcessMessages;
-          if esc_pressed then
-          begin
-            restore_img;
-            Screen.Cursor:=crDefault;
-            exit;
-          end;
-
-          {load file}
-          if load_fits(filename2, True {light}, True, True {update memo}, 0,mainform1.memo1.lines, head, img_loaded){important required to check head.cd1_1} = False then
-          begin
-            memo2_message('Error loading file ' + filename2);{failed to load}
-            Screen.Cursor:=crDefault;
-            exit;
-          end;
-
-          head.crota2:=fnmodulo(head.crota2, 360);
-          if ((head.crota2 >= 90) and (head.crota2 < 270)) then
-          begin
-            memo2_message('Rotating ' + filename2 + ' 180°');
-            raster_rotate(180, head.Width / 2, head.Height / 2, img_loaded); {fast rotation 180 degrees}
-            save_fits(img_loaded,mainform1.memo1.lines,head, filename2, True);
-          end;
-
-        finally
-        end;
-      end;
-    memo2_message('Orientation task complete.');
-  end;
-
   if use_ephemeris_alignment1.Checked then {add annotations}
   begin
     memo2_message('Checking annotations');
     for c:=0 to ListView1.items.Count - 1 do
       if ((ListView1.items[c].Checked = True) and (pos('✓',stackmenu1.ListView1.Items.item[c].subitems.Strings[L_solution])>0 {solution}) and
-         ((stackmenu1.update_annotations1.Checked) or (stackmenu1.auto_rotate1.Checked) or (length(stackmenu1.ListView1.Items.item[c].subitems.Strings[L_X]) <= 1)){no annotation yet}) then
+         ((stackmenu1.update_annotations1.Checked) or (length(stackmenu1.ListView1.Items.item[c].subitems.Strings[L_X]) <= 1)){no annotation yet}) then
       begin
         try { Do some lengthy operation }
+          while stacking_paused do pause2;
           ListView1.Selected:=nil; {remove any selection}
           ListView1.ItemIndex:=c;{show wich file is processed}
           Listview1.Items[c].MakeVisible(False);{scroll to selected item}
@@ -12967,7 +12932,8 @@ begin
             exit;
           end;
 
-          get_annotation_position(c,mainform1.Memo1.lines);{fill the x,y with annotation position}
+          if get_annotation_position(mainform1.Memo1.lines,{out} x,y ) then // get the x,y of the annotation position
+            listview_add_xy(c,x,y); {add center annotation to x,y for stacking}
         finally
         end;
       end;
@@ -13312,6 +13278,7 @@ begin
           if files_to_process_LRGB[0].Name = '' then files_to_process_LRGB[0]:=files_to_process_LRGB[1]; {use red channel as reference if no luminance is available}
           if files_to_process_LRGB[0].Name = '' then files_to_process_LRGB[0]:=files_to_process_LRGB[2]; {use green channel as reference if no luminance is available}
           counterL:=0; //reset counter for case no Luminance files are available, so RGB stacking.
+          files_to_process_LRGB[0].listviewindex:=-1;//indicate there is no correponding listview position. This is used by ephemeris stacking
           stack_LRGB(files_to_process_LRGB, counter_colours); {LRGB method, files_to_process_LRGB should contain [REFERENCE, R,G,B,RGB,L]}
           if esc_pressed then
           begin
@@ -13661,6 +13628,8 @@ begin
   update_menu(True);
 
   if write_log1.Checked then memo2.Lines.SaveToFile(ChangeFileExt(Filename2, '.txt'));
+
+  stacking_running:=false;
 
   if powerdown_enabled1.Checked then {power down system}
   begin
