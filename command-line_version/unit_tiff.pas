@@ -1,9 +1,8 @@
 unit unit_tiff;
 
-{Writes uncompressed or compressed tiff files from an image array
-This unit can be called ASTAP-TIFF since it is developped for the ASTAP program
-Copyright 2018, 2026 by Han Kleijn, www.hnsky.org
-email: han.k.. at...hnsky.org}
+{Writes uncompressed or compressed tiff files from an image array}
+{This unit can be called ASTAP-TIFF since it is developped for the ASTAP program}
+{Copyright 2018, 2026 by Han Kleijn}
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -25,15 +24,17 @@ function save_tiff_32(img: Timg_array; filen2, description: ansistring; flip_H, 
 function save_tiff_96(img: Timg_array; filen2, description: ansistring; flip_H, flip_V: boolean; compressionlevel: integer): boolean; //save to 96=3x32 color TIFF file, compressionlevel 0..3 equals clnone,clfastest, cldefault, clmax
 
 {Reading procedures}
-procedure read_tiff(filen: string; var img: Timg_array; out description: string; out bitspersample: word; out measured_max : double; out theresult: boolean); //no compression, lzw compressed, zip compressed, 8,16,24,32,48,64,96 bit
+procedure read_tiff(filen: string; var img: Timg_array; out description: string; out bitspersample: word; out measured_max : double; out theresult: boolean); //no compression, lzw compressed, zip compressed, 8,16, 24, 32,48,64,96 bit
 
 
 implementation
 
+
 uses
   SysUtils, Classes, dialogs, math,
   zstream, //for ZIP compression/decompression
-  FPReadTiff;//for LZW decompression
+  FPReadTiff,//for LZW decompression
+  unit_command_line_general;//for memo2_message
 
 
 
@@ -154,13 +155,15 @@ var                                                                             
   extn: string;
 begin
   result:=false;//assume failure
-  extn:=lowercase(extractfileExt(filen2));
-  if ((extn='.tmp') or (extn='.tif') or (extn='.tiff'))=false then // not a special .tmp file for secure tiff save, not .TIF or .TIFF
-    filen2 := ChangeFileExt(filen2, '.tif');
 
-  if ((overwrite=false) and (fileexists(filen2))) = true then
-    if MessageDlg('Existing file ' + filen2 + ' Overwrite?', mtConfirmation, [mbYes, mbNo], 0) <> 6 {mbYes} then
-      Exit;
+//  Following is not used in astap_cli:
+//  extn:=lowercase(extractfileExt(filen2));
+//  if ((extn='.tmp') or (extn='.tif') or (extn='.tiff'))=false then // not a special .tmp file for secure tiff save, not .TIF or .TIFF
+//    filen2 := ChangeFileExt(filen2, '.tif');
+
+//  if ((overwrite=false) and (fileexists(filen2))) = true then
+//    if MessageDlg('Existing file ' + filen2 + ' Overwrite?', mtConfirmation, [mbYes, mbNo], 0) <> 6 {mbYes} then
+//      Exit;
 
   if length(img)=1 then //monochrome
   begin
@@ -745,6 +748,7 @@ end;
 { -------------------------------------------------------------------------
   Generic TIFF Read Function (Updated for Big Endian support)
   ------------------------------------------------------------------------- }
+
 procedure read_tiff(filen: string; var img: Timg_array; out description: string;
   out bitspersample: word; out measured_max: double; out theresult: boolean);
 var
@@ -1004,7 +1008,7 @@ begin
 
   if not FileExists(filen) then
   begin
-    MessageDlg('File not found: ' + filen, mtError, [mbOK], 0);
+    memo2_message('File not found: ' + filen);
     Exit;
   end;
 
@@ -1284,8 +1288,8 @@ begin
             DecompressLZW(mem_str.Memory, strip_bytecounts[i], lzwOut, lzwLen);
             if lzwLen < rows_in_strip * row_size then
             begin
-              MessageDlg(Format('LZW failed: expected %d got %d bytes',
-                [rows_in_strip * row_size, lzwLen]), mtError, [mbOK], 0);
+              memo2_message(Format('LZW failed: expected %d got %d bytes',
+                [rows_in_strip * row_size, lzwLen]));
               Break;
             end;
             lzwPos := 0;

@@ -1082,10 +1082,10 @@ begin
   for m:=0 to length(photometry_stdev)-1 do photometry_stdev[m]:=0;// clear
 
 
-  setlength(data,2+length(column_vars)+length(column_comps), length(RowChecked));
-  for i:=0 to high(data) do
-    for j:=0 to high(data[0]) do
-      data[i,j]:=0;//clear
+  setlength(data,2+length(column_vars)+length(column_comps), length(RowChecked));//In case the length is set to a larger length than the current one, the new elements are zeroed out for a dynamic array. See https://www.freepascal.org/docs-html/rtl/system/setlength.html.
+  //for i:=0 to high(data) do
+  //  for j:=0 to high(data[0]) do
+  //    data[i,j]:=0;//clear
   setlength(listcheck_v,length(data[0]));//list with magnitudes check star
   setlength(listcheck_b,length(data[0]));//list with magnitudes check star
   setlength(listcheck_r,length(data[0]));//list with magnitudes check star
@@ -1704,6 +1704,8 @@ begin
       break;
     end;
   end;
+
+  abrv_check1.color:=cldefault;
   plot_graph;
 end;
 
@@ -2259,7 +2261,7 @@ begin
   begin
     abrv_comp1.color:=cldefault;
     for i:=0 to high(column_comps) do
-      abbrv_comp_clean:= abbrv_comp_clean+clean_abbreviation(stackmenu1.listview7.Column[column_comps[i]+1].Caption,false)+'|'; //variable_clean with still underscore. Note the captions are one position shifted.
+  //    abbrv_comp_clean:= abbrv_comp_clean+clean_abbreviation(stackmenu1.listview7.Column[column_comps[i]+1].Caption,false)+'|'; //variable_clean with still underscore. Note the captions are one position shifted.
       abbrv_comp_clean:= abbrv_comp_clean+clean_abbreviation(ColumnTitles[column_comps[i]+1],false)+'|'; //variable_clean with still underscore. Note the captions are one position shifted.
   end
   else
@@ -2272,7 +2274,7 @@ begin
     abrv_comp1.color:=cldefault;
 
 
-  delete(abbrv_comp_clean,length(variable_clean),1);//remove last "|"
+  delete(abbrv_comp_clean,length(abbrv_comp_clean),1);//remove last "|"
   store_vsp_stars( abbrv_check_clean+'|'+variable_clean+abbrv_comp_clean); //simple database in settings key report_stars
 
 
@@ -2320,6 +2322,7 @@ begin
   end;
 
   settings:=settings+' aperture='+stackmenu1.flux_aperture1.text+' HFD'+vsep+' annulus='+stackmenu1.annulus_radius1.text+' HFD';
+//  if (disable_autocenter1.checked and disable_autocenter1.enabled) then settings:=settings+' Disabled autcenter';
 
 
   if apply_transformation then
@@ -2579,6 +2582,8 @@ begin
            if gaia_ensemble then //else comparison stars are used.
              if stackmenu1.ListView7.Items.item[c].SubitemImages[P_calibration]<>SubItemImages[c] then
                 comp_magn_info:=comp_magn_info+'  WARNING INCOMPATIBLE FILTER AND DATABASE PASSBAND! VALID FILTERS CV/V/TG/TB/TR/G/B/R/SI/SR/SG.';
+
+           if stackmenu1.disable_autocenter1.checked then comp_magn_info:=comp_magn_info+' Autocenter disabled. ';//warning
 
            aavso_report:= aavso_report+ invalidstr+ abbrv_var_clean + delim +
                           StringReplace(stackmenu1.listview7.Items.item[c].subitems.Strings[date_column],',','.',[])+delim+

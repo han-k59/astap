@@ -32,13 +32,11 @@ uses
   math,
   FPImage,
   strutils,
-  fpreadTIFF, {all part of fcl-image}
-  fpreadPNG, fpreadBMP, fpreadJPEG, fpwriteTIFF, fpwritePNG, fpwriteBMP,
-  fpwriteJPEG, fptiffcmn;
+  fpreadPNG, fpreadBMP, fpreadJPEG,  fpwritePNG, fpwriteBMP,fpwriteJPEG;{all part of fcl-image}
 
 
 var {################# initialised variables #########################}
-  astap_version: string='2026.02.09';
+  astap_version: string='2026.03.05';
   ra1  : string='0';
   dec1 : string='0';
   search_fov1    : string='0';{search FOV}
@@ -147,17 +145,6 @@ type
 
   var
     Reader    : TReader;
-    fitsbuffer : array[0..bufwide] of byte;{buffer for 8 bit FITS file}
-    fitsbuffer2: array[0..round(bufwide/2)] of word absolute fitsbuffer;{buffer for 16 bit FITS file}
-    fitsbufferRGB: array[0..trunc(bufwide/3)] of byteX3 absolute fitsbuffer;{buffer for 8 bit RGB FITS file}
-    fitsbufferRGB16: array[0..trunc(bufwide/6)] of byteXX3 absolute fitsbuffer;{buffer for 16 bit RGB PPM file}
-    fitsbufferRGB32: array[0..trunc(bufwide/12)] of byteXXXX3 absolute fitsbuffer;{buffer for -32 bit PFM file}
-    fitsbuffer4: array[0..round(bufwide/4)] of longword absolute fitsbuffer;{buffer for floating bit ( -32) FITS file}
-    fitsbuffer8: array[0..trunc(bufwide/8)] of int64 absolute fitsbuffer;{buffer for floating bit ( -64) FITS file}
-    fitsbufferSINGLE: array[0..round(bufwide/4)] of single absolute fitsbuffer;{buffer for floating bit ( -32) FITS file}
-    fitsbufferDouble: array[0..round(bufwide/8)] of double absolute fitsbuffer;{buffer for floating bit ( -64) FITS file}
-
-
 
 
 procedure memo2_message(s: string);{message to memo2. Is also used for log to file in commandline mode}
@@ -191,7 +178,7 @@ procedure log_to_file(logf,mess : string);{for testing}
 
 implementation
 
-uses unit_command_line_solving, unit_command_line_star_database;
+uses unit_command_line_solving, unit_command_line_star_database, unit_tiff;
 
 
 procedure log_to_file(logf,mess : string);{for testing}
@@ -471,6 +458,7 @@ end;
 
 function savefits_update_header(filen2:string) : boolean;{save fits file with updated header}
 var
+  fitsbuffer : array[0..bufwide] of byte;{buffer for 8 bit FITS file}
   TheFile  : tfilestream;
   reader_position,I,readsize,bufsize : integer;
   TheFile_new : tfilestream;
@@ -563,6 +551,8 @@ end;
 
 function save_fits16bit(img: Timage_array;filen2:ansistring): boolean;{save to 16 fits file}
 var
+  fitsbuffer : array[0..bufwide] of byte;{buffer for 8 bit FITS file}
+  fitsbuffer2: array[0..round(bufwide/2)] of word absolute fitsbuffer;{buffer for 16 bit FITS file}
   TheFile4 : tfilestream;
   I,j,k,bzero2, dum, remain,dimensions, naxis3_local,height5,width5 : integer;
   line0                : ansistring;
@@ -701,9 +691,14 @@ end;
 
 function load_fits(filen:string;out img_loaded2: Timage_array): boolean;{load fits file}
 var
+  fitsbuffer : array[0..bufwide] of byte;{buffer for 8 bit FITS file}
+  fitsbuffer2: array[0..round(bufwide/2)] of word absolute fitsbuffer;{buffer for 16 bit FITS file}
+  fitsbufferRGB: array[0..trunc(bufwide/3)] of byteX3 absolute fitsbuffer;{buffer for 8 bit RGB FITS file}
+  fitsbuffer4: array[0..round(bufwide/4)] of longword absolute fitsbuffer;{buffer for floating bit ( -32) FITS file}
+  fitsbuffer8: array[0..trunc(bufwide/8)] of int64 absolute fitsbuffer;{buffer for floating bit ( -64) FITS file}
   TheFile  : tfilestream;
   header    : array[0..2880] of ansichar;
-  i,j,k,error3,naxis1,width2,height2, reader_position,validate_double_error,naxis,naxis3   : integer;
+  i,j,k,naxis1,width2,height2, reader_position,validate_double_error,naxis,naxis3   : integer;
   tempval                                                                                  : double;
   col_float,bscale,measured_max,scalefactor  : single;
   bzero                       : integer;{zero shift. For example used in AMT, Tricky do not use int64,  maxim DL writes BZERO value -2147483647 as +2147483648 !! }
@@ -761,6 +756,7 @@ const
 begin
   {some house keeping}
   result:=false; {assume failure}
+  simple:=false;
   {house keeping done}
 
   try
@@ -1479,21 +1475,18 @@ begin
     end else
 
     if (key='XBINNING=') then xbinning:=read_integer else
-    if (key='YBINNING=') then ybinning:=read_integer else
+   if (key='YBINNING=') then ybinning:=read_integer else
 
     if (key='FOCALLEN=') then focallen:=read_float else
     if (key='XPIXSZ  =') then xpixsz:=read_float else  {pixelscale in microns}
     if (key='YPIXSZ  =') then ypixsz:=read_float else
     if (key='CDELT2  =') then cdelt2:=read_float else   {deg/pixel}
     if (key='EQUINOX =') then equinox:=read_float else
-
-
     if ((key='SECPIX2 =') or
         (key='PIXSCALE=') or
         (key='SCALE   =')) then begin if cdelt2=0 then cdelt2:=read_float/3600; end {no cdelt1/2 found yet, use alternative, image scale arcseconds per pixel}
     else
-
-    if key='DATE-OBS=' then date_obs:=read_string else
+    if key='DATE-OBS=' then date_obs:=read_string;
 
     index:=index+1;
   end;
@@ -1540,6 +1533,13 @@ end;
 
 function load_PPM_PGM_PFM(filen:string; out img_loaded2: Timage_array) : boolean;{load PPM (color),PGM (gray scale)file or PFM color}
 var
+  fitsbuffer : array[0..bufwide] of byte;{buffer for 8 bit FITS file}
+  fitsbuffer2: array[0..round(bufwide/2)] of word absolute fitsbuffer;{buffer for 16 bit FITS file}
+  fitsbufferRGB: array[0..trunc(bufwide/3)] of byteX3 absolute fitsbuffer;{buffer for 8 bit RGB FITS file}
+  fitsbufferRGB16: array[0..trunc(bufwide/6)] of byteXX3 absolute fitsbuffer;{buffer for 16 bit RGB PPM file}
+  fitsbufferRGB32: array[0..trunc(bufwide/12)] of byteXXXX3 absolute fitsbuffer;{buffer for -32 bit PFM file}
+  fitsbuffer4: array[0..round(bufwide/4)] of longword absolute fitsbuffer;{buffer for floating bit ( -32) FITS file}
+  fitsbufferSINGLE: array[0..round(bufwide/4)] of single absolute fitsbuffer;{buffer for floating bit ( -32) FITS file}
   TheFile  : tfilestream;
   i,j, reader_position,naxis,s        : integer;
   aline,w1,h1,bits,comm,comment_line  : ansistring;
@@ -1837,37 +1837,105 @@ begin
 end;
 
 
-function load_TIFFPNGJPEG(filen:string; var img_loaded2: Timage_array) : boolean;{load 8 or 16 bit TIFF, PNG, JPEG, BMP image}
+function load_TIFF_NEW(filen:string; out img: Timage_array) : boolean;{load a tiff file}
+var
+  i,j,width2,height2,naxis, naxis3   : integer;
+  jd2   : double;
+  saved_header : boolean;
+  descrip   : string;
+  bitspersample: word;
+
+begin
+  naxis:=0; {0 dimensions for case failure}
+  result:=false; {assume failure}
+  saved_header:=false;
+
+  read_tiff(filename2,img, descrip,bitspersample, datamax_org,result); {unit tiff}
+
+  if result=false then
+  begin
+    memo2_message(descrip);//report type of error
+    exit;
+  end;
+
+  reset_fits_global_variables; {reset the global variable}
+
+  if bitspersample=32 then
+    nrbits:=-32 //fits float
+  else
+    nrbits:=bitspersample;
+
+  naxis3:=length(img);
+  if  naxis3>1 then naxis:=3 else naxis:=2; //number of dimensions. 2 for mono, 3 for colour
+  width2:=length(img[0,0]);
+  height2:=length(img[0]);
+
+  {set data}
+  datamin_org:=0;
+
+  memo1.beginupdate;
+  memo1.clear;{clear memo for new header}
+
+  if copy(descrip,1,6)='SIMPLE' then {fits header included}
+  begin
+    memo1.text:=descrip;
+    saved_header:=true;
+  end
+  else {no fits header in tiff file available}
+  begin
+    for j:=0 to 10 do {create an header with fixed sequence}
+      if ((j<>5) or  (naxis3<>1)) then {skip naxis3 for mono images}
+       memo1.add(head1[j]); {add lines to empthy memo1}
+    memo1.add(head1[27]); {add end}
+    if descrip<>'' then add_long_comment(descrip);{add TIFF describtion}
+  end;
+
+
+  //update these always to secure FITS format.
+  update_integer('BITPIX  =',' / Bits per entry                                 ' ,nrbits);
+  update_integer('NAXIS   =',' / Number of dimensions                           ' ,naxis);{2 for mono, 3 for colour}
+  update_integer('NAXIS1  =',' / length of x axis                               ' ,width2);
+
+  update_integer('NAXIS2  =',' / length of y axis                               ' ,height2);
+  update_integer('DATAMIN =',' / Minimum data value                             ' ,0);
+  update_integer('DATAMAX =',' / Maximum data value                             ' ,round(datamax_org));
+
+
+  if saved_header=false then {saved header in tiff is not restored}
+  begin
+    JD2:=2415018.5+(FileDateToDateTime(fileage(filen))); {fileage ra, convert to Julian Day by adding factor. filedatatodatetime counts from 30 dec 1899.}
+    date_obs:=JdToDate(jd2);
+    add_text ('DATE-OBS=',#39+date_obs+#39);{give start point exposures}
+  end;
+  update_text   ('COMMENT 1','  Written by ASTAP, Astrometric STAcking Program. www.hnsky.org');
+  memo1.endupdate;
+
+  result:=true;{succes}
+end;
+
+
+
+function load_PNGJPEG(filen:string; var img_loaded2: Timage_array) : boolean;{load 8 or 16 bit TIFF, PNG, JPEG, BMP image}
 var
   i,j,width2,height2,naxis3,naxis   : integer;
   jd2                               : double;
   image                             : TFPCustomImage;
   reader                            : TFPCustomImageReader;
-  tiff, png,jpeg,colour,saved_header  : boolean;
+  png,jpeg,colour,saved_header  : boolean;
   ext,descrip                       : string;
 begin
   naxis:=0; {0 dimensions for case failure}
   result:=false; {assume failure}
-  tiff:=false;
   jpeg:=false;
   png:=false;
   saved_header:=false;
   ext:=uppercase(ExtractFileExt(filen));
   try
-
-
     if filesize1(filen)<300*1024*1024 then //less then 300 mbytes. Should fit TFPMemoryImage for colour and grayscale
       Image := TFPMemoryImage.Create(10, 10) //for colour and grayscale up to 2gbyte/3
     else
       Image := TFPCompactImgGray16Bit.Create(10, 10);//compact up to 2gbyte for grayscale images only   //See https://gitlab.com/freepascal.org/fpc/source/-/issues/41022
 
-
-    if ((ext='.TIF') or (ext='.TIFF')) then
-    begin
-       Reader :=  TFPReaderTIFF.Create;
-       tiff:=true;
-    end
-    else
     if ext='.PNG' then begin
       Reader :=  TFPReaderPNG.Create;
       png:=true;
@@ -1894,7 +1962,6 @@ begin
 
   {$IF FPC_FULLVERSION >= 30200} {FPC3.2.0}
   colour:=true;
-  if ((tiff) and (Image.Extra[TiffGrayBits]<>'0')) then colour:=false; {image grayscale?}
   if ((png) and (TFPReaderPNG(reader).grayscale)) then colour:=false; {image grayscale?}
   if ((jpeg) and (TFPReaderJPEG(reader).grayscale)) then colour:=false; {image grayscale?}
   {BMP always colour}
@@ -1933,7 +2000,6 @@ begin
     naxis3:=3;
   end;
 
-  memo1.clear;{clear memo for new header}
 
   {set data}
   fits_file:=true;
@@ -1960,10 +2026,8 @@ begin
         img_loaded2[0,height2-1-i,j]:=image.Colors[j,i].red;
   end;
 
-  if tiff then
-  begin
-    descrip:=image.Extra['TiffImageDescription']; {restore full header in TIFF !!!}
-  end;
+  memo1.beginupdate;
+  memo1.clear;{clear memo for new header}
 
   if copy(descrip,1,6)='SIMPLE' then {fits header included}
   begin
@@ -1996,6 +2060,7 @@ begin
   end;
 
   update_text   ('COMMENT 1','  Written by ASTAP, Astrometric STAcking Program. www.hnsky.org');
+  memo1.endupdate;
 
   { Clean up! }
   image.Free;
@@ -2013,11 +2078,14 @@ begin
   if ((ext1='.FIT') or (ext1='.FITS') or (ext1='.FTS') or (ext1='.NEW')) then {FITS}
     result:=load_fits(filename2,img_loaded) //fits
   else
+  if ((ext1='.TIF') or (ext1='.TIFF')) then {tiff}
+    result:=load_tiff_new(filename2,img_loaded) {tiff}
+  else
   if ((ext1='.PPM') or (ext1='.PGM') or (ext1='.PFM') or (ext1='.PBM')) then {PPM/PGM/ PFM}
     result:=load_PPM_PGM_PFM(filename2,img_loaded) {load the simple formats ppm color or pgm grayscale, exit on failure}
   else
-  if ((ext1='.TIF') or (ext1='.TIFF') or (ext1='.PNG') or (ext1='.JPG') or (ext1='.JPEG') or (ext1='.BMP')) then {tif, png, bmp, jpeg}
-    result:=load_tiffpngJPEG(filename2,img_loaded) {tif, png, bmp, jpeg}
+  if ((ext1='.PNG') or (ext1='.JPG') or (ext1='.JPEG') or (ext1='.BMP')) then { png, bmp, jpeg}
+    result:=load_PNGJPEG(filename2,img_loaded) {png, bmp, jpeg}
   else
   result:=false;
 end;
