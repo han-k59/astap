@@ -24,10 +24,12 @@ https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html
 https://gitlab.com/freepascal.org/fpc/source/-/issues/40302
 
 
-line colours GTK3
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/41655
-pairspliter GTK3
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/issues/41654
+GTK3
+https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42173
+https://github.com/LongDirtyAnimAlf/fpcupdeluxe/issues/806?reload=1
+
+GTK3, bug in sorting Tlistview columns
+https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42215
 
 
 https://gitlab.com/freepascal.org/fpc/source/-/issues/41022   allow larger TIFF files
@@ -76,7 +78,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2026.03.06';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2026.04.12';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -380,6 +382,7 @@ type
     N3: TMenuItem;
     StatusBar1: TStatusBar;
 
+
     procedure add_marker_position1Click(Sender: TObject);
     procedure annotate_with_measured_magnitudes1Click(Sender: TObject);
     procedure annotations_visible1Click(Sender: TObject);
@@ -558,13 +561,18 @@ type
     procedure minimum1Change(Sender: TObject);
     procedure GenerateShapes(position,width,height,penwidth : integer; shape: TShapeType; colour : Tcolor; hint: string);
     procedure clear_fshapes_array;
+
+    procedure ApplicationIdle(Sender: TObject; var Done: Boolean);
+
   private
     { Private declarations }
-
+    var
+      FStartupDone: Boolean;
   public
     { Public declarations }
     FShapes: array of TShapes;//for photometry
     procedure DisplayHint(Sender: TObject);
+
   end;
 
 var
@@ -802,7 +810,7 @@ var {################# initialised variables #########################}
   annotation_diameter : integer=20;
   egain_extra_factor  : integer=16;
   egain_default       : double=1;
-  passband_active: string=''; //Indicates current Gaia conversion active
+  database_passband_active: string=''; //Indicates current Gaia conversion active
   star_profile_plotted: boolean=false;
   minor_planet_at_cursor:string='';
 
@@ -813,6 +821,7 @@ procedure plot_image(img: timage;center_image:boolean);
 procedure plot_histogram(img: Timage_array; update_hist: boolean);{get histogram}
 procedure HFD(img: Timage_array;x1,y1,rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out hfd1,star_fwhm,snr, flux,xc,yc:double);
 procedure HFD_without_auto_center(img: Timage_array;xc,yc : double; rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out snr, flux :double);//special for photmetry
+procedure find_star_center(img: Timage_array;box, x1,y1: integer; out xc,yc:double);{alternative method for comets and problematic stars}
 procedure backup_img;
 procedure restore_img;
 function load_image(filename2: string; out img: Timage_array; out head: theader; memo: tstrings; re_center,plot: boolean): boolean; {load fits or PNG, BMP, TIF}
@@ -846,6 +855,7 @@ procedure update_menu(fits :boolean);{update menu if fits file is available in a
 procedure get_hist(colour:integer;img :Timage_array);{get histogram of img_loaded}
 procedure save_settings2;
 procedure save_settings(lpath:string); //save settings at any path
+function load_settings(lpath: string)  : boolean; //load settings
 procedure progress_indicator(i:double; info:string);{0 to 100% indication of progress}
 {$ifdef mswindows}
 procedure ExecuteAndWait(const aCommando: string; show_console:boolean);
@@ -3322,7 +3332,7 @@ end;
 procedure get_background(colour: integer; img :Timage_array;var head :theader; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
 var
   i, pixels,max_range,above, fitsX, fitsY,counter,stepsize,width5,height5, iterations : integer;
-  value,sd, sd_old,factor,factor2,sd2,dummy : double;
+  value,sd, sd_old,factor,factor2,sd2 : double;
 begin
   if calc_hist then  get_hist(colour,img);{get histogram of img_loaded and his_total}
 
@@ -4055,7 +4065,7 @@ end;
 
 procedure restore_img;
 var
-   resized,success :boolean;
+   resized : boolean;
    old_width2,old_height2 : integer;
 begin
    if mainform1.Undo1.Enabled=true then
@@ -4919,6 +4929,7 @@ end;
 
 procedure Tmainform1.clean_up1Click(Sender: TObject);
 begin
+  mainform1.clear_fshapes_array;
   plot_image(mainform1.image1,false);
 end;
 
@@ -5481,9 +5492,10 @@ const resolution=6;
       rs=68 div 2;//half size image_north
       qrs=rs div resolution;
 var
-  i, j,distance,hh,diam1,diam2  : integer;
-  val,valmax,valmin             : double;
+  i, j,distance,hh,diam1,diam2    : integer;
+  val,valmax,valmin,dist,radius   : double;
   profile: array[0..1,-rs..rs] of double;
+  fixed_aperture : boolean;
 begin
   with mainform1.image_north_arrow1 do
   begin
@@ -5550,8 +5562,9 @@ begin
 //   mainform1.caption:=floattostr(diff);
 
 
-    diam1:=round((width/2 + (resolution/4) * object_hfd*strtofloat2(stackmenu1.flux_aperture1.text)));//in 1/6 pixel resolution
-    diam2:=round((width/2 - (resolution/4) * object_hfd*strtofloat2(stackmenu1.flux_aperture1.text)));
+    dist:=(resolution/2) * object_hfd*strtofloat2(stackmenu1.flux_aperture1.text); //factor times HFD
+    diam1:=round(width/2 + dist);
+    diam2:=round(width/2 - dist);
 
     if diam2>=0 then  //show aperture if aperture setting is less then maximum as set in tap photometry.
     begin
@@ -5945,6 +5958,7 @@ end;
 
 procedure Tmainform1.remove_markers1Click(Sender: TObject);
 begin
+  mainform1.clear_fshapes_array;
   plot_image(mainform1.image1,false);
 end;
 
@@ -6278,7 +6292,7 @@ begin
     if max_counter>50 then
       info_message:=info_message+#10+#10+'Bit depth data: '+inttostr(round(ln(range/minstep)/ln(2))){bit range, calculate 2log}
     else
-      info_message:=info_message+#10+#10+'Bit depth data: ??  Image is not saturated.';
+      info_message:=info_message+#10+#10+'Bit depth data: ??  Image does not contain saturated pixels. Smallest step '+floattostrf(minstep,FFfixed,0,0);
   end;
 
 
@@ -7744,12 +7758,14 @@ type
   TByteArray2 = Array[0..32767*4] of Byte;//Maximum width 32768 pixels
 var
    i,j,col_r,col_g,col_b,linenr,columnr,hh,ww,colours2 :integer;
-   colrr,colgg,colbb,luminance, luminance_stretched,factor, largest, saturationFactor,selectiveStrength: single;
+   colrr,colgg,colbb,luminance, luminance_stretched,factor, largest,inv_largest, saturationFactor,selectiveStrength,scale: single;
    Bitmap       : TBitmap;{for fast pixel routine}
    xLine        : PByteArray2;{for fast pixel routine}
    flipv, fliph : boolean;
    ratio        : double;
 begin
+ // if img_loaded=nil then
+ //    exit;
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
 
   if ap_order>0 then
@@ -7785,15 +7801,13 @@ begin
   {create bitmap}
   bitmap := TBitmap.Create;
   try
-    with bitmap do
-    begin
-      width := ww;
-      height := hh;
-      // Unclear why this must follow width/height to work correctly.
-      // If PixelFormat precedes width/height, bitmap will always be black.
-      bitmap.PixelFormat := pf24bit;
-    end;
-    except;
+
+  bitmap := TBitmap.Create;
+  bitmap.PixelFormat := pf24bit;  // faster on Windows then pf32bit
+  with bitmap do
+  begin
+    width := ww;
+    height := hh;
   end;
 
   saturationFactor:=mainform1.saturation_factor_plot1.position/20;
@@ -7805,6 +7819,7 @@ begin
   flipv:=mainform1.flip_vertical1.Checked;
   fliph:=mainform1.Flip_horizontal1.Checked;
 
+  scale:=1/(cwhite-head.backgr);
   for i:=0 to hh-1 do
   begin
     if flipv then linenr:=i else linenr:=(hh-1)-i;{flip vertical?. Note FITS count from bottom, windows from top}
@@ -7813,15 +7828,15 @@ begin
     begin
       if fliph then columnr:=(ww-1)-j else columnr:=j;{flip horizontal?}
 
-      colrr:=(img_loaded[0,i,columnr]-head.backgr)/(cwhite-head.backgr);{scale to 1}
+      colrr:=(img_loaded[0,i,columnr]-head.backgr)*scale; {scale to 1}
 
       if colours2>=2 then {at least two colours}
-        colgg:=(img_loaded[1,i,columnr]-head.backgr)/(cwhite-head.backgr){scale to 1}
+        colgg:=(img_loaded[1,i,columnr]-head.backgr)*scale {scale to 1}
       else
         colgg:=colrr;
 
       if head.naxis3>=3 then {at least three colours}
-        colbb:=(img_loaded[2,i,columnr]-head.backgr)/(cwhite-head.backgr){scale to 1}
+        colbb:=(img_loaded[2,i,columnr]-head.backgr)*scale {scale to 1}
       else
         colbb:=colrr;
 
@@ -7831,9 +7846,10 @@ begin
       if colbb>largest then largest:=colbb;
       if largest>1 then {clamp to 1 but preserve colour, so ratio r,g,b}
       begin
-        colrr:=colrr/largest;
-        colgg:=colgg/largest;
-        colbb:=colbb/largest;
+        inv_largest:=1/largest;
+        colrr:=colrr*inv_largest;
+        colgg:=colgg*inv_largest;
+        colbb:=colbb*inv_largest;
         largest:=1;
       end;
 
@@ -7871,20 +7887,25 @@ begin
         xLine^[j*4+1]:=col_r; {4*8=32 bit}
         xLine^[j*4+2]:=col_g; {fast pixel write routine }
         xLine^[j*4+3]:=col_b;
+        // j*4+3 = alpha/padding, left as 0
      {$endif}
      {$ifdef linux}
         xLine^[j*4]  :=col_b; {4*8=32 bit}
         xLine^[j*4+1]:=col_g; {fast pixel write routine }
         xLine^[j*4+2]:=col_r;
+        // j*4+3 = alpha/padding, left as 0
       {$endif}
     end;{j}
   end; {i}
 
-  img.picture.Graphic := Bitmap; {show image}
-  Bitmap.Free;
+  //img.picture.Graphic := Bitmap; {show image}
+  img.Picture.Assign(bitmap);  // Show image. safer than .Graphic :=
+  finally
+    bitmap.Free;  // always freed, even if pixel loop raises an exception
+  end;
 
-  img.Picture.Bitmap.Transparent := True;
-  img.Picture.Bitmap.TransparentColor := clblack;
+ // img.Picture.Bitmap.Transparent := True;
+ // img.Picture.Bitmap.TransparentColor := clblack;
 
   if center_image then {image new of resized}
   begin
@@ -8397,7 +8418,7 @@ begin
 end;
 
 
-function load_settings(lpath: string)  : boolean;
+function load_settings(lpath: string)  : boolean; //load settings
 var
     Sett : TmemIniFile;
     dum : string;
@@ -8615,6 +8636,7 @@ begin
       stackmenu1.add_sip1.Checked:=Sett.ReadBool('stack','sip',false);
 
       dum:=Sett.ReadString('stack','star_database',''); if dum<>'' then stackmenu1.star_database1.text:=dum;
+
       dum:=Sett.ReadString('stack','solve_search_field',''); if dum<>'' then stackmenu1.search_fov1.text:=dum;
 
       dum:=Sett.ReadString('stack','radius_search',''); if dum<>'' then stackmenu1.radius_search1.text:=dum;
@@ -8689,29 +8711,27 @@ begin
       dum:=Sett.ReadString('stack','star_level_colouring',''); if dum<>'' then stackmenu1.star_level_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','filter_artificial_colouring',''); if dum<>'' then stackmenu1.filter_artificial_colouring1.text:=dum;
       dum:=Sett.ReadString('stack','resize_factor',''); if dum<>'' then stackmenu1.resize_factor1.text:=dum;
-      dum:=Sett.ReadString('stack','snr_min_p',''); if dum<>'' then stackmenu1.snr_min_photo1.text:=dum;
-      dum:=Sett.ReadString('stack','flux_aperture',''); if dum<>'' then stackmenu1.flux_aperture1.text:=dum;
-      dum:=Sett.ReadString('stack','annulus_radius',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
+
       dum:=Sett.ReadString('stack','font_size_p',''); if dum<>'' then stackmenu1.font_size_photometry1.text:=dum;
 
-      c:=Sett.ReadInteger('stack','annotate_i',2); stackmenu1.annotate_mode1.itemindex:=c;
-      c:=Sett.ReadInteger('stack','reference_d',0); stackmenu1.reference_database1.itemindex:=c;
-
       c:=Sett.ReadInteger('stack','measure_mode',0); stackmenu1.measuring_method1.itemindex:=c;
+      dum:=Sett.ReadString('stack','snr_min_p',''); if dum<>'' then stackmenu1.snr_min_photo1.text:=dum;
+      dum:=Sett.ReadString('stack','flux_apert',''); if dum<>'' then stackmenu1.flux_aperture1.text:=dum;
+      dum:=Sett.ReadString('stack','annulus_rad',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
+      dum:=Sett.ReadString('stack','ref_database',''); if dum<>'' then stackmenu1.reference_database1.text:=dum else stackmenu1.star_database1.text:='Online Gaia';//for photometry
+      c:=Sett.ReadInteger('stack','annotate_i',2); stackmenu1.annotate_mode1.itemindex:=c;
 
-      stackmenu1.set_saturation1.checked:= Sett.ReadBool('stack','set_saturation',false);//photometry tab
-      stackmenu1.photometry_calibrate1.checked:= Sett.ReadBool('stack','photom_cal',true);//photometry tab calibration
-
-
-      dum:=Sett.ReadString('stack','saturation',''); if dum<>'' then stackmenu1.saturation_level1.text:=dum;
       dum:=Sett.ReadString('stack','max_period',''); if dum<>'' then stackmenu1.max_period1.text:=dum;
+      stackmenu1.set_saturation1.checked:= Sett.ReadBool('stack','set_saturation',false);//photometry tab
+      dum:=Sett.ReadString('stack','saturation',''); if dum<>'' then stackmenu1.saturation_level1.text:=dum;
+
+      stackmenu1.photometry_calibrate1.checked:= Sett.ReadBool('stack','calibration',false);//photometry tab calibration
 
       dum:=Sett.ReadString('stack','sigma_decolour',''); if dum<>'' then stackmenu1.sigma_decolour1.text:=dum;
       dum:=Sett.ReadString('stack','sd_factor_list',''); if dum<>'' then stackmenu1.sd_factor_list1.text:=dum;
 
       dum:=Sett.ReadString('stack','noisefilter_blur',''); if dum<>'' then stackmenu1.noisefilter_blur1.text:=dum;
       dum:=Sett.ReadString('stack','noisefilter_sd',''); if dum<>'' then stackmenu1.noisefilter_sd1.text:=dum;
-
 
       c:=Sett.ReadInteger('stack','hue_fuzziness',987654321); if c<>987654321 then stackmenu1.hue_fuzziness1.position:=c;
       c:=Sett.ReadInteger('stack','saturation_tolerance',987654321);  if c<>987654321 then stackmenu1.saturation_tolerance1.position:=c;
@@ -8738,9 +8758,9 @@ begin
       baa_style:=Sett.ReadBool('aavso','baa_style',false);{aavso report}
       sort_alphabetically:=Sett.ReadBool('aavso','sort_alphabetically',false);{aavso report}
       apply_transformation:=Sett.ReadBool('aavso','apply_transformation',false);{aavso report}
+      ensemble_database:=Sett.ReadBool('aavso','ensemble',true);{aavso report}
 
       hjd_date:=Sett.ReadBool('aavso','hjd_date',false);{aavso report}
-      ensemble_database:=Sett.ReadBool('aavso','ensemble',true);{aavso report}
 
       aavso_filter_index:=Sett.ReadInteger('aavso','pfilter',0);
       report_stars:=Sett.ReadString('aavso','report-stars','');
@@ -8780,13 +8800,17 @@ begin
       TvrSTR:=Sett.ReadString('transf','Tvr','1'); {transformation}
       Tv_vrSTR:=Sett.ReadString('transf','Tv_vr','0'); {transformation}
       Tr_vrSTR:=Sett.ReadString('transf','Tr_vr','0'); {transformation}
-
-      TgrSTR:=Sett.ReadString('transf','Tgr','1'); {transformation}
-      Tg_grSTR:=Sett.ReadString('transf','Tg_gr','0'); {transformation}
-      Tr_grSTR:=Sett.ReadString('transf','Tr_gr','0'); {transformation}
       TriSTR:=Sett.ReadString('transf','Tri','1'); {transformation}
       Tr_riSTR:=Sett.ReadString('transf','Tr_ri','0'); {transformation}
       Ti_riSTR:=Sett.ReadString('transf','Ti_ri','0'); {transformation}
+
+
+      TgrSTR_sloan:=Sett.ReadString('transf','Tgr_s','1'); {transformation}
+      Tg_grSTR_sloan:=Sett.ReadString('transf','Tg_gr_s','0'); {transformation}
+      Tr_grSTR_sloan:=Sett.ReadString('transf','Tr_gr_s','0'); {transformation}
+      TriSTR_sloan:=Sett.ReadString('transf','Tri_s','1'); {transformation}
+      Tr_riSTR_sloan:=Sett.ReadString('transf','Tr_ri_s','0'); {transformation}
+      Ti_riSTR_sloan:=Sett.ReadString('transf','Ti_ri_s','0'); {transformation}
 
 
       sloan:=Sett.ReadBool('transf','sloan',false);
@@ -9119,22 +9143,19 @@ begin
 
       sett.writestring('stack','resize_factor',stackmenu1.resize_factor1.text);
 
+      sett.writeInteger('stack','measure_mode',stackmenu1.measuring_method1.itemindex);
       sett.writestring('stack','snr_min_p',stackmenu1.snr_min_photo1.text);
-      sett.writestring('stack','flux_aperture',stackmenu1.flux_aperture1.text);
-      sett.writestring('stack','annulus_radius',stackmenu1.annulus_radius1.text);
+      sett.writestring('stack','flux_apert',stackmenu1.flux_aperture1.text);
+      sett.writestring('stack','annulus_rad',stackmenu1.annulus_radius1.text);
       sett.writestring('stack','font_size_p',stackmenu1.font_size_photometry1.text);
       sett.writeInteger('stack','annotate_i',stackmenu1.annotate_mode1.itemindex);
-      sett.writeInteger('stack','reference_d',stackmenu1.reference_database1.itemindex);
+      sett.writestring('stack','ref_database',stackmenu1.reference_database1.text);
+
       sett.writestring('stack','max_period',stackmenu1.max_period1.text);
-
-
-      sett.writeInteger('stack','measure_mode',stackmenu1.measuring_method1.itemindex);
       sett.WriteBool('stack','set_saturation', stackmenu1.set_saturation1.checked);//photometry tab
-      sett.WriteBool('stack','photom_cal', stackmenu1.photometry_calibrate1.checked);//photometry tab
-
-
       sett.writestring('stack','saturation',stackmenu1.saturation_level1.text);
 
+      sett.WriteBool('stack','calibration', stackmenu1.photometry_calibrate1.checked);//photometry tab
       sett.writestring('stack','sigma_decolour',stackmenu1.sigma_decolour1.text);
 
       sett.writestring('stack','sd_factor_list',stackmenu1.sd_factor_list1.text);
@@ -9164,6 +9185,7 @@ begin
       sett.writeBool('aavso','baa_style',baa_style);{AAVSO report}
       sett.writeBool('aavso','sort_alphabetically',sort_alphabetically);{AAVSO report}
       sett.writeBool('aavso','apply_transformation',apply_transformation);{AAVSO report}
+      sett.writeBool('aavso','ensemble',ensemble_database);{AAVSO report}
 
 
 
@@ -9206,13 +9228,16 @@ begin
      sett.writestring('transf','Tvr',TvrSTR);
      sett.writestring('transf','Tv_vr',Tv_vrSTR);
      sett.writestring('transf','Tr_vr',Tr_vrSTR);
-
-     sett.writestring('transf','Tgr',TgrSTR);
-     sett.writestring('transf','Tg_gr',Tg_grSTR);
-     sett.writestring('transf','Tr_gr',Tr_grSTR);
      sett.writestring('transf','Tri',TriSTR);
      sett.writestring('transf','Tr_ri',Tr_riSTR);
      sett.writestring('transf','Ti_ri',Ti_riSTR);
+
+     sett.writestring('transf','Tgr_s',TgrSTR_sloan);
+     sett.writestring('transf','Tg_gr_s',Tg_grSTR_sloan);
+     sett.writestring('transf','Tr_gr_s',Tr_grSTR_sloan);
+     sett.writestring('transf','Tri_s',TriSTR_sloan);
+     sett.writestring('transf','Tr_ri_s',Tr_riSTR_sloan);
+     sett.writestring('transf','Ti_ri_s',Ti_riSTR_sloan);
 
      sett.writebool('transf','sloan',sloan);
 
@@ -11690,8 +11715,7 @@ begin
 
   apert:=strtofloat2(stackmenu1.flux_aperture1.text); {text "max" will generate a zero}
 
-
-  if ((update) or (head.mzero=0) or (aperture_ratio<>apert){new calibration required} or (passband_active<>head.passband_database))  then
+  if ((update) or (head.mzero=0) or (aperture_ratio<>apert){new calibration required} or (database_passband_active<>head.passband_database))  then
   begin
     memo2_message('Photometric calibration of the measured stellar flux.');
     annulus_radius:=14;{calibrate for extended objects}
@@ -11705,10 +11729,13 @@ begin
       if head.hfd_median<>0 then
       begin
         memo2_message('Median HFD is '+floattostrf(head.hfd_median, ffgeneral, 2,0)+'. Aperture and annulus will be adapted accordingly.');;
-        head.mzero_radius:=head.hfd_median*apert/2;{radius}
-        annul:=strtofloat2(stackmenu1.annulus_radius1.text);
-        annulus_radius:=min(50,round(head.hfd_median*annul/2)-1);{Radius. Limit to 50 to prevent runtime errors}
-      end;
+        head.mzero_radius:=head.hfd_median*apert;{radius in px}
+      end
+      else
+        memo2_message('No stars detected');
+
+      annul:=strtofloat2(stringreplace(stackmenu1.annulus_radius1.Text,'px','',[]));
+      annulus_radius:=min(50, round(annul) - 1);  {radius   -rs ..0..+rs, Limit to 50 to prevent runtime errors}
     end
     else
     memo2_message('To increase the accuracy of point sources magnitudes set a smaller aperture diameter in tab "photometry".');
@@ -12082,7 +12109,7 @@ begin
     image1.Canvas.font.color:=clwhite;
     text_height:=mainform1.image1.Canvas.textheight('T');{the correct text height, also for 4k with "make everything bigger"}
     if head.magn_limit<>0 then
-      image1.Canvas.textout(round(fontsize*2),head.height-text_height,'Limiting magnitude '+floattostrF(head.magn_limit,FFFixed,0,2)+ ' (SNR=7, aperture ⌀'+floattostrF(head.mzero_radius,FFFixed,0,2) + ')');  {magn_limit is calculated plot_and_measure_stars}
+      image1.Canvas.textout(round(fontsize*2),head.height-text_height,'Limiting magnitude '+floattostrF(head.magn_limit,FFFixed,0,2)+ ' (SNR=7, aperture radius '+floattostrF(head.mzero_radius,FFFixed,0,2) + ' px)');  {magn_limit is calculated plot_and_measure_stars}
   end
   else
   begin// to Clipboard
@@ -12619,10 +12646,29 @@ begin
  end;
 
 
+procedure Tmainform1.ApplicationIdle(Sender: TObject; var Done: Boolean);
+begin
+  if not FStartupDone then
+  begin
+    FStartupDone := True;
+    with application do
+    begin
+      if hasoption('p') then  //do photometry
+      begin
+        photometry_auto(GetOptionValue('p'));
+        halt(errorlevel); {don't save only, do mainform1.destroy. Note  mainform1.close causes a window flash briefly, so don't use}
+      end;
+    end;
+  end;
+end;
+
+
 
 procedure Tmainform1.FormCreate(Sender: TObject);
 var
    param1: string;
+//var
+//  IdleMethod: TIdleEvent;
 begin
 
   {OneInstance of ASTAP if only one parameter is specified. So if user clicks on an associated image in explorer}
@@ -12677,6 +12723,10 @@ begin
  {$IfDef Darwin}// for MacOS
   if commandline_execution=false then update_mainmenu_mac;
  {$endif}
+
+  FStartupDone:=False;
+  Application.OnIdle := self.ApplicationIdle;//for photometry_auto
+
 end;
 
 
@@ -13808,6 +13858,7 @@ begin
         '-sqm pedestal  {add measured sqm, centalt, airmass values to the solution}'+#10+
         '-focus1 file1.fit -focus2 file2.fit ....  {Find best focus using files and hyperbola curve fitting. Errorlevel is focuspos*1E4 + rem.error*1E3}'+#10+
         '-stack  path {startup with live stack tab and path selected}'+#10+
+        '-p path {create a photometry report of the files in the path. Settings should come from an .ini file in the same path}'+#10+
         #10+
         'Preference will be given to the command-line values. CSV files are written with a dot as decimal seperator.'+#10+
         'Solver result will be written to filename.ini and filename.wcs.'+#10+
@@ -13818,6 +13869,7 @@ begin
       end;
 
       //log_to_file('c:\temp\text.txt',cmdline);
+
 
       debug:=hasoption('debug'); {The debug option allows to set some solving parameters in the GUI (graphical user interface) and to test the commandline. In debug trimmed_median_background all commandline parameters are set and the specified image is shown in the viewer. Only the solve command has to be given manuallydebug trimmed_median_background }
       filespecified:=hasoption('f');
@@ -13892,16 +13944,15 @@ begin
              if isConsole then {stdout available, compile targe option -wh used}
              begin
                writeln('FOCUS='+floattostrF(focus_best,ffFixed,0,1));
-               writeln('ERROR_MIN='+floattostrF(lowest_error,ffFixed,0,5));
+               writeln('ERROR_MIN='+floattostrF(lowest_error2,ffFixed,0,5));
              end;
             {$IFDEF msWindows}
-             halt(round(focus_best)*10000 +min(9999,round(lowest_error*1000)));
+             halt(round(focus_best)*10000 +min(9999,round(lowest_error2*1000)));
             {$ELSE}
              halt(errorlevel);{report hfd in errorlevel. In linux only range 0..255 possible}
              {$ENDIF}
            end;
         end;
-
 
         if debug=false then {standard solve via command line}
         begin
@@ -14086,7 +14137,9 @@ begin
       mainform1.Stackimages1Click(nil);// make stack menu visible
     end
     else
-    load_image(filename2,img_loaded,head,mainform1.memo1.lines,true,true {plot});{show image of parameter1}
+    if  paramcount=1 then
+      load_image(filename2,img_loaded,head,mainform1.memo1.lines,true,true {plot});{show image of parameter1}
+
   end {paramcount>0}
   else
   begin
@@ -14114,6 +14167,8 @@ begin
   mainform1.StaticText_labelversion1.caption:='v'+astap_version;
 
   Application.OnHint := DisplayHint;//this line doesn't work reliable in FormCreate.
+
+
 
 end;
 
@@ -14914,7 +14969,7 @@ begin
 end;
 
 
-procedure find_star_center(img: Timage_array;box, x1,y1: integer; out xc,yc:double);{}
+procedure find_star_center(img: Timage_array;box, x1,y1: integer; out xc,yc:double);{alternative method for comets and problematic stars}
 var
   i,j,k,w,h  : integer;
   value, val, SumVal,SumValX,SumValY, Xg,Yg : double;
@@ -15786,7 +15841,14 @@ begin
   if ((stackmenu1.pagecontrol1.tabindex=8) and   (stackmenu1.measuring_method1.itemindex=0))  then {photometry}
   begin
     {star alignment}
-    HFD(img_loaded,startX,startY,14{annulus radius},99 {flux aperture restriction},0 {adu_e},hfd2,fwhm_star2,snr,flux,xc,yc); {auto center using HFD function}
+    if stackmenu1.disable_autocenter1.checked=false then
+      HFD(img_loaded,startX,startY,14{annulus radius},99 {flux aperture restriction},0 {adu_e},hfd2,fwhm_star2,snr,flux,xc,yc) {auto center using HFD function}
+    else
+    begin
+      xc:=startX;
+      yc:=startY;
+      hfd2:=0.1;
+    end;
 
     if hfd2<90 then {detected something}
     begin
@@ -15795,9 +15857,7 @@ begin
       ycf:=yc+1;
         if head.cd1_1<>0 then
         begin
-       //   pixel_to_celestial(head,xcf,ycf,0,shape_var1_ra,shape_var1_dec);{store shape position in ra,dec for positioning accurate at an other image}
           error_label1.visible:=false;
-
 
           if ((shape_nr=0) or (abs(FShapes[shape_nr-1].fitsX-xcf)>2) or (abs(FShapes[shape_nr-1].fitsY-ycf)>2)) then  //New star selected. Simple check for double click. Not fully foolproove
             GenerateShapes(shape_nr,60,60,3 {penwidth},stEllipse, clLime,'?')
@@ -15817,17 +15877,17 @@ begin
              mainform1.image1.Canvas.font.color:=clred;
              textout_at_fitscoordinates('SATURATED',xint,yint+14);//text at fitsX, fitsY
           end;
+
+          inc(shape_nr);
+          if shape_nr>=10 then
+          shape_nr:=0;
+
         end
         else
         begin
           error_label1.caption:='Can not annotate due to missing image solution!';
           error_label1.visible:=true;
         end;
-
-      inc(shape_nr);
-      if shape_nr>=10 then
-      shape_nr:=0;
-
 
       if ((annotated) and (mainform1.annotations_visible1.checked)) then
          plot_annotations(false {use solution vectors},false);//check if an annotation is near

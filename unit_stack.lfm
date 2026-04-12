@@ -1,14 +1,14 @@
 object stackmenu1: Tstackmenu1
-  Left = 237
-  Height = 807
-  Top = 139
+  Left = 112
+  Height = 704
+  Top = 171
   Width = 1756
   HorzScrollBar.Page = 300
   HorzScrollBar.Range = 1920
   VertScrollBar.Visible = False
   AllowDropFiles = True
   Caption = 'stack menu'
-  ClientHeight = 790
+  ClientHeight = 687
   ClientWidth = 1756
   Color = clForm
   Icon.Data = {
@@ -54,7 +54,7 @@ object stackmenu1: Tstackmenu1
   object PairSplitter1: TPairSplitter
     Cursor = crVSplit
     Left = 0
-    Height = 790
+    Height = 687
     Top = 0
     Width = 1920
     Align = alClient
@@ -75,7 +75,7 @@ object stackmenu1: Tstackmenu1
         Hint = 'Stack menu'
         Top = 0
         Width = 1920
-        ActivePage = lights
+        ActivePage = tab_photometry1
         Align = alClient
         AutoSize = True
         Images = ImageList2
@@ -83,7 +83,7 @@ object stackmenu1: Tstackmenu1
         ParentFont = False
         ParentShowHint = False
         ShowHint = True
-        TabIndex = 0
+        TabIndex = 8
         TabOrder = 0
         OnChange = pagecontrol1Change
         OnMouseMove = pagecontrol1MouseMove
@@ -95,7 +95,6 @@ object stackmenu1: Tstackmenu1
           ClientWidth = 1912
           ImageIndex = 22
           ParentFont = False
-          OnContextPopup = lightsContextPopup
           OnShow = lightsShow
           object nr_selected1: TLabel
             Left = 524
@@ -2393,7 +2392,7 @@ object stackmenu1: Tstackmenu1
                 Left = 561
                 Height = 27
                 Hint = 'Star database in use.  Selection will be automatic. Enter manually a database to force use. Type blank to reactivate automatic selection.'
-                Top = 89
+                Top = 88
                 Width = 72
                 BorderSpacing.Around = 5
                 DropDownCount = 20
@@ -2411,7 +2410,7 @@ object stackmenu1: Tstackmenu1
               object Label53: TLabel
                 Left = 375
                 Height = 20
-                Top = 89
+                Top = 88
                 Width = 176
                 Alignment = taRightJustify
                 AutoSize = False
@@ -2425,7 +2424,7 @@ object stackmenu1: Tstackmenu1
               object Label50: TLabel
                 Left = 377
                 Height = 20
-                Top = 33
+                Top = 32
                 Width = 176
                 Alignment = taRightJustify
                 AutoSize = False
@@ -2440,7 +2439,7 @@ object stackmenu1: Tstackmenu1
                 Left = 561
                 Height = 27
                 Hint = 'Enter the search field in degrees. The program will search in a square spiral around the start position as indicated in the viewer.'
-                Top = 33
+                Top = 32
                 Width = 72
                 BorderSpacing.Around = 5
                 ItemHeight = 19
@@ -2459,7 +2458,7 @@ object stackmenu1: Tstackmenu1
               object actual_search_distance1: TLabel
                 Left = 649
                 Height = 15
-                Top = 33
+                Top = 32
                 Width = 50
                 AutoSize = False
                 BorderSpacing.Around = 5
@@ -2704,7 +2703,7 @@ object stackmenu1: Tstackmenu1
                 Left = 696
                 Height = 23
                 Hint = 'Check-mark  this to improve solving reliability in some cases. Search window will be always large with overlap but it will slow down solving.  Default this is off.  If off  the search window size will be automatically reduced if sufficient stars are found. This option is equivalent to command line option -speed'
-                Top = 79
+                Top = 78
                 Width = 46
                 BorderSpacing.Around = 5
                 Caption = 'Slow'
@@ -2776,7 +2775,7 @@ object stackmenu1: Tstackmenu1
                 Left = 696
                 Height = 23
                 Hint = 'Use triples (three star) for pattern detection for images with less then 30 stars. In all other case use quads (four star).'
-                Top = 55
+                Top = 54
                 Width = 82
                 BorderSpacing.Around = 5
                 Caption = 'Use triples'
@@ -2789,7 +2788,7 @@ object stackmenu1: Tstackmenu1
                 Left = 696
                 Height = 23
                 Hint = 'Use SIP coeficients for accurate positional information of celestial objects and  image stitching.'
-                Top = 32
+                Top = 31
                 Width = 137
                 BorderSpacing.Around = 5
                 Caption = 'Add SIP coefficients'
@@ -2802,7 +2801,7 @@ object stackmenu1: Tstackmenu1
                 Left = 381
                 Height = 23
                 Hint = 'Use this to stack alligned on moving solar objects. Solar movement can be calculated by JPL Horizons with option "Rates; RA & DEC"'
-                Top = 127
+                Top = 126
                 Width = 167
                 Caption = 'Solar drift compensation'
                 Enabled = False
@@ -2813,7 +2812,7 @@ object stackmenu1: Tstackmenu1
                 Left = 624
                 Height = 27
                 Hint = 'Drift RA*cos(DEC)  in arcsec/hours. Get this "dRA*cosD" value from JPL Horizons'
-                Top = 127
+                Top = 126
                 Width = 80
                 TabOrder = 11
                 Text = '0'
@@ -2822,7 +2821,7 @@ object stackmenu1: Tstackmenu1
               object label_delta_ra1: TLabel
                 Left = 572
                 Height = 19
-                Top = 127
+                Top = 126
                 Width = 49
                 Caption = 'Δα["/hr]'
                 ParentColor = False
@@ -2832,7 +2831,7 @@ object stackmenu1: Tstackmenu1
                 Left = 784
                 Height = 27
                 Hint = 'Drift DEC in arcsec/hours. Get this "d(DEC)/dt" value from JPL Horizons'
-                Top = 127
+                Top = 126
                 Width = 80
                 TabOrder = 12
                 Text = '0'
@@ -2841,7 +2840,7 @@ object stackmenu1: Tstackmenu1
               object label_delta_dec1: TLabel
                 Left = 732
                 Height = 19
-                Top = 127
+                Top = 126
                 Width = 48
                 Caption = 'Δδ["/hr]'
                 ParentColor = False
@@ -2912,9 +2911,9 @@ object stackmenu1: Tstackmenu1
               Text = 'Star centering'
             end
             object Label74: TLabel
-              Left = 255
+              Left = 254
               Height = 19
-              Top = 7
+              Top = 6
               Width = 503
               Caption = 'See lights tab popup menu for "Auto selection reference object in selected images"'
               ParentColor = False
@@ -2971,7 +2970,7 @@ object stackmenu1: Tstackmenu1
               Left = 238
               Height = 29
               Hint = 'This will fill the combobox with objects visible in the selected light'
-              Top = 3
+              Top = 2
               Width = 247
               AutoSize = True
               Caption = 'Analyse the selected file in tab lights'
@@ -2979,7 +2978,7 @@ object stackmenu1: Tstackmenu1
               OnClick = analyse_objects_visible1Click
             end
             object update_solution1: TCheckBox
-              Left = 864
+              Left = 863
               Height = 23
               Hint = 'Apply this if the FITS header contains already a solution which is not accurate. '
               Top = 6
@@ -2989,7 +2988,7 @@ object stackmenu1: Tstackmenu1
               TabOrder = 2
             end
             object update_annotations1: TCheckBox
-              Left = 536
+              Left = 535
               Height = 23
               Hint = 'Apply this if you change the annotation setting. Note that the annotation x,y positions are used for alignment.'
               Top = 6
@@ -3543,39 +3542,41 @@ object stackmenu1: Tstackmenu1
           object flux_aperture1: TComboBox
             Left = 624
             Height = 27
-            Hint = 'Flux measuring aperture [x HFD ].  Typical range 1 to max. With max all star flux is measured. Can be adjusted to find the lowest standard deviation in the results (check star). Typical values 1.5 or 2.0'
+            Hint = 'Flux measuring aperture radius [x HFD ].  Typical range 1.5 to 2.0 HFD. If max is specified all star flux is measured. Can be adjusted to find the lowest standard deviation in the results (check star).'
             Top = 5
             Width = 78
-            DropDownCount = 10
+            DropDownCount = 99
             ItemHeight = 19
-            ItemIndex = 13
             Items.Strings = (
               'max'
+              '1.0'
+              '1.2'
               '1.4'
-              '1.5'
               '1.6'
-              '1.7'
               '1.8'
-              '1.9'
               '2.0'
-              '2.1'
               '2.2'
               '2.4'
               '2.6'
               '2.8'
               '3.0'
+              '3.2'
+              '3.4'
+              '3.6'
+              '3.8'
+              '4.0'
             )
             ParentFont = False
             ParentShowHint = False
             ShowHint = True
             TabOrder = 6
-            Text = '3.0'
+            Text = '1.5'
             OnChange = flux_aperture1change
           end
           object Label26: TLabel
-            Left = 552
+            Left = 560
             Height = 19
-            Top = 12
+            Top = 4
             Width = 57
             Alignment = taRightJustify
             Caption = 'Aperture:'
@@ -3596,24 +3597,25 @@ object stackmenu1: Tstackmenu1
           object annulus_radius1: TComboBox
             Left = 624
             Height = 27
-            Hint = 'Annulus inner diameter [ x HFD]. The annulus diameter has to be larger then  the aperture diameter.'
+            Hint = 'Annulus inner radius [px]. The annulus radius has to be larger then the aperture radius.'
             Top = 35
             Width = 78
             DropDownCount = 17
             ItemHeight = 19
             ItemIndex = 2
             Items.Strings = (
-              '4'
-              '5'
-              '6'
-              '7'
-              '8'
-              '9'
-              '10'
+              '20px'
+              '25px'
+              '30px'
+              '35px'
+              '40px'
+              '45px'
+              '50px'
+              '60px'
             )
             ParentFont = False
             TabOrder = 8
-            Text = '6'
+            Text = '30px'
             OnChange = flux_aperture1change
           end
           object Label27: TLabel
@@ -3681,21 +3683,19 @@ object stackmenu1: Tstackmenu1
           object reference_database1: TComboBox
             Left = 880
             Height = 27
-            Hint = 'Comparison star database to be used. Set to '#13#10'1) Online , Gaia ->auto '#13#10'or'#13#10'2) Local star database and select in tab alignment V50 or V05 for Johnson-V.'
+            Hint = 'Comparison star database to be used for accurate instrumental magnitude. Set to '#13#10'1) Online , Gaia ->auto '#13#10'or'#13#10'2) Local star database V50 for Johnson-V and B.'#13#10'or'#13#10'3) Any other database. But use comp star(s) and avoid Gaia ensemble.'
             Top = 5
             Width = 221
             DropDownCount = 17
             ItemHeight = 19
-            ItemIndex = 0
             Items.Strings = (
-              'Local star database (V only)'
               'Online Gaia'
             )
             ParentFont = False
-            Style = csDropDownList
             TabOrder = 11
-            Text = 'Local star database (V only)'
+            Text = 'V50'
             OnChange = reference_database1Change
+            OnDropDown = reference_database1DropDown
           end
           object Label19: TLabel
             Left = 1440
@@ -3942,6 +3942,14 @@ object stackmenu1: Tstackmenu1
             Width = 159
             Caption = 'Disable star autocenter'
             TabOrder = 23
+          end
+          object Label59: TLabel
+            Left = 569
+            Height = 19
+            Top = 16
+            Width = 37
+            Caption = 'radius'
+            ParentColor = False
           end
         end
         object tab_inspector1: TTabSheet
@@ -8350,14 +8358,14 @@ object stackmenu1: Tstackmenu1
     object PairSplitterSide2: TPairSplitterSide
       Cursor = crArrow
       Left = 0
-      Height = 285
+      Height = 182
       Top = 505
       Width = 1920
       ClientWidth = 1920
-      ClientHeight = 285
+      ClientHeight = 182
       object memo2: TMemo
         Left = 0
-        Height = 191
+        Height = 88
         Top = 94
         Width = 1920
         Align = alBottom
@@ -8654,81 +8662,81 @@ object stackmenu1: Tstackmenu1
     Top = 664
     Bitmap = {
       4C7A1E0000001000000010000000560900000000000078DAED990B5454C719C7
-      A76A882F90A811B59A2052A3A008451010358822F25041B141D1F82260414488
-      1A4C554AAC278AB5278FB6DAB45425D5189F11221231AE224160319A88F83AF4
-      34B6A527A7420AE96952E2FE3BB3EEB5D7CDDDC7DD595D84993DFF73EFCC7CBF
-      996FBE99D93B77D773C81D780A0909754AC57CE0212424D44905428484843AA9
-      948A737389A2042F78C1772C5EA3D108090909298A5848E66CD4F2C67DE7E6E6
-      5AF4C99857EBAF29DE543C947CE2F145F0FCBC7C6E1EC65A50C32BF9F228F68E
-      A5D8D8BABF1F51627E80251B6D21979976CCD55B6AC35A1F95DAB0766C8ABED8
-      C0137BB136B4A1387E8ED8591B7FABE69F93271CEDDB75BFD8AB1F74D0CFA64D
-      9B602CB5ACA5326B59356DF0F2BCFEF3F4DB9E587BF0F65A83EDD9FF87997E92
-      B2B27742725AE49CE52B721256BDF29BF8B4ACB7672E7E29D1D82EF5C5695D96
-      27450C48888FF2899B3B27627E5A6672CAEB6F9DCCD87BFCDBECF25BC8BCF15F
-      24DF045EB80E44177F86E8C485C9727E73F6A4AAC33BFC5090E7872589D3B0B9
-      F66FC8FB0BB0A60148BD0524DD0066D5031147B488D8F04B44262DCD94F35BB2
-      437EFFD5C97E682EEE8DBC8C40ACB9D28274CABD48B9F86B94AB03823F07465F
-      06DC6BEF2264DDEB4D727E79527846E3E15EB873A40BB667F960E9B536CCA3DC
-      8CAB40E815C09772C33F050655FE07DEF9FB1091B8A871FABC05A3257E7E42C4
-      64CD1B4FE31FFB09DECEF1412CF5F579CAF97F068CB8040CAE059C6B00A72A1D
-      BA9F6FC3C00375889E35BB40E2E7C5473EF5EBB52375B77713FC6EE368047FD2
-      042FCA0DBD08B86A81EE5594ADA46C850EC3766910B0763B22E7267E121537A7
-      A7D4C69217A67CB125DDA7217BF984FCE865C9DB871DBD8A1ED594BBA0C39394
-      EB517E173D3577D1FBE3BB703EF51DFC36BC437D880B92F899B13103E53199BA
-      60C931E7534DE85EAE83CB47AD087C796B4560F6D68AA0CCCD75618BD3AB66C4
-      276C8C9A3DA78BA9B533236E6EE098CDBBD1EB0CEDEFF47708CCDE7650CDDA8B
-      9939ABEBF34B33DA5CA8AF7D4A99BF7FF87A5AE292AE6ADAA031FAB76B491BFA
-      16B751FE8F2C666ED6B2B1B1B16ED31392D0AF88CD5713C217AE688A8A9BFB84
-      0A7E118D2FC217A581C6E94EF4ACF83835BE53BE17953F956F4C6CEC930E38D3
-      B3B1EE31E8091BF800D9992CC0069ECDB5D62073F39E4AB597CA786E07507D6D
-      D000A33A3703C3D86F0D3E661AD9E4CBFCCF37AACB349433763DD56DAA3C85BE
-      25DED8873C03B3DE905F6CB0DB49D5CDA86FB90FDD0C36303052F292D9698CFA
-      96FBA091E5BD643CDBC72D4AEF0D26D46260E4E98C0AFE8C89792CB152A90ABC
-      B3615EAD91B302BF4385FF3B14F830AAF354951674DE604B3AC2F95FE99CAE56
-      0FE37CD55ECEFAB6F6614D9CD4F26ADE29ECDDBF23E2FFA8CEF78E58FBD2A7BA
-      BA1ABC32FE4E5153D61178857828CADAF819EC2D967514DEDEF1EBECEB4FE5DE
-      B5871E48E5E5E5569599E2ADEDC74439CCF40F0B3CACF0FF7BFF3B486DB3AB35
-      9233B2F6A0227E50F0FFB1E5ED143F9BE7CF8EEBC71EEBD796FD63B3C4F3DFB1
-      DFBF9D3D7EBCEB52CD59C34CFF8F3BFF50F6B558BF62FF8BF7A78EFFFE24D6AF
-      D8FFED3D7EE6D6B4357D99DA531D81E78D9F58BFE2FCFA389F5FC5F7A76325E2
-      2F9E5F8E7C7E89F567FFDFFFC5F34B3CBFC4FB53E77CFE8BDF5FC4FFD762FF8B
-      F3BF38BF8AF3ABD8FF1DFDFCBFD781229C2CE16409274B3859C2C9124E9670B2
-      8493259C2CE16409274B3859C2C9124E96AA0AB68B70B28493259C2CE1640927
-      4B3859C2C9124E9670B28493259C2CE16409274B38593BE85281BFCDCABD40B8
-      585B7989B58597B36A7963560DAFC45ACB9B62ADE1CDB196784BAC39DE1AD614
-      6F2DABC4AB618D79B5AC9CB78595785B597B28685DBD9090502715B143E2FDED
-      E6DE55F97CA2AF33F111BCFD78EEF933D38729E7046F3FDE5EBF9D16AD243925
-      AB89B66C0D69D5E4101D13BB6765AC4EB2A3E5EBA8EEF3C7D34928B5A9D1AC27
-      BA8BBF72477DC1787C55B1462F76CFCA581DB339F53259CD5889676C69166938
-      F72AC1CD0309F739766F9C67ED9C79E59E1DBB32FE04EB97B6757D5F1CEE9C5D
-      858B3BF47DE9DB3F6BB8D6D2B21BFB69FDB9557ABB267A3DBD8EA0289DE494AD
-      25BA6B85D1F8F2740AB4DBDD417D692E5E490A3F4823214C74DC85AC8CC601D7
-      0AA3F065598A5E2C5FBC8A684FE77AA2F1C442546D73071D5FF3F13492248F29
-      8B151D33EA0AA6EAED1A4B16512DC447D9041F6690D6CBBB4271FB583C4E6611
-      D058141ACF09ED1BA5AB09F45749867C7106D135BC371D4CF41EC77E4A42D47C
-      77537BDDF5DD21B8B16702E85855F3475690D6CAAD1EA8DBE583C3290447577C
-      DF7F29B13A66C37488EA482A69A5F7DA0FB39C71E94D0F9CDEE88E43C9A499B6
-      99A4C0261D7A89349FDF3C0897DF188EF797E9DBD152DB9CFD4B89EEECA6BED0
-      E60FC4BE2504EF2F27CDB4AE9032214CEC9E95D1FEF436DA7C373086E6F5EBF9
-      6032A9295C44F0F1FA9EB8F00B179C5CEF8E7769BE50A6A22C3754D13A269667
-      8CCCB7D0F79691863D4984AEA96EA8D8E4848A5C2794D1FB32A33CF50307A82D
-      638CE2184AEB6A762F203A5ACFE601E53FBBA7A2D54FE9F3FA3A6A43FD0E3539
-      1F744CB41DED9F169356EA8F8E89DDB33269BCF2149339DDA49E1DF9AAFFA061
-      99E3CCD99853E0B4CF778D0C287EC716B6FFA099CEA1318D2DDEC19A56D70151
-      2E6AF9D1410753280FCAC363CC6F53D5F213A2FF5E2BF1549F9AB21BE299E9EF
-      E1FDDA8C11BE6FCEF70AD89BEE13727C434078ED4EC6FE9F3F0BFFB0AA9DACCE
-      2BA0307D84EF5BF31933D473B5FFD0E77E1EE63BA9E69F0153EB1112751B1227
-      E703A65EBB9F6736CC9631CF8CDC12C67C183074B1A777F0997A663B766215C6
-      855F45F08C2FF4F67E932FEAEF5919AB338CA7DEED99644FF938FAF40B731D35
-      BEB4D4508F31132AE03FE50AEB4762F4F20A2A2B757D3AC25529163D7A3FD7D5
-      7752554950640368FCE0135A89A0C83FCBD9929ECEDE5DCDC7FDAF6799DF3F0E
-      BBAC67D8FDB8F03AA98D73E6D8BE6E113DA8FD37E3236EDDEF93F1CC97B193AA
-      59FE9B3EFDA6F430C50FF3CA9DC2E23B3AA49CD9B60C1F5B903176C28974DAC6
-      BFA4F2C11ED9E1A678DF89A7F258BC681C8FF61F9C38442A1FE4BEEC87419137
-      8F0446DCD4FDC8EFDDD74CF1E3C2AFEC7F76D4B6D9A6EA478D2B9845E3B2DF54
-      BD4BBF89DD2DAD6BD7FE931FB471D2408D663B553F20B5BC909050FB91B9B35D
-      D71F0092D4FE2620676D6983875762D5B4E168DED1F1B307CFBB7EECC14B6D10
-      0725478FDF1AFE7F50AEF788
+      A76A8C2F94A811B59A2052A38088451011358822F25041B141D1F82260414488
+      1A48554AAC278AB5278F26DAB45425D518158D109188711589A28BD144C4D7A1
+      A7B1AD3D391552494F931AF7DF9975AFBDD9DCBBBB77E7EA2ACCECF99F7B67E6
+      FBCDF7DD6F66766777BDFBDD84B7909050AB54EC075E424242AD5420444848A8
+      954AA9393F9F284AF082177CCBE20D068390909090A2889D62CB462B6FED3B3F
+      3FDF6E4CD6BCD678D578B57C28C5C4138BE0F979F9DCDC8FB5A085578AE541EC
+      1D7BB971767F3FA0C2E2002B4EDA422E1BE3D8EAB73786A3312A8DE1E8B329C6
+      E2044FF4629D1843F1F93972E768FE1D9A7F4E9E708CAFEB7ED1CB0F5AE86BCD
+      9A35B09656D65E9BA3AC96317879DEF879FC3E4CAC1EBC5E6BF0618EFF7E969F
+      A52EE99298921E357DD1E2DCC4A52FBD95909EFDE694792F2459DBA53D3FB1CD
+      A2E4C85E8909D1FEF133A647CE4ACF4A497DF58D4399DB0F7C9B53750D5957FE
+      8B94ABC073978198B2CF1093342745CEAFCD195BB377D37014150CC7FCA48958
+      5BFB3714FC0558DE00A45D0392AF0053EB81C812232257FD1A51C90BB2E4FCBA
+      9CD0DF7F75A8079ACABAA0203318CB2FDC4206E59EA75CC225CAD501A33E07FC
+      CE039EB57710BAF2D54639BF283922F3C6DECEB859D2061BB3FDB1E0D26DCCA4
+      DCE48B40D805208072033F05FA9CFC0F7C0B77203269EE8D493367FB49FCACC4
+      C87186D79EC43F7612BC99EB8F381AEBB3940BFC0C18740EE85B0BB89D01DAD7
+      98D0E1C46DF4DE558798A9D38A247E6642D413BF5D31D8747D2BC1EF56FB61D4
+      278DF0A15CFFB380BB11E85043D99394AD3661C0160382566C44D48CA44FA2E3
+      A77792C698FFDCF82FD665F837E42C1A5D18B33065E3807D17D1F134E54E99F0
+      38E53A56DD4127C31D74F9F80EDC0E7F87E1ABDEA131C48748FC94B8D8DEF29C
+      4C983D7FBFDBE14674A832A1EB47CD087E717D7570CEFAEA90ACB575E1F3326A
+      262724AE8E9E36BD8DDADA991C3F2378E8DAADE87C94FA3BF21D827336ECD6B2
+      F662A74C6DFBEC82CCDB5D69ACDD2A58BC7FF87A62D2FCB65AC6A039FAB77BF9
+      6D742FBB4DF93FB29C7938CAC6C5C5794C4A4C468F52365F8D8898B3B8313A7E
+      C6631AF8B934BF88989B0E9AA79B315313E2B5C44EF9CE54815401B171718FBB
+      E04CCF9E759B458F39C107C9CE64414EF06CAE8D16D99AF734AAED54D673DB8B
+      EA6B8B7A59F5795818C67E6B8931CBCAA650167FA1555F96A59DB17954D7A90A
+      147C4BBC750C051626CF529F67B1DB4CD5CECAB73C8676161B5818A9F8C8EC0C
+      56BEE5311864751F19CFF6F12DA5EF0D2ABA6561E4E5A806FEA8CA3C963BA834
+      05DECD32AF8EC84D81DFA421FE4D0A7C38D509AA937674C2624B5AC2F95FE99C
+      AE55F7E37CF5B09CF59DF5E1489EB4F25ABE53E8EDDF15F97F50E77B57AC7DE9
+      75FAF469F0CAFA3D454B5B4BE015F2A12847F367B1B7DBD65278BDF3D7DAD79F
+      C6BDAB87BE57AAAAAA1C6A53E31DF5A3D20E1BFE61878703F1FFE07F07696C76
+      75447246361E34E40F0AF13FB2BC4EF9737AFE745C3F7AAC5F67F68FD3129FFF
+      AE7DFF6DEDF9E35D975ACE1A36FC3FEAFC7DD9D762FD8AFD2FBE3FB5FCEF4F62
+      FD8AFDFFB0E7CFD69A76C497DA9E6A093C6FFEC4FA15E7D747F9FC2ADE3F5D2B
+      917FF1F9E5CACF2FB1FEF4FFFD5F7C7E89CF2FF1FDA9757EFE8BDF5FC4FFD762
+      FF8BF3BF38BF8AF3ABD8FF2DFDFCBFDD85229C2CE16409274B3859C2C9124E96
+      70B28493259C2CE16409274B3859C2C9124E96AA06CE8B70B28493259C2CE164
+      09274B3859C2C9124E9670B28493259C2CE16409274B38591D74AE28D069E59F
+      225CACB3BCC43AC3CB59ADBC35AB8557621DE5D55847785BAC3DDE1E6B8B7784
+      55E31D6595782DAC35AF9595F3CEB012EF2CAB874256D60B0909B552111D0AEF
+      6F3777AFCAE713739FCA4BF0FAF1DCF367C3875A7082D78FD7EBB7D3D22524B7
+      7C1931562E27CD865C626262F7AC8DF54976B47D25D53DFE400609A336670C79
+      C474F6379EA82F1A89AFAA979BC5EE591BEB6336875F24CB182BF18CADC8260D
+      C75F26B8BA2BF11EC7EEADEB6C9CA32FDDB56357C61F647EE9589777C4E3E6B1
+      A538BBC9ECCB3CFE31CBB596B65DD949FB8F2F35DB35D2EB919504A51924B772
+      05315D2A8EC197475261DCE8091A4B53D91252FC413A0965A2CF5DCCDA681E70
+      A9381A5F56A69AC5EA654B89F148BE376E1C9C839A0D9EA0CFD774209D24CB73
+      CA72459F19754513CC7637CAE752CDC14739041F6692E6F35BC2707D7F020E65
+      13D05C145BCF09F58D8A6504E6AB244BBD2C93981ADE9B04267A8FFD3F27A15A
+      DEBBA9BDE9F2D6505CD9361AF45935F3258B49F3C9F55EA8DBE28FBDA904FB16
+      FF307EA9B03E66C3B487AA248D34D37BE387D96E38F7BA178EACF6C49E14D244
+      C74C566093F7BC409A4EACED83F3AF0DC4FB0BCDE318A96DEECE05C4746C4D77
+      180B7B63C77C82F7179126DA574C99502676CFDAA83FB38DB1D0038CA175F37A
+      DE9D42CE14CF25F838AF134EFDAA2B0EE579E25D5A2F96A934DB0335B48F89D5
+      19238B2DECBD85A4615B32A16BAA1DAAD7B447757E7B54D2FB4AAB3A8D03BBA8
+      2D63ACF21846FBCE6C9D4D4CB49FCD03AA7E7157A5CB9E30D7CD7DD486C61DA6
+      3A1FF499E838C63FCD23CD341E1313BB676DD2F3CA4B6CD624553D3DF8E5C03E
+      03B246D8B2B1A5E0899F6F191C54F68E336CCF3E53DCC2626FDCF21D656876EF
+      15DD552BEF17B23B95F2A03CBC86BE9DA6951F1DF3F75A89A7FA54CDAE9F7756
+      A097EF2B930705BC3ECB27687B867FE881554111B59B19FB7FFE1802C36B36B3
+      3E9FA0E28C41016FCC624C7FEF6581FD9FF96578C0D833FF0C9A508FD0E8EB90
+      38391F34E1D2BD3AB361B68C796AF0BA701643AFFEF3BC7D471DAD67B6C3C6D4
+      6044C4458C9AFC85D97EF8B8B3E67BD6C6FA2CCF53EFF1548AB7FC39BAF50877
+      1F32B2A2C2D28FA1A3AB1138FE02F3233166F9845456B83F19E9AE948B8E5D9E
+      691B30B6A63C24AA01347FF00F3B8990A83FCBD9F24E6EBE6D6DE7FDAFC758DC
+      3F0D3F6F66D8FD88883A698CE3B6D8EE1E911DA9FD372323AFDDF3C97816CBB0
+      B1A759FD9B6E3DC67754E307F8E48F67F9F50BAD62B6B7060E2BCA1C36FA6006
+      1DE35F527B5FAF9C08353E60CCE102962F9AC77D3DFB26F593DAFB782EFC7148
+      D4D592E0C8ABA69F0C7FF715357E44C4859D4F0FD9304DAD7FC888A2A9342F3B
+      D5FABBF618D3C1DEBA76EF39EE7B36FAFC874738FFBF10FE857FE1DF35FED54B
+      DB1F0192B4FE2620679D1983875762B58CE16ADED5F9D383E75D3F7AF0D218C4
+      45C5D5CFEF08FF3FDB5D3650
     }
   end
   object PopupMenu2: TPopupMenu

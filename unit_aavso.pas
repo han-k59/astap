@@ -55,6 +55,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, math,
   clipbrd, ExtCtrls, Menus, Buttons, CheckLst, strutils,comctrls, PairSplitter,
+  inifiles,
   astap_main;
 
 type
@@ -154,6 +155,7 @@ var
   obstype : integer=0;
   variable_clean: string='';
   report_stars: string='';
+  report_stars_short: string='';//used for the local .ini file
 
 var
   aavso_report : string;
@@ -176,6 +178,8 @@ procedure plot_graph; {plot curve}
 function retrieve_documented_magnitude(use_array:boolean; filter,columnr: integer; s: string): double;//retrieve comp magnitude from the abbrv string or online VSP
 procedure calc_sd_and_mean(list: array of double; leng : integer; out sd,mean: double);// calculate sd and mean of an array of doubles}
 procedure ExtractListViewDataToArrays(ListView: TListView; P_filter: Integer);
+procedure load_photometry_settings(lpath: string);
+procedure save_photometry_settings(lpath:string); //save photometry settings for this report
 
 implementation
 
@@ -208,19 +212,22 @@ type
     Tcolor_info = record
            b_v_var,  //b-v colour_var1 of the var
            v_r_var,
-           g_r_var,
            r_i_var,
+           sg_sr_var,
+           sr_si_var,
+
            b_v_comp, //b-v colour_var1 of the comparison star
            v_r_comp,
-           g_r_comp,//Sloan  g'-r'
-           r_i_comp //Sloan  r'-i'
+           r_i_comp,
+           sg_sr_comp,//Sloan  g'-r'
+           sr_si_comp //Sloan  r'-i'
            : double;
     end;
 
 
 var
   jd_min,jd_max,magn_min,magn_max : double;
-  w,h,bspace{,column_var},column_check,wtext  :integer;
+  w,h,bspace,column_check,wtext  :integer;
   column_comps,column_vars : Tinteger_array;
   test_mode : boolean;
   jd_mouse  : double;//jd_mid of mouse position
@@ -263,15 +270,17 @@ begin
   if form_aavso1.abbrv_variable1.items.count=0 then exit;
 
   hash:=inttostr(round(head.ra0*2*180/pi))+'/'+inttostr(round(head.dec0*2*180/pi)); //very simple hash key. Not perfect at boundaries
-  i:=pos(hash, report_stars);
+
+  report_stars_short:=report_stars_short+report_stars;//combine the short one with the long one. The short one was written to an .ini and retrieved
+  i:=pos(hash, report_stars_short);
   if i>0 then // restore
   begin
     with form_aavso1 do   //check mark variable
 
-    k:=posex('|',report_stars,i+1); //: and of hash
-    L:=posex(';',report_stars,k+1); //; is the end of the entry
+    k:=posex('|',report_stars_short,i+1); //: the end of the hash
+    L:=posex(';',report_stars_short,k+1); //; the end of the entry
 
-    all_comp:=copy(report_stars,k+1,L-k-1);//all comp stars
+    all_comp:=copy(report_stars_short,k+1,L-k-1);//all comp stars
 
     //split all stars
     count:=0;
@@ -331,7 +340,9 @@ begin
     j:=posex(';',report_stars,i); //find end of entry
     delete(report_stars,i,j-i+1); //delete entry
   end;
-  report_stars:=report_stars+ hash+'|'+other_stars+';';
+
+  report_stars_short:=hash+'|'+other_stars+';';
+  report_stars:=report_stars+ report_stars_short;
   if length(report_stars)>10000 then report_stars:=copy(report_stars,200,10999);//limit size. Throw oldest part away.
 end;
 
@@ -450,7 +461,7 @@ begin
     if ((filter=-1) or (filter=1)) then //V
       result:=strtofloat1(vsp[vsp_vsx_list[theindex].index].Vmag)
     else
-    if ((filter=0) or (filter =24)) then  //R or Cousins red
+    if filter =24 then  //Rc=Cousins red
       result:=strtofloat1(vsp[vsp_vsx_list[theindex].index].Rmag)
     else
     if filter=2 then  //Blue
@@ -478,8 +489,11 @@ begin
     if filter=2 then  //get v magnitude
       result:=retrieve_magnitude_local('B=')
     else
-    if ((filter=0) or (filter=24)) then  //get R magnitude
+    if filter=24 then  //get R magnitude
       result:=retrieve_magnitude_local('R=')
+    else
+    if filter=28 then  //get I magnitude
+      result:=retrieve_magnitude_local('I=')
     else
     if filter=23 then  //get SG magnitude
       result:=retrieve_magnitude_local('SG=')
@@ -655,7 +669,7 @@ end;
 procedure work_on_comp_stars;
 var
   c, count,icon_nr                   : integer;
-  mean_sd_comp,b_mag, v_mag, r_mag, sg_mag,sr_mag,si_mag    : double;
+  mean_sd_comp,b_mag, v_mag, r_mag,i_mag, sg_mag,sr_mag,si_mag    : double;
   mess                               : string;
 
 begin
@@ -673,6 +687,7 @@ begin
   b_mag:=-99;
   v_mag:=-99;
   r_mag:=-99;
+  i_mag:=-99;
   sg_mag:=-99;
   sr_mag:=-99;
   si_mag:=-99;
@@ -692,13 +707,13 @@ begin
         icon_nr:=SubItemImages[c];
 
         case icon_nr of
-                  2:
-                     if b_mag<0 then  b_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude for one image only
+           {blue} 2:   if b_mag<0 then  b_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude for one image only
                   1:   if v_mag<0 then  v_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude  for one image only
-                  0,24:if r_mag<0 then  r_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude  for one image only
-                  23  :if sg_mag<0 then  sg_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude  for one image only
-                  22  :if sr_mag<0 then  sr_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude for one image only
-                  21  :if si_mag<0 then  si_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude for one image only
+           {red}  24  :if r_mag<0 then  r_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude  for one image only
+           {I}    28  :if i_mag<0 then  i_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude  for one image only
+           {sg}   23  :if sg_mag<0 then  sg_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude  for one image only
+           {SR}   22  :if sr_mag<0 then  sr_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude for one image only
+           {SI}   21  :if si_mag<0 then  si_mag:=21- ln(comps_info[c].ratio*comps_info[c].sum_flux_measured)*2.5/ln(10); //convert flux to magnitude for one image only
         end;//case
       end;//valid data
     end;
@@ -707,6 +722,7 @@ begin
   mess:='Comp';
   if ((b_mag>-99) and (v_mag>-99)) then mess:=mess+' b-v:='+floattostr3(b_mag-v_mag);
   if ((v_mag>-99) and (r_mag>-99)) then mess:=mess+' v-r:='+floattostr3(v_mag-r_mag);
+  if ((r_mag>-99) and (i_mag>-99)) then mess:=mess+' r-i:='+floattostr3(r_mag-i_mag);
   if ((sg_mag>-99) and (sr_mag>-99)) then mess:=mess+' sg-sr:='+floattostr3(sg_mag-sr_mag);
   if ((sr_mag>-99) and (si_mag>-99)) then mess:=mess+' sr-si:='+floattostr3(sr_mag-si_mag);
 
@@ -801,7 +817,7 @@ var
 begin
   icon_nr:=SubItemImages[c];
   case icon_nr of
-            0,24: result:=0;//R
+           24: result:=24;//R
             1: result:=1;//V or TG
             2: result:=2;// B;
             28:result:=28;//I FILTER
@@ -817,19 +833,17 @@ end;
 procedure calc_star_colour(columnr : integer);//calculate the b-v, v-r, sg-sr,sr-si. Output is array color_info
 var
   fluxB,fluxV,exposuretimeB,exposuretimeV, exposure_correction,dateB,dateV,diff,b_v_var,b_v_comp,best_diff   : double;
-  k, closest_image                : Integer;
+  k, closest_image  : Integer;
 
-       procedure find_colour(iconB,iconV,iconV2: integer);// Brute-force search: compare every green with every blue julian day
+       procedure find_colour(bluer,redder: integer);// Brute-force search: compare every green with every blue julian day
        var
          i,j: integer;
-         match : boolean;
        begin
          for i:=0 to high(RowChecked) do {retrieve data from listview}
          begin
-           match:=false;
            if RowChecked[i] then
            begin
-             if  ((SubItemImages[i]=iconV) or (SubItemImages[i]=iconV2)) then //V filter
+             if  SubItemImages[i]=redder then //V filter
              begin
                dateV:=SubItemDouble[i,P_jd_mid];//in julian days
                closest_image:=-1;
@@ -837,7 +851,7 @@ var
                for j:=0 to high(RowChecked) do {retrieve data from listview}
                if ((i<>j) and (RowChecked[j])) then  //(i<>j) is not required but makes it a tiny amount faster
                begin
-                 if  SubItemImages[j]=iconB then //blue
+                 if  SubItemImages[j]=bluer then //B filter
                  begin
                    dateB:=SubItemDouble[j,P_jd_mid];// date in julian days
 
@@ -871,30 +885,36 @@ var
                      b_v_var:= ln(fluxB*exposure_correction/fluxV)*-2.5/ln(10); //convert var flux to magnitude using
                      b_v_comp:=ln(comps_info[j].sum_flux_measured {b} *exposure_correction/(comps_info[i].sum_flux_measured {v}))*-2.5/ln(10);
 
-                     case iconB of
-                               2:begin
+                     case bluer of
+                               2:begin   //colour(2,1);  Find B and V
                                    color_info[i].b_v_var:= b_v_var;
                                    color_info[i].b_v_comp:=b_v_comp;
                                    color_info[j].b_v_var:= b_v_var; //store in both images b-v
                                    color_info[j].b_v_comp:=b_v_comp;
                                  end;
-                               1:begin
+                               1:begin //colour(1,24);   Find V and R
                                    color_info[i].v_r_var:= b_v_var;
                                    color_info[i].v_r_comp:=b_v_comp;
                                    color_info[j].v_r_var:= b_v_var;
                                    color_info[j].v_r_comp:=b_v_comp;
                                  end;
-                               23:begin
-                                   color_info[i].g_r_var:= b_v_var;
-                                   color_info[i].g_r_comp:=b_v_comp;
-                                   color_info[j].g_r_var:= b_v_var;
-                                   color_info[j].g_r_comp:=b_v_comp;
-                                 end;
-                               22:begin
+                              24:begin //colour(24,28);  Find R and I
                                    color_info[i].r_i_var:= b_v_var;
                                    color_info[i].r_i_comp:=b_v_comp;
                                    color_info[j].r_i_var:= b_v_var;
                                    color_info[j].r_i_comp:=b_v_comp;
+                                 end;
+                               23:begin  //(23,22);  Find SG and SR
+                                   color_info[i].sg_sr_var:= b_v_var;
+                                   color_info[i].sg_sr_comp:=b_v_comp;
+                                   color_info[j].sg_sr_var:= b_v_var;
+                                   color_info[j].sg_sr_comp:=b_v_comp;
+                                 end;
+                               22:begin //colour(22,21);  Find SR and SI
+                                   color_info[i].sr_si_var:= b_v_var;
+                                   color_info[i].sr_si_comp:=b_v_comp;
+                                   color_info[j].sr_si_var:= b_v_var;
+                                   color_info[j].sr_si_comp:=b_v_comp;
                                  end;
                           end;//case
                     end;//flox okay
@@ -915,36 +935,44 @@ begin
   begin
     color_info[k].b_v_var:=-99;
     color_info[k].v_r_var:=-99;
-    color_info[k].g_r_var:=-99;
     color_info[k].r_i_var:=-99;
+    color_info[k].sg_sr_var:=-99;
+    color_info[k].sr_si_var:=-99;
+
     color_info[k].b_v_comp:=-99;
     color_info[k].v_r_comp:=-99;
-    color_info[k].g_r_comp:=-99;
     color_info[k].r_i_comp:=-99;
+    color_info[k].sg_sr_comp:=-99;
+    color_info[k].sr_si_comp:=-99;
   end;
 
   with form_aavso1 do
   begin
-    find_colour(2,1,999{, color_info[k].b_v_var, b_v_comp, bv_pair});    //Find B and V image with closest Julian day. Brute-force search: compare every green with every blue julian day
-    find_colour(1,0,24{,  v_r_var, v_r_comp, vr_pair});    //Find V and R image with closest Julian day. Brute-force search: compare every green with every blue julian day
-    find_colour(23,22,999{,  g_r_var, g_r_comp, gr_pair}); //Find SI and SR image with closest Julian day. Brute-force search: compare every green with every blue julian day
-    find_colour(22,21,999{,  r_i_var, r_i_comp, ri_pair}); //Find SR and SI image with closest Julian day. Brute-force search: compare every green with every blue julian day
+    find_colour(2,1);    //Find B and V image with closest Julian day. Brute-force search: compare every green with every blue julian day
+    find_colour(1,24);   //Find V and R image with closest Julian day. Brute-force search: compare every green with every blue julian day
+    find_colour(24,28);  //Find R and I image with closest Julian day. Brute-force search: compare every green with every blue julian day
+    find_colour(23,22);  //Find SG and SR image with closest Julian day. Brute-force search: compare every green with every blue julian day
+    find_colour(22,21);  //Find SR and SI image with closest Julian day. Brute-force search: compare every green with every blue julian day
   end;//form_aavso1
 end;
 
 
 procedure plot_graph; {plot curve}
 var
-  x1,y1,c,textp1,textp2,textp3,textp4, nrmarkX, nrmarkY,date_column,count_v,count_b,count_r,count_i, count_sg,count_si, count_sr,k,icon_nr,i,j,vars_end,x,y,index,fc,countdelta, m,counter : integer;
+  x1,y1,c,textp1,textp2,textp3,textp4, nrmarkX, nrmarkY,date_column,count_v,count_b,count_r,count_i, count_sg,count_si, count_sr,k,icon_nr,i,vars_end,x,y,index,fc,countdelta, m,counter : integer;
   scale,range, dummy,flux,magn_gaia,
   check_doc_magB,check_doc_magR, check_doc_magV, check_doc_magI,
   check_doc_magSG, check_doc_magSR, check_doc_magSI,
-  Bcorrection,Vcorrection,Rcorrection,
+  Bcorrection,Vcorrection,Rcorrection, Icorrection,
   SGcorrection,SRcorrection,SIcorrection,
   checkmeanB,checkmeanV,checkmeanR,checkmeanI,checkmeanSG,checkmeanSR,checkmeanSI,
-  b_v_check, v_r_check,g_r_check, r_i_check, b_v_comp, v_r_comp, g_r_comp, r_i_comp,average_var_magn,jb,jv,jr,sg,sr,si  : double;
+  b_v_check, v_r_check, r_i_check,
+  sg_sr_check, sr_si_check,
+  b_v_comp, v_r_comp, r_i_comp,
+  sg_sr_comp, sr_si_comp,
+  average_var_magn,jb,jv,jr,ji,sg,sr,si  : double;
   text1,text2, date_format, abbrv_var,
-  Bcorrectionstr,Vcorrectionstr,Rcorrectionstr,
+  Bcorrectionstr,Vcorrectionstr,Rcorrectionstr,Icorrectionstr,
   SGcorrectionstr,SRcorrectionstr,SIcorrectionstr,var_colours : string;
   bmp: TBitmap;
   data  : array of array of double;
@@ -1083,9 +1111,6 @@ begin
 
 
   setlength(data,2+length(column_vars)+length(column_comps), length(RowChecked));//In case the length is set to a larger length than the current one, the new elements are zeroed out for a dynamic array. See https://www.freepascal.org/docs-html/rtl/system/setlength.html.
-  //for i:=0 to high(data) do
-  //  for j:=0 to high(data[0]) do
-  //    data[i,j]:=0;//clear
   setlength(listcheck_v,length(data[0]));//list with magnitudes check star
   setlength(listcheck_b,length(data[0]));//list with magnitudes check star
   setlength(listcheck_r,length(data[0]));//list with magnitudes check star
@@ -1134,7 +1159,7 @@ begin
             data[1,c]:=dummy;
             magn_max:=max(magn_max,data[1,c]);
             magn_min:=min(magn_min,data[1,c]);
-            case SubItemImages[c] of 0,24: begin listcheck_r[count_r]:= data[1,c]; inc(count_r);  end;//Red
+            case SubItemImages[c] of   24: begin listcheck_r[count_r]:= data[1,c]; inc(count_r);  end;//Red
                                         1:
                                            begin listcheck_v[count_v]:= data[1,c]; inc(count_v);  end;//TG or V
                                         2: begin listcheck_b[count_b]:= data[1,c]; inc(count_b);  end;//Blue
@@ -1210,12 +1235,9 @@ begin
               data[1,c]:= 21- ln(comps_info[c].ratio*flux)*2.5/ln(10); //convert flux to magnitude
               magn_max:=max(magn_max,data[1,c]);
               magn_min:=min(magn_min,data[1,c]);
-              case SubItemImages[c] of 0,24: begin listcheck_r[count_r]:= data[1,c]; inc(count_r);  end;//Red
-                                          1:
-                                             begin listcheck_v[count_v]:= data[1,c]; inc(count_v);  end;//TG or V
-                                          2: begin
-                                               listcheck_b[count_b]:= data[1,c]; inc(count_b);
-                                          end;//Blue
+              case SubItemImages[c] of   24: begin listcheck_r[count_r]:= data[1,c]; inc(count_r);  end;//R, Rc
+                                          1: begin listcheck_v[count_v]:= data[1,c]; inc(count_v);  end;//TG or V
+                                          2: begin listcheck_b[count_b]:= data[1,c]; inc(count_b);  end;//Blue
                                           28:
                                              begin listcheck_i[count_i]:= data[1,c]; inc(count_i);  end;//I FILTER
                                           21:
@@ -1288,8 +1310,8 @@ begin
   end;
   if count_r>0 then
   begin
-    calc_sd_and_mean(listcheck_r, count_r{counter},{var}photometry_stdev[0], checkmeanR);// calculate sd and mean of an array of doubles}
-    check_doc_magR:=retrieve_documented_magnitude(true,0,column_check, ColumnTitles[column_check+1]);
+    calc_sd_and_mean(listcheck_r, count_r{counter},{var}photometry_stdev[24], checkmeanR);// calculate sd and mean of an array of doubles}
+    check_doc_magR:=retrieve_documented_magnitude(true,24,column_check, ColumnTitles[column_check+1]);
   end;
 
   if count_i>0 then
@@ -1330,12 +1352,15 @@ begin
 
        b_v_check:=-99; //-99 can be store exactly in a double and used in comparison.
        v_r_check:=-99;
-       g_r_check:=-99;
        r_i_check:=-99;
+       sg_sr_check:=-99;
+       sr_si_check:=-99;
+
        b_v_comp:=-99;
        v_r_comp:=-99;
-       g_r_comp:=-99;
        r_i_comp:=-99;
+       sg_sr_comp:=-99;
+       sr_si_comp:=-99;
 
        for i:=0 to high(color_info) do  //Keep it simple,just find  one valid pair in the list. Check and comp star b-v should be reasonable constant
        begin
@@ -1344,60 +1369,88 @@ begin
          if color_info[i].b_v_comp<>-99 then b_v_comp:=color_info[i].b_v_comp;
          if color_info[i].v_r_var<>-99 then  v_r_check:=color_info[i].v_r_var;//since procedure get_bv_var was fed with check colum, this is valid
          if color_info[i].v_r_comp<>-99 then  v_r_comp:=color_info[i].v_r_comp;
-         if color_info[i].g_r_var<>-99 then  g_r_check:=color_info[i].g_r_var;//since procedure get_bv_var was fed with check colum, this is valid
-         if color_info[i].g_r_comp<>-99 then g_r_comp:=color_info[i].g_r_comp;
          if color_info[i].r_i_var<>-99 then  r_i_check:=color_info[i].r_i_var;//since procedure get_bv_var was fed with check colum, this is valid
          if color_info[i].r_i_comp<>-99 then r_i_comp:=color_info[i].r_i_comp;
+
+         if color_info[i].sg_sr_var<>-99 then  sg_sr_check:=color_info[i].sg_sr_var;//since procedure get_bv_var was fed with check colum, this is valid
+         if color_info[i].sg_sr_comp<>-99 then sg_sr_comp:=color_info[i].sg_sr_comp;
+         if color_info[i].sr_si_var<>-99 then  sr_si_check:=color_info[i].sr_si_var;//since procedure get_bv_var was fed with check colum, this is valid
+         if color_info[i].sr_si_comp<>-99 then sr_si_comp:=color_info[i].sr_si_comp;
        end;
 
-       if ((b_v_check<>-99) and (b_v_comp<>-99)) then //apply transformation on check star to check transformation
+
+       // B-V block — B and V corrections from B-V pair
+       if ((b_v_check<>-99) and (b_v_comp<>-99)) then
        begin
          Bcorrection:= strtofloat2(Tb_bvSTR) * strtofloat2(TbvSTR) * (b_v_check - b_v_comp);
          Vcorrection:= strtofloat2(Tv_bvSTR) * strtofloat2(TbvSTR) * (b_v_check - b_v_comp);
-         Bcorrectionstr:=', transformed b-B='+floattostrF(checkmeanB-check_doc_magb+Bcorrection,ffFixed,0,3);
-         Vcorrectionstr:=', transformed v-V='+floattostrF(checkmeanV-check_doc_magV+Vcorrection,ffFixed,0,3);
+         Bcorrectionstr:=', transformed b-B='+floattostrF(checkmeanB-check_doc_magB+Bcorrection,ffFixed,0,3);
+         Vcorrectionstr:=', transformed v-V='+floattostrF(checkmeanV-check_doc_magV+Vcorrection,ffFixed,0,3)+' (B-V pair)';
        end
        else
-       if b_v_comp=-99 then Bcorrectionstr:=', no sequential b & v pairs';
+         if b_v_comp=-99 then begin Bcorrectionstr:=', no sequential b & v pairs'; Vcorrectionstr:=Bcorrectionstr; end;
 
-
-
-       if ((v_r_check<>-99) and (v_r_comp<>-99))then //apply transformation on check star to check transformation
+       // V-R block — only set Vcorrection if not already set from B-V pair
+       //             always set Rcorrection since R has no other source yet
+       if ((v_r_check<>-99) and (v_r_comp<>-99)) then
        begin
-         Vcorrection:= strtofloat2(Tv_vrSTR) * strtofloat2(TvrSTR) * (v_r_check - v_r_comp);
          Rcorrection:= strtofloat2(Tr_vrSTR) * strtofloat2(TvrSTR) * (v_r_check - v_r_comp);
-         Vcorrectionstr:=', transformed v-V='+floattostrF(checkmeanV-check_doc_magV+Vcorrection,ffFixed,0,3);
          Rcorrectionstr:=', transformed r-R='+floattostrF(checkmeanR-check_doc_magR+Rcorrection,ffFixed,0,3);
+         if copy(Vcorrectionstr,3,1)='n' then  // only use V-R for V if B-V was not available
+         begin
+           Vcorrection:= strtofloat2(Tv_vrSTR) * strtofloat2(TvrSTR) * (v_r_check - v_r_comp);
+           Vcorrectionstr:=', transformed v-V='+floattostrF(checkmeanV-check_doc_magV+Vcorrection,ffFixed,0,3)+' (V-R pair)';
+         end;
        end
        else
-       if v_r_comp=-99 then Rcorrectionstr:=', no sequential v & r pairs';
+         if v_r_comp=-99 then Rcorrectionstr:=', no sequential v & r pairs';
 
-       if ((b_v_comp=-99) and (v_r_comp=-99)) then Vcorrectionstr:=', no sequential b & v or v & r pairs';
-
-
-       if ((g_r_check<>-99) and (g_r_comp<>-99)) then //apply transformation on check star to check transformation
+       // R-I block — only set Rcorrection if not already set from V-R pair
+       if ((r_i_check<>-99) and (r_i_comp<>-99)) then
        begin
-         SGcorrection:= strtofloat2(Tg_grSTR) * strtofloat2(TgrSTR) * (g_r_check - g_r_comp);
-         SRcorrection:= strtofloat2(Tr_grSTR) * strtofloat2(TgrSTR) * (g_r_check - g_r_comp);
+         Icorrection:= strtofloat2(Ti_riSTR) * strtofloat2(TriSTR) * (r_i_check - r_i_comp);
+         Icorrectionstr:=', transformed i-I='+floattostrF(checkmeanI-check_doc_magI+Icorrection,ffFixed,0,3);
+         if copy(Rcorrectionstr,3,1)='n' then  // only use R-I for R if V-R was not available
+         begin
+           Rcorrection:= strtofloat2(Tr_riSTR) * strtofloat2(TriSTR) * (r_i_check - r_i_comp);
+           Rcorrectionstr:=', transformed r-R='+floattostrF(checkmeanR-check_doc_magR+Rcorrection,ffFixed,0,3)+' (R-I pair)';
+         end;
+       end
+       else
+         if r_i_comp=-99 then Icorrectionstr:=', no sequential r & i pairs';
+
+       // Fallback message for V if neither pair was available
+       if ((b_v_comp=-99) and (v_r_comp=-99) and (r_i_comp=-99)) then
+         Vcorrectionstr:=', no sequential b & v or v & r or r & i pairs';
+
+       // SG-SR block — SG and SR corrections from SG-SR pair
+       if ((sg_sr_check<>-99) and (sg_sr_comp<>-99)) then
+       begin
+         SGcorrection:= strtofloat2(Tg_grSTR_sloan) * strtofloat2(TgrSTR_sloan) * (sg_sr_check - sg_sr_comp);
+         SRcorrection:= strtofloat2(Tr_grSTR_sloan) * strtofloat2(TgrSTR_sloan) * (sg_sr_check - sg_sr_comp);
          SGcorrectionstr:=', transformed g-G='+floattostrF(checkmeanSG-check_doc_magSG+SGcorrection,ffFixed,0,3);
-         SRcorrectionstr:=', transformed r-R='+floattostrF(checkmeanSR-check_doc_magSR+SRcorrection,ffFixed,0,3);
+         SRcorrectionstr:=', transformed r-R='+floattostrF(checkmeanSR-check_doc_magSR+SRcorrection,ffFixed,0,3)+' (SG-SR pair)';
        end
        else
-       if g_r_comp=-99 then SGcorrectionstr:=', no sequential g & r pairs';
+         if sg_sr_comp=-99 then begin SGcorrectionstr:=', no sequential g & r pairs'; SRcorrectionstr:=SGcorrectionstr; end;
 
-
-
-       if ((r_i_check>-99) and (r_i_comp<>-99)) then //apply transformation on check star to check transformation
+       // SR-SI block — only set SRcorrection if not already set from SG-SR pair
+       if ((sr_si_check<>-99) and (sr_si_comp<>-99)) then  // fixed: was >-99
        begin
-         SRcorrection:= strtofloat2(Tr_riSTR) * strtofloat2(TriSTR) * (r_i_check - r_i_comp);
-         SIcorrection:= strtofloat2(Ti_riSTR) * strtofloat2(TriSTR) * (r_i_check - r_i_comp);
-         SRcorrectionstr:=', transformed r-R='+floattostrF(checkmeanSR-check_doc_magSR+SRcorrection,ffFixed,0,3);
+         SIcorrection:= strtofloat2(Ti_riSTR_sloan) * strtofloat2(TriSTR_sloan) * (sr_si_check - sr_si_comp);
          SIcorrectionstr:=', transformed i-I='+floattostrF(checkmeanSI-check_doc_magSI+SIcorrection,ffFixed,0,3);
+         if copy(SRcorrectionstr,3,1)='n' then  // only use SR-SI for SR if SG-SR was not available
+         begin
+           SRcorrection:= strtofloat2(Tr_riSTR_sloan) * strtofloat2(TriSTR_sloan) * (sr_si_check - sr_si_comp);
+           SRcorrectionstr:=', transformed r-R='+floattostrF(checkmeanSR-check_doc_magSR+SRcorrection,ffFixed,0,3)+' (SR-SI pair)';
+         end;
        end
        else
-       if r_i_comp=-99 then SIcorrectionstr:=', no sequential r & i pairs';
+         if sr_si_comp=-99 then SIcorrectionstr:=', no sequential r & i pairs';
 
-       if ((g_r_comp=-99) and (r_i_comp=-99)) then SRcorrectionstr:=', no sequential g & r or r & i pairs';
+       // Fallback message for SR if neither Sloan pair was available
+       if ((sg_sr_comp=-99) and (sr_si_comp=-99)) then SRcorrectionstr:=', no sequential g & r or r & i pairs';
+
     end;
 
   end
@@ -1419,7 +1472,7 @@ begin
   if ((count_r>0) and (check_doc_magR>-99)) then
     message:=message+'Check r-R='+floattostrF(checkmeanR-check_doc_magR,ffFixed,0,3)+Rcorrectionstr+', σ='+floattostrF(photometry_stdev[0],ffFixed,0,3)+#10+#13;//report offsets
   if ((count_i>0) and (check_doc_magI>-99)) then
-    message:=message+'Check i-I='+floattostrF(checkmeanI-check_doc_magI,ffFixed,0,3)+', σ='+floattostrF(photometry_stdev[28],ffFixed,0,3)+#10+#13;//report offsets
+    message:=message+'Check i-I='+floattostrF(checkmeanI-check_doc_magI,ffFixed,0,3)+Icorrectionstr+', σ='+floattostrF(photometry_stdev[28],ffFixed,0,3)+#10+#13;//report offsets
   if ((count_sg>0) and (check_doc_magSG>-99)) then
   message:=message+'Check sg-SG='+floattostrF(checkmeanSG-check_doc_magSG,ffFixed,0,3)+SGcorrectionstr+', σ='+floattostrF(photometry_stdev[23],ffFixed,0,3)+#10+#13;//report offsets
   if ((count_sr>0) and (check_doc_magSR>-99)) then
@@ -1438,9 +1491,9 @@ begin
   begin
     icon_nr:=SubItemImages[c];
     case icon_nr of
-              0,24: filtercolor[c]:=clred;
-              1: filtercolor[c]:=clgreen;
-              2: filtercolor[c]:=clblue;
+              24: filtercolor[c]:=clred;
+              1 : filtercolor[c]:=clgreen;
+              2 : filtercolor[c]:=clblue;
               28:filtercolor[c]:=clMaroon; //I FILTER
               21 :filtercolor[c]:=clMaroon;//SDSS-i
               22 :filtercolor[c]:=$008CFF {orange};//SDSS-r
@@ -1601,6 +1654,7 @@ begin
       jb:=0;
       jv:=0;
       jr:=0;
+      ji:=0;
       sg:=0;
       sr:=0;
       si:=0;
@@ -1641,6 +1695,7 @@ begin
           end;
         end;//c loop
         if counter<>0 then average_var_magn:= average_var_magn/counter; //average colour for this filter
+        if color_list[fc]=clMaroon then ji:=average_var_magn;//infrared
         if color_list[fc]=clred then jr:=average_var_magn;
         if color_list[fc]=clgreen then jv:=average_var_magn;
         if color_list[fc]=clblue then jb:=average_var_magn;
@@ -1656,6 +1711,7 @@ begin
         var_colours:=var_colours+abbrv_var+': ';
         if ((jb<>0) and (jv<>0)) then var_colours:=var_colours+'b-v='+floattostr2(jb-jv)+'  ';
         if ((jv<>0) and (jr<>0)) then var_colours:=var_colours+'v-r='+floattostr2(jv-jr)+'  ';
+        if ((jr<>0) and (ji<>0)) then var_colours:=var_colours+'r-i='+floattostr2(jr-ji)+'  ';
         if ((sg<>0) and (sr<>0)) then var_colours:=var_colours+'sg-sr='+floattostr2(sg-sr)+'  ';
         if ((sr<>0) and (si<>0)) then var_colours:=var_colours+'sr-si='+floattostr2(sr-si)+'  ';
         if  k<vars_end-1 then var_colours:=var_colours+#10;//do not add #10 to last line
@@ -1893,7 +1949,7 @@ begin
   plot_graph;
 end;
 
-//idea to combine red, green and blue in ration. Doesn't change much.
+//idea to combine red, green and blue in ratio. Doesn't change much.
 {procedure Tform_aavso1.Button1Click(Sender: TObject);
 var
    c,i,count_r,count_g,count_b,k,blueposition,redposition     : integer;
@@ -2180,7 +2236,7 @@ begin
   obstype1.ItemIndex:=obstype;
   aavso_report:='';
 
- // form_aavso1.height:=report_to_clipboard1.top+report_to_clipboard1.height+5;//autosize in height. note form_aavso1.autosize:=true doesn't work welll for the timage
+  pairsplitter1.position:=report_to_clipboard1.top+report_to_clipboard1.height+8;//set correct for 4k screens with hiDPI settings. Works only in show. Not in create
 
   if p_nr=p_nr_norm then
   begin
@@ -2208,16 +2264,85 @@ begin
 end;
 
 
+procedure save_photometry_settings(lpath:string); //save photometry settings for this report
+var
+    Sett : TmemIniFile;
+    c,k    : integer;
+    ra,dec : double;
+begin
+  try
+    Sett := TmemIniFile.Create(lpath);
+    sett.clear; {clear any section in the old ini file}
+    with mainform1 do
+    begin
+      sett.writeBool('aavso_report','apply_transformation',apply_transformation);{AAVSO report}
+      sett.writeBool('aavso_report','ensemble',ensemble_database);{AAVSO report}
+
+      sett.writeInteger('photometry_tab','measure_mode',stackmenu1.measuring_method1.itemindex);
+      sett.writestring('photometry_tab','snr_min_p',stackmenu1.snr_min_photo1.text);
+      sett.writestring('photometry_tab','flux_apert',stackmenu1.flux_aperture1.text);
+      sett.writestring('photometry_tab','annulus_rad',stackmenu1.annulus_radius1.text);
+      sett.writeInteger('photometry_tab','annotate_i',stackmenu1.annotate_mode1.itemindex);
+      sett.writeString('photometry_tab','ref_database',stackmenu1.reference_database1.text);
+      sett.writestring('photometry_tab','max_period',stackmenu1.max_period1.text);// required?
+      sett.WriteBool('photometry_tab','calibration',stackmenu1.photometry_calibrate1.checked);
+      sett.WriteBool('photometry_tab','set_saturation', stackmenu1.set_saturation1.checked);//photometry tab
+      sett.writestring('photometry_tab','saturation',stackmenu1.saturation_level1.text);
+      sett.writestring('photometry_tab',';Format stars: hash|check|star1|star2|star3|star4|star5....;  The hash is the rounded 2*RA/2*DEC in degrees.','');
+      sett.writestring('photometry_tab','stars',report_stars_short);
+
+    end;{mainform1}
+  finally
+    Sett.Free;
+  end;
+end;
+
+
+procedure load_photometry_settings(lpath: string);
+var
+    Sett : TmemIniFile;
+    dum,dum2 : string;
+    c   : integer;
+    bool: boolean;
+    stars : Tstar_list;
+begin
+  try
+    Sett := TmemIniFile.Create(lpath);
+    with mainform1 do
+    begin
+      apply_transformation:=Sett.ReadBool('aavso_report','apply_transformation',false);//aavso report
+      ensemble_database:=Sett.ReadBool('aavso_report','ensemble',false);//aavso report
+
+      c:=Sett.ReadInteger('photometry_tab','measure_mode',1); stackmenu1.measuring_method1.itemindex:=max(c,1);//Do not allow mode one
+      dum:=Sett.ReadString('photometry_tab','snr_min_p',''); if dum<>'' then stackmenu1.snr_min_photo1.text:=dum;
+      dum:=Sett.ReadString('photometry_tab','flux_apert',''); if dum<>'' then stackmenu1.flux_aperture1.text:=dum;
+      dum:=Sett.ReadString('photometry_tab','annulus_rad',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
+
+      c:=Sett.ReadInteger('photometry_tab','annotate_i',2); stackmenu1.annotate_mode1.itemindex:=c;
+      dum:=Sett.ReadString('photometry_tab','ref_database','');
+                   if dum<>'' then stackmenu1.reference_database1.text:=dum;
+      dum:=Sett.ReadString('photometry_tab','max_period',''); if dum<>'' then stackmenu1.max_period1.text:=dum;
+      stackmenu1.photometry_calibrate1.checked:= Sett.ReadBool('photometry_tab','calibration',false);//photometry tab
+      stackmenu1.set_saturation1.checked:= Sett.ReadBool('photometry_tab','set_saturation',false);//photometry tab
+      dum:=Sett.ReadString('photometry_tab','saturation',''); if dum<>'' then stackmenu1.saturation_level1.text:=dum;
+      report_stars_short:=Sett.ReadString('photometry_tab','stars','');//retrieve stars used
+    end; //with mainform1
+  finally {also for error it end's here}
+    Sett.Free;
+  end;
+
+end;
+
 
 procedure Tform_aavso1.report_to_clipboard1Click(Sender: TObject);
 var
     c,date_column,i,icon_nr,m_index : integer;
     err,airmass_str, delim,fnG,detype,baa_extra,magn_type,filter_used,settings,date_format,date_observation,
     abbrv_var_clean,abbrv_check_clean,abbrv_comp_clean,abbrv_comp_clean_report,comp_magn_info,var_magn_str,check_magn_str,comp_magn_str,comments,invalidstr,
-    transformation, transform_all_factors,transf_str,varab  : string;
+    transformation, transform_all_factors,transf_str,varab, aperture_str  : string;
     apply_transformation,valid_comp,gaia_ensemble : boolean;
     snr_value,err_by_snr,var_magn,check_magn,var_flux, check_flux,
-    var_v_correction,var_b_correction,var_r_correction,
+    var_v_correction,var_b_correction,var_r_correction, var_i_correction,
     var_sg_correction,var_sr_correction,var_si_correction,
     airmass : double;
     PNG: TPortableNetworkGraphic;{FPC}
@@ -2261,7 +2386,6 @@ begin
   begin
     abrv_comp1.color:=cldefault;
     for i:=0 to high(column_comps) do
-  //    abbrv_comp_clean:= abbrv_comp_clean+clean_abbreviation(stackmenu1.listview7.Column[column_comps[i]+1].Caption,false)+'|'; //variable_clean with still underscore. Note the captions are one position shifted.
       abbrv_comp_clean:= abbrv_comp_clean+clean_abbreviation(ColumnTitles[column_comps[i]+1],false)+'|'; //variable_clean with still underscore. Note the captions are one position shifted.
   end
   else
@@ -2321,7 +2445,9 @@ begin
     comments:='';
   end;
 
-  settings:=settings+' aperture='+stackmenu1.flux_aperture1.text+' HFD'+vsep+' annulus='+stackmenu1.annulus_radius1.text+' HFD';
+  aperture_str:=stackmenu1.flux_aperture1.text;
+  if pos('px',aperture_str)=0 then aperture_str:=aperture_str+' HFD';
+  settings:=settings+' Aperture='+aperture_str+vsep+' annulus='+stackmenu1.annulus_radius1.text;
 //  if (disable_autocenter1.checked and disable_autocenter1.enabled) then settings:=settings+' Disabled autcenter';
 
 
@@ -2329,22 +2455,28 @@ begin
   begin
     transform_all_factors:=
     '#Only the variable is transformed'+#13+#10+
-    '#Transf corr B = Tb_bv * Tbv *((b-v)var - (b-v)comp),   Transf corr V = Tv_bv * Tbv *((b-v)var - (b-v)comp),   Transf corr R = Tr_vr * Tvr *((v-r)var - (v-r)comp)'+#13+#10+
+    '#Johnson Cousins: Transf corr B = Tb_bv * Tbv *((b-v)var - (b-v)comp),   Transf corr V = Tv_bv * Tbv *((b-v)var - (b-v)comp),   Transf corr V = Tv_vr * Tvr *((v-r)var - (v-r)comp)'+#13+#10+
+    '#Johnson Cousins: Transf corr R = Tr_vr * Tvr *((v-r)var - (v-r)comp),   Transf corr R = Tr_ri * Tri *((r-i)var - (r-i)comp),   Transf corr I = Ti_ri * Tri *((r-i)var - (r-i)comp)'+#13+#10+
     '#Tbv= ' + TbvSTR+#13+#10+
     '#Tb_bv= ' + Tb_bvSTR+#13+#10+
     '#Tv_bv= ' + Tv_bvSTR+#13+#10+
     '#Tvr= ' + TvrSTR+#13+#10+
     '#Tv_vr= ' + Tv_vrSTR+#13+#10+
-    '#Tr_vr= ' + Tr_vrSTR+#13+#10;
-
-    if TgrSTR<>'' then
-    transform_all_factors:=transform_all_factors+
-    '#Tgr= ' + TgrSTR+#13+#10+
-    '#Tg_gr= ' + Tg_grSTR+#13+#10+
-    '#Tr_gr= ' + Tr_grSTR+#13+#10+
+    '#Tr_vr= ' + Tr_vrSTR+#13+#10+
     '#Tri= ' + TriSTR+#13+#10+
     '#Tr_ri= ' + Tr_riSTR+#13+#10+
     '#Ti_ri= ' + Ti_riSTR+#13+#10;
+
+
+    if TgrSTR_sloan<>'1' then
+    transform_all_factors:=transform_all_factors+
+    '#Sloan: Transf corr SG = Tg_gr * Tgr *((sg-sr)var - (sg-sr)comp),   Transf corr SR = Tr_gr * Tgr *((sg-sr)var - (sg-sr)comp),   Transf corr SR = Tr_ri_sloan * Tri_sloan *((sr-si)var - (sr-si)comp),   Transf corr SI = Ti_ri_sloan * Tri_sloan *((sr-si)var - (sr-si)comp)'+#13+#10+
+    '#Tgr= ' + TgrSTR_sloan+#13+#10+
+    '#Tg_gr= ' + Tg_grSTR_sloan+#13+#10+
+    '#Tr_gr= ' + Tr_grSTR_sloan+#13+#10+
+    '#Tri= ' + TriSTR_sloan+#13+#10+
+    '#Tr_ri= ' + Tr_riSTR_sloan+#13+#10+
+    '#Ti_ri= ' + Ti_riSTR_sloan+#13+#10;
 
 
   end
@@ -2397,8 +2529,8 @@ begin
            comp_magn_str:='?';//clear for case failure
            check_magn_str:='?';//clear for case failure
 
-           if stackmenu1.reference_database1.itemindex=0 then //local database
-           if pos('v',name_database)>0 then magn_type:='transformed to Johnson-V.' else magn_type:='using BM magnitude.'
+           if pos('On',stackmenu1.reference_database1.text)=0 then //local database
+             if pos('v',name_database)>0 then magn_type:='Local V or B.' else magn_type:='using BM magnitude.'
            else  //online database
              magn_type:='transformed';
 
@@ -2420,11 +2552,12 @@ begin
                transformation:='';
                icon_nr:=SubItemImages[c];
 
-               if ((apply_transformation) and (gaia_ensemble=false) and (icon_nr in [0,1,2,24,21,22,23] )) then //currently transformation only possible with B, V, R, SG,SR,SI filter
+               if ((apply_transformation) and (gaia_ensemble=false) and (icon_nr in [1,2,24,28,21,22,23] )) then //currently transformation only possible with B, V, R, I, SG,SR,SI filter
                begin
                  //transformation
                  // Tv_bv * Tbv* ((b-v)tgt – (B-V)comp)
                  transf_str:='YES';
+
                  if icon_nr=2 then //B correction
                  begin
                    if color_info[c].b_v_var<>-99 then
@@ -2441,45 +2574,95 @@ begin
                    end;
                  end
                  else
-                 if icon_nr=1 then//V correction
+                 if icon_nr=1 then //V correction
                  begin
-                   if color_info[c].b_v_var<>-99 then
+                   if color_info[c].b_v_var<>-99 then  // prefer B-V pair
                    begin
-                   var_v_correction:= strtofloat2(Tv_bvSTR) * strtofloat2(TbvSTR) *( color_info[c].b_v_var{var} - color_info[c].b_v_comp);
-                   var_magn:=var_magn+var_v_correction;
-                   transformation:='Transf corr. '+floattostr3(var_v_correction)+'='+Tv_bvSTR+'*'+TbvSTR+'*('+floattostr3(color_info[c].b_v_var)+'-'+floattostr3(color_info[c].b_v_comp)+'). Filter used '+filter_used+'.';
-                   filter_used:='V';//change TG to V
+                     var_v_correction:= strtofloat2(Tv_bvSTR) * strtofloat2(TbvSTR) *
+                                        (color_info[c].b_v_var - color_info[c].b_v_comp);
+                     var_magn:=var_magn+var_v_correction;
+                     transformation:='Transf corr. '+floattostr3(var_v_correction)+'='+
+                                     Tv_bvSTR+'*'+TbvSTR+'*('+
+                                     floattostr3(color_info[c].b_v_var)+'-'+
+                                     floattostr3(color_info[c].b_v_comp)+'). Filter used '+filter_used+'.';
+                     filter_used:='V';
+                   end
+                   else
+                   if color_info[c].v_r_var<>-99 then  // fallback to V-R pair
+                   begin
+                     var_v_correction:= strtofloat2(Tv_vrSTR) * strtofloat2(TvrSTR) *
+                                        (color_info[c].v_r_var - color_info[c].v_r_comp);
+                     var_magn:=var_magn+var_v_correction;
+                     transformation:='Transf corr. '+floattostr3(var_v_correction)+'='+
+                                     Tv_vrSTR+'*'+TvrSTR+'*('+
+                                     floattostr3(color_info[c].v_r_var)+'-'+
+                                     floattostr3(color_info[c].v_r_comp)+'). Filter used '+filter_used+' (V-R pair).';
+                     filter_used:='V';
                    end
                    else
                    begin
-                     transformation:='Transformation failed. Could not retrieve b-v. Comp too faint or not imaged in two colours ?';
+                     transformation:='Transformation failed. Could not retrieve b-v or v-r. '+
+                                     'Comp too faint or not imaged in two colours ?';
                      transf_str:='NO';
                    end;
                  end
                  else
-                 if ((icon_nr=0) or (icon_nr=24)) then//R correction
+                 if icon_nr=24 then //R correction
                  begin
-                   if color_info[c].v_r_var<>-99 then
+                   if color_info[c].v_r_var<>-99 then  // prefer V-R pair
                    begin
-                     var_r_correction:= strtofloat2(Tr_vrSTR) * strtofloat2(TvrSTR) * (color_info[c].v_r_var{var} - color_info[c].v_r_comp); // Transf corr R = Tr_vr * Tvr *((v-r) - (V-R))
-                     var_magn:=var_magn + var_r_correction;
-                     transformation:='Transf corr. '+floattostr3(var_r_correction)+'='+Tr_vrSTR+'*'+TvrSTR+'*('+floattostr3(color_info[c].v_r_var)+'-'+floattostr3(color_info[c].v_r_comp)+'). Filter used '+filter_used+'.';
-                     filter_used:='R';//change TR to R
+                     var_r_correction:= strtofloat2(Tr_vrSTR) * strtofloat2(TvrSTR) *
+                                        (color_info[c].v_r_var - color_info[c].v_r_comp);
+                     var_magn:=var_magn+var_r_correction;
+                     transformation:='Transf corr. '+floattostr3(var_r_correction)+'='+
+                                     Tr_vrSTR+'*'+TvrSTR+'*('+
+                                     floattostr3(color_info[c].v_r_var)+'-'+
+                                     floattostr3(color_info[c].v_r_comp)+'). Filter used '+filter_used+'.';
+                     filter_used:='R';
+                   end
+                   else
+                   if color_info[c].r_i_var<>-99 then  // fallback to R-I pair
+                   begin
+                     var_r_correction:= strtofloat2(Tr_riSTR) * strtofloat2(TriSTR) *
+                                        (color_info[c].r_i_var - color_info[c].r_i_comp);
+                     var_magn:=var_magn+var_r_correction;
+                     transformation:='Transf corr. '+floattostr3(var_r_correction)+'='+
+                                     Tr_riSTR+'*'+TriSTR+'*('+
+                                     floattostr3(color_info[c].r_i_var)+'-'+
+                                     floattostr3(color_info[c].r_i_comp)+'). Filter used '+filter_used+' (R-I pair).';
+                     filter_used:='R';
                    end
                    else
                    begin
-                     transformation:='Transformation failed. Could not retrieve v-r. Comp too faint or not imaged in two colours ?';
+                     transformation:='Transformation failed. Could not retrieve v-r or r-i. '+
+                                     'Comp too faint or not imaged in two colours ?';
+                     transf_str:='NO';
+                   end;
+                 end
+                 else
+                 if icon_nr=28 then//I correction
+                 begin
+                   if color_info[c].r_i_var<>-99 then
+                   begin
+                     var_i_correction:= strtofloat2(Ti_riSTR) * strtofloat2(TriSTR) * (color_info[c].r_i_var{var} - color_info[c].r_i_comp); // Transf corr i = Ti_ri * Tri *((r-i) - (R-I))
+                     var_magn:=var_magn + var_i_correction;
+                     transformation:='Transf corr. '+floattostr3(var_i_correction)+'='+Ti_riSTR+'*'+TriSTR+'*('+floattostr3(color_info[c].r_i_var)+'-'+floattostr3(color_info[c].r_i_comp)+'). Filter used '+filter_used+'.';
+                     filter_used:='I';//change Ic to I
+                   end
+                   else
+                   begin
+                     transformation:='Transformation failed. Could not retrieve r-i. Comp too faint or not imaged in two colours ?';
                      transf_str:='NO';
                   end;
                  end
                  else
                  if icon_nr=23 then//SG correction
                  begin
-                   if color_info[c].g_r_var<>-99 then
+                   if color_info[c].sg_sr_var<>-99 then
                    begin
-                     var_sg_correction:= strtofloat2(Tg_grSTR) * strtofloat2(TgrSTR) * (color_info[c].g_r_var{var} - color_info[c].g_r_comp); // Transf corr R = Tr_vr * Tvr *((v-r) - (V-R))
+                     var_sg_correction:= strtofloat2(Tg_grSTR_sloan) * strtofloat2(TgrSTR_sloan) * (color_info[c].sg_sr_var{var} - color_info[c].sg_sr_comp); // Transf corr SR = Tr_vr_sloan * Tvr_sloan *((sv-sr) - (SV-SR))
                      var_magn:=var_magn + var_sg_correction;
-                     transformation:='Transf corr. '+floattostr3(var_sg_correction)+'='+Tg_grSTR+'*'+TgrSTR+'*('+floattostr3(color_info[c].g_r_var)+'-'+floattostr3(color_info[c].g_r_comp)+'). Filter used '+filter_used+'.';
+                     transformation:='Transf corr. '+floattostr3(var_sg_correction)+'='+Tg_grSTR_sloan+'*'+TgrSTR_sloan+'*('+floattostr3(color_info[c].sg_sr_var)+'-'+floattostr3(color_info[c].sg_sr_comp)+'). Filter used '+filter_used+'.';
                    end
                    else
                    begin
@@ -2489,31 +2672,44 @@ begin
                  end
 
                  else
-                 if icon_nr=22 then//SR correction
+                 if icon_nr=22 then //SR correction
                  begin
-                   if color_info[c].g_r_var<>-99 then
+                   if color_info[c].sg_sr_var<>-99 then  // prefer SG-SR pair
                    begin
-                     var_sr_correction:= strtofloat2(Tr_grSTR) * strtofloat2(TgrSTR) *( color_info[c].g_r_var{var} - color_info[c].g_r_comp);
+                     var_sr_correction:= strtofloat2(Tr_grSTR_sloan) * strtofloat2(TgrSTR_sloan) *
+                                         (color_info[c].sg_sr_var - color_info[c].sg_sr_comp);
                      var_magn:=var_magn+var_sr_correction;
-                     transformation:='Transf corr. '+floattostr3(var_sr_correction)+'='+Tr_grSTR+'*'+TgrSTR+'*('+floattostr3(color_info[c].g_r_var)+'-'+floattostr3(color_info[c].g_r_comp)+'). Filter used '+filter_used+'.';
-                     //filter_used:='V';//change TG to V
+                     transformation:='Transf corr. '+floattostr3(var_sr_correction)+'='+
+                                     Tr_grSTR_sloan+'*'+TgrSTR_sloan+'*('+
+                                     floattostr3(color_info[c].sg_sr_var)+'-'+
+                                     floattostr3(color_info[c].sg_sr_comp)+'). Filter used '+filter_used+'.';
+                   end
+                   else
+                   if color_info[c].sr_si_var<>-99 then  // fallback to SR-SI pair
+                   begin
+                     var_sr_correction:= strtofloat2(Tr_riSTR_sloan) * strtofloat2(TriSTR_sloan) *
+                                         (color_info[c].sr_si_var - color_info[c].sr_si_comp);
+                     var_magn:=var_magn+var_sr_correction;
+                     transformation:='Transf corr. '+floattostr3(var_sr_correction)+'='+
+                                     Tr_riSTR_sloan+'*'+TriSTR_sloan+'*('+
+                                     floattostr3(color_info[c].sr_si_var)+'-'+
+                                     floattostr3(color_info[c].sr_si_comp)+'). Filter used '+filter_used+' (SR-SI pair).';
                    end
                    else
                    begin
-                     transformation:='Transformation failed. Could not retrieve g-r. Comp too faint or not imaged in two colours ?';
+                     transformation:='Transformation failed. Could not retrieve sg-sr or sr-si. '+
+                                     'Comp too faint or not imaged in two colours ?';
                      transf_str:='NO';
                    end;
                  end
-
                  else
                  if icon_nr=21 then//SI correction
                  begin
                    if color_info[c].r_i_var<>-99 then
                      begin
-                     var_si_correction:= strtofloat2(Ti_riSTR) * strtofloat2(TriSTR) * (color_info[c].r_i_var{var} - color_info[c].r_i_comp);
+                     var_si_correction:= strtofloat2(Ti_riSTR_sloan) * strtofloat2(TriSTR_sloan) * (color_info[c].r_i_var{var} - color_info[c].r_i_comp);
                      var_magn:=var_magn + var_si_correction;
-                     transformation:='Transf corr. '+floattostr3(var_si_correction)+'='+Ti_riSTR+'*'+TriSTR+'*('+floattostr3(color_info[c].r_i_var)+'-'+floattostr3(color_info[c].r_i_comp)+'). Filter used '+filter_used+'.';
-                     //filter_used:='R';//change TR to R
+                     transformation:='Transf corr. '+floattostr3(var_si_correction)+'='+Ti_riSTR_sloan+'*'+TriSTR_sloan+'*('+floattostr3(color_info[c].r_i_var)+'-'+floattostr3(color_info[c].r_i_comp)+'). Filter used '+filter_used+'.';
                    end
                    else
                    begin
@@ -2599,7 +2795,7 @@ begin
                           airmass_str+delim+
                           'na'+delim+ {group}
                           chartID +delim+
-                          transformation+comp_magn_info+' ('+settings+ ')'+#13+#10;
+                          transformation+comp_magn_info+settings+#13+#10;
 
 
            date_observation:=copy(stackmenu1.listview7.Items.item[c].subitems.Strings[P_date],1,10);
@@ -2619,10 +2815,13 @@ begin
     Clipboard.AsText:=#13+#10+aavso_report
   else
   begin
-    savedialog1.filename:=stringreplace(clean_abbreviation(stackmenu1.listview7.Column[column_vars[m_index]+1].Caption,false),'?','',[rfReplaceAll]) +'_'+date_observation+'_report.txt';
+    savedialog1.filename:=stringreplace(clean_abbreviation(ColumnTitles[column_vars[0]+1],false),'?','',[rfReplaceAll])+'_'+date_observation+'_report.txt';
+//    savedialog1.filename:=stringreplace(clean_abbreviation(stackmenu1.listview7.Column[column_vars[m_index]+1].Caption,false),'?','',[rfReplaceAll]) +'_'+date_observation+'_report.txt';
     savedialog1.initialdir:=ExtractFilePath(filename2);
+    if sender=nil then
+       savedialog1.filename:=savedialog1.initialdir+savedialog1.filename; //add path
     savedialog1.Filter := '(*.txt)|*.txt';
-    if savedialog1.execute then
+    if ((sender=nil) or (savedialog1.execute)) then
     begin
       log_to_file2(savedialog1.filename, aavso_report);
       png:= TPortableNetworkGraphic.Create;   {FPC}
@@ -2638,7 +2837,9 @@ begin
     else
     exit;
   end;
-  save_settings2; {for aavso settings}
+  save_settings2; {save configuration}
+//  save_settings(ChangeFileExt(savedialog1.filename,' Add this file to the tab photometry files to reuse the settings.cfg')); //put a copy in the image folder
+  save_photometry_settings(ChangeFileExt(savedialog1.filename,' Add this file to the tab photometry files to reuse the settings.ini')); //save photometry settings for this report
 end;
 
 
