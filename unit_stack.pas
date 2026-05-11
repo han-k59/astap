@@ -68,12 +68,18 @@ type
     br2: TEdit;
     center_position1: TLabel;
     disable_autocenter1: TCheckBox;
+    fix_colour_saturated1: TCheckBox;
+    green_purple_filter1: TCheckBox;
     Label38: TLabel;
     Label59: TLabel;
+    Label79: TLabel;
+    lrgb_auto_level1: TCheckBox;
+    lrgb_global_colour_smooth1: TCheckBox;
     refresh_astrometric_solutions9: TMenuItem;
     photometry_calibrate1: TCheckBox;
     saturation_level1: TEdit;
     Separator15: TMenuItem;
+    star_colour_smooth1: TCheckBox;
     with_auid_only1: TCheckBox;
     gradient_filter_factor1: TComboBox;
     GroupBox24: TGroupBox;
@@ -188,7 +194,6 @@ type
     Label72: TLabel;
     Label73: TLabel;
     Label75: TLabel;
-    star_colour_smooth1: TCheckBox;
     lrgb_star_colour_smooth_diameter1: TComboBox;
     MenuItem14: TMenuItem;
     bin2x2_selectedP1: TMenuItem;
@@ -294,7 +299,6 @@ type
     gr1: TEdit;
     green_filter1: TEdit;
     green_filter2: TEdit;
-    green_purple_filter1: TCheckBox;
     GroupBox1: TGroupBox;
     GroupBox10: TGroupBox;
     GroupBox11: TGroupBox;
@@ -436,8 +440,6 @@ type
     live_stacking_path1: TLabel;
     live_stacking_pause1: TButton;
     live_stacking_restart1: TButton;
-    lrgb_auto_level1: TCheckBox;
-    lrgb_global_colour_smooth1: TCheckBox;
     lrgb_global_colour_smooth_width1: TComboBox;
     luminance_filter1: TEdit;
     luminance_filter2: TEdit;
@@ -515,7 +517,6 @@ type
     pixelsize1: TEdit;
     planetary_image1: TCheckBox;
     powerdown_enabled1: TCheckBox;
-    preserve_red_nebula1: TCheckBox;
     press_esc_to_abort1: TLabel;
     quad_tolerance1: TComboBox;
     radius_search1: TComboBox;
@@ -1312,10 +1313,22 @@ const
   SN_nr = 14;{ Nova reference frames}
 
 
-
   icon_thumb_down = 8; {image index for outlier}
   icon_king = 9;{image index for best image}
   icon_exclamation=29;
+
+  filter_V  = 1;   // TG or V
+  filter_B  = 2;  //Blue
+  filter_R = 24; //Red, Rc
+  filter_I = 28; //I
+  filter_SI = 21; //SI
+  filter_SR = 22; //SR
+  filter_SG = 23; //SG
+
+  filter_RGB = 3; // RGB image
+  filter_CV  = 4;  //Grey, clear view
+  filter_OSC = 25;  //Raw, One shot colour image
+
 
   video_index: integer = 1;
   frame_rate: string = '1';
@@ -1327,7 +1340,7 @@ uses
   unit_image_sharpness, unit_threaded_gaussian_blur, unit_star_align,
   unit_astrometric_solving, unit_stack_routines, unit_annotation, unit_hjd,
   unit_live_stacking, unit_monitoring, unit_hyperbola, unit_asteroid, unit_yuv4mpeg2,
-  unit_avi, unit_aavso, unit_raster_rotate, unit_listbox, unit_aberration, unit_online_gaia, unit_disk,
+  unit_avi, unit_aavso, unit_listbox, unit_aberration, unit_online_gaia, unit_disk,
   unit_contour, unit_interpolate, unit_sqm, unit_threaded_calibration,unit_transformation, unit_profiler;
 
 type
@@ -2361,11 +2374,11 @@ begin
                 if headx.naxis3 >= 3 then
                 begin
                   ListView1.Items.item[c].subitems.Strings[L_filter]:='colour';
-                  ListView1.Items.item[c].SubitemImages[L_filter]:=3 {RGB colour}
+                  ListView1.Items.item[c].SubitemImages[L_filter]:=filter_RGB {RGB colour}
                 end
                 else
                 if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
-                  ListView1.Items.item[c].SubitemImages[L_filter] :=25  //raw OSC file
+                  ListView1.Items.item[c].SubitemImages[L_filter]:=filter_OSC  //raw OSC file
                 else
                   ListView1.Items.item[c].SubitemImages[L_filter] :=get_filter_icon(headx.filter_name,{out} red,green, blue);
                 ListView1.Items.item[c].subitems.Strings[L_bin]:=floattostrf(headx.Xbinning, ffgeneral, 0, 0) + ' x ' + floattostrf( headx.Ybinning, ffgeneral, 0, 0); {Binning CCD}
@@ -3094,7 +3107,7 @@ begin
   for col:=0 to colors - 1 do {do all colours}
   begin
     {find background value for the 60% center }
-    bg:= trimmed_median_background(img_loaded,true{ellipse shape}, col, round(0.2 * head.Width), round(0.8 * head.Width), round(0.2 * head.Height), round(0.8 * head.Height), 32000,greylevels);
+    bg:= trimmed_median_background(img_loaded,true{ellipse shape}, col, round(0.2 * head.Width), round(0.8 * head.Width), round(0.2 * head.Height), round(0.8 * head.Height),0, 32000,greylevels);
 
     y:=yStep / 2;
     while y < h do
@@ -3112,7 +3125,7 @@ begin
 
            case themethod of
               0: local_sigma_clip_mean_and_sd(round(x-half_box), round(y-half_box),round(x+half_box),round(y+half_box),col, img_loaded,{out} sd,val,iterations);{calculate sigma clip mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-              1: val:= trimmed_median_background(img_loaded,false{ellipse shape}, col, round(x-half_box),round(x+half_box), round(y-half_box),round(y+half_box), 32000,greylevels); {mode finds most common value}
+              1: val:= trimmed_median_background(img_loaded,false{ellipse shape}, col, round(x-half_box),round(x+half_box), round(y-half_box),round(y+half_box),0, 32000,greylevels); {mode finds most common value}
            end;
 
           if val>0 then correction_factor:=bg/val else correction_factor:=1;
@@ -3522,7 +3535,7 @@ begin
       begin
         x:=fitsX * diameter;
         y:=fitsY * diameter;
-        backgr:=trimmed_median_background(sourc,false{ellipse shape}, k, x - radius, x + radius - 1, y - radius, y + radius - 1, trunc(datamax),greylevels);
+        backgr:=trimmed_median_background(sourc,false{ellipse shape}, k, x - radius, x + radius - 1, y - radius, y + radius - 1,0, trunc(datamax),greylevels);
         for i:=-radius to +radius - 1 do
           for j:=-radius to +radius - 1 do
           begin
@@ -4457,10 +4470,10 @@ begin
             begin
               lv.Items.item[c].subitems.Strings[F_filter]:=headx.filter_name;
               if headx.naxis3 = 3 then
-                lv.Items.item[c].SubitemImages[F_filter]:=3 {RGB colour}
+                lv.Items.item[c].SubitemImages[F_filter]:=filter_RGB {RGB colour}
               else
               if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
-                Lv.Items.item[c].SubitemImages[F_filter] :=25  //raw OSC file
+                Lv.Items.item[c].SubitemImages[F_filter]:=filter_OSC  //raw OSC file
               else
                 Lv.Items.item[c].SubitemImages[F_filter] :=get_filter_icon(headx.filter_name,{out} red,green, blue);
 
@@ -4503,51 +4516,51 @@ begin
               if ((length(filterstrUP)=0) or (pos('CV',filterstrUP)>0) or (pos('LUM',filterstrUP)>0))  then
               begin
                 if  ((bayerpat<> '') and (bayerpat[1]<>'N' {ZWO NONE})) then
-                  Lv.Items.item[c].SubitemImages[P_filter] :=25  //raw OSC file
+                  Lv.Items.item[c].SubitemImages[P_filter]:=filter_OSC  //raw OSC file
                 else
-                lv.Items.item[c].SubitemImages[P_filter]:=4 //assume CV
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_CV //assume CV
               end
               else
               if  standarised_filter_name='V'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=1; //Green or G or TG
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_V; //Green or G or TG
                 all_filters.V:=true;
               end
               else
               if  standarised_filter_name='B'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=2; //BLUE, B, TB
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_B; //BLUE, B, TB
                 all_filters.B:=true;
               end
               else
               if  standarised_filter_name='R'  then
               begin
                 //The official abbreviation for Cousins R is R. See https://www.aavso.org/filters
-                lv.Items.item[c].SubitemImages[P_filter]:=24; //Cousins-red. Note Green also contains a R so first test Green
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_R; //Cousins-red. Note Green also contains a R so first test Green
                 all_filters.R:=true;
               end
               else
               if standarised_filter_name='SI'  then
               begin
-                 lv.Items.item[c].SubitemImages[P_filter]:=21; //SDSS-i
+                 lv.Items.item[c].SubitemImages[P_filter]:=filter_SI; //SDSS-i
                  all_filters.SI:=true;
               end
               else
               if  standarised_filter_name='SR'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=22; //SDSS-r
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_SR; //SDSS-r
                 all_filters.SR:=true;
               end
               else
               if  standarised_filter_name='SG'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=23; //SDSS-g
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_SG; //SDSS-g
                 all_filters.SG:=true;
               end
               else
               if  standarised_filter_name='I'  then
               begin
-                lv.Items.item[c].SubitemImages[P_filter]:=28; // Bessel
+                lv.Items.item[c].SubitemImages[P_filter]:=filter_I; // Bessel I
                 all_filters.I:=true;
               end
               else //U is not supported because can't be transformed from Gaia data
@@ -5260,7 +5273,7 @@ begin
         begin
           if ((frac(fitsx / 10) = 0) and (frac(fitsY / 10) = 0)) then
           begin
-            most_common:=trimmed_median_background(img_backup[index_backup].img,false{ellipse shape}, k, fitsX - radius, fitsX + radius - 1, fitsY - radius, fitsY + radius - 1, 32000,greylevels);
+            most_common:=trimmed_median_background(img_backup[index_backup].img,false{ellipse shape}, k, fitsX - radius, fitsX + radius - 1, fitsY - radius, fitsY + radius - 1,0, 32000,greylevels);
             neg_noise_level:=get_negative_noise_level(img_backup[index_backup].img, k, fitsX - radius, fitsX + radius, fitsY - radius, fitsY + radius, most_common);
             {find the most common value of a local area and calculate negative noise level}
             for i:=-radius to +radius - 1 do
@@ -7041,6 +7054,9 @@ begin
   memo2_message('Moving images to light tab for calibration! This could take some time. If this is not desired, uncheck option "Calibrate".');
   application.processmessages;
 
+  stacking_running:=false;//for case pause was used
+  stacking_paused:=false; //for case pause was used
+
   position:=-1;
   index:=0;
   listview1.Items.beginUpdate;
@@ -8084,7 +8100,7 @@ begin
         if listview7.Items.item[c].Checked then
         begin
           calibratedP:=(listview7.Items.item[c].subitems.Strings[P_calibration] <> 'None' {calstat}); //calibrated ?
-          oscP:=(listview7.Items.item[c].SubitemImages[P_filter]=25);  //raw OSC file
+          oscP:=(listview7.Items.item[c].SubitemImages[P_filter]=filter_OSC);  //raw OSC file
           break;
         end;
       end;
@@ -8261,28 +8277,25 @@ begin
         plot_and_measure_stars(img_loaded,mainform1.Memo1.lines,head,True {calibration}, False {plot stars},True{report lim magnitude}); {calibrate. Downloaded database will be reused if in same area}
 
         //icon for used database passband. Database selection could be in auto mode so do this after calibration
-        if head.passband_database='BP' then database_col:=4 //gray
+        if head.passband_database='BP' then database_col:=filter_CV //gray, clear view
         else
-        if head.passband_database='R' then database_col:=24 //Cousins-R
+        if head.passband_database='R' then database_col:=filter_R //Cousins-R
         else
-        if head.passband_database='V' then database_col:=1 //green
+        if head.passband_database='V' then database_col:=filter_V //V, green
         else
-        if head.passband_database='B' then database_col:=2 //blue icon
+        if head.passband_database='B' then database_col:=filter_B //blue icon
         else
-        if head.passband_database='I' then database_col:=28 //dark red icon
+        if head.passband_database='I' then database_col:=filter_I //dark red icon
         else
-        if ((head.passband_database='SI') or (head.passband_database='IP')) then database_col:=21 //SDSS-i red/infrared
+        if ((head.passband_database='SI') or (head.passband_database='IP')) then database_col:=filter_SI //SDSS-i red/infrared
         else
-        if ((head.passband_database='SR') or (head.passband_database='RP')) then database_col:=22 //SDSS-r red/orange
+        if ((head.passband_database='SR') or (head.passband_database='RP')) then database_col:=filter_SR //SDSS-r red/orange
         else
-        if ((head.passband_database='SG') or (head.passband_database='GP')) then database_col:=23 //SDSS-g blue/green
+        if ((head.passband_database='SG') or (head.passband_database='GP')) then database_col:=filter_SG //SDSS-g blue/green
         else
         database_col:=-1; // unknown. Should not happen
 
         ListView7.Items.item[c].SubitemImages[P_calibration]:= database_col ; //show selected database passband
-
-//        ListView7.Items.item[c].SubitemImages[P_filter]:= 24 ; //show selected database passband
-
 
         listview7.Items.item[c].subitems.Strings[p_limmagn]:= floattostrF(head.magn_limit, FFgeneral, 4, 0);
 
@@ -8680,6 +8693,202 @@ end;
 
 
 procedure global_colour_smooth(var img: Timage_array; wide, sd: double;  measurehist: boolean);{Bright star colour smooth. Combine color values of wide x wide pixels, keep luminance intact}
+const
+    rastersteps=40;
+type
+    Tinfo =array[0..2] of double;
+var
+  fitsX, fitsY, x, y, step, x2, y2, Count, width5, height5: integer;
+  img_temp2: Timage_array;
+  flux, red, green, blue, rgb, r, g, b, sqr_dist, strongest_colour_local,
+  top, r2, g2, b2,  peak, lumr: single;
+
+  star_level: double;
+  copydata  : boolean;
+
+  background,sigma : array of array of array of double;
+  back, sig : Tinfo;
+
+  xx,yy,stepsX,stepsY,startX,endX,startY,endY,eqX,eqY: integer;
+
+              procedure interpolatedBackground(py, px: Integer );
+              var
+                gy, gx: Double;
+                iy, ix: Integer;
+                fy, fx: Double;
+                v00, v10, v01, v11: single;
+                m : integer;
+              begin
+                { Map pixel coordinates to bg grid position }
+                gy := py * stepsY / height5;
+                gx := px * stepsX / width5;
+
+                iy := Trunc(gy);
+                ix := Trunc(gx);
+                fy := gy - iy;
+                fx := gx - ix;
+
+                { Clamp to last cell at the boundary }
+                if iy >= stepsY then begin iy := stepsY - 1; fy := 1.0; end;
+                if ix >= stepsX then begin ix := stepsX - 1; fx := 1.0; end;
+
+                for m:=0 to 2 do
+                begin
+                  { Four surrounding bg samples }
+                  v00 := background[m,iy    ,ix    ];
+                  v10 := background[m,iy + 1,ix    ];
+                  v01 := background[m,iy    ,ix + 1];
+                  v11 := background[m,iy + 1,ix + 1];
+
+                  { Bilinear interpolation }
+                  back[m] := v00 * (1 - fy) * (1 - fx) +     v01 * (1 - fy) * fx   +      v10 * fy       * (1 - fx) +   v11 * fy       * fx;
+
+                  { Four surrounding bg samples }
+                  v00 := sigma[m,iy    ,ix    ];
+                  v10 := sigma[m,iy + 1,ix    ];
+                  v01 := sigma[m,iy    ,ix + 1];
+                  v11 := sigma[m,iy + 1,ix + 1];
+
+                  { Bilinear interpolation }
+                  sig[m] := v00 * (1 - fy) * (1 - fx) +     v01 * (1 - fy) * fx   +      v10 * fy       * (1 - fx) +   v11 * fy       * fx;
+
+                end;
+              end;
+
+begin
+  if length(img) < 3 then exit;{not a three colour image}
+
+  width5:=Length(img[0,0]);{width}
+  height5:=Length(img[0]); {height}
+
+  setlength(img_temp2, 3, height5, width5);{set length of image array}
+
+  step:=round(wide) div 2;
+
+  if height5<width5 then //calculate steps in x, y
+  begin
+    stepsX:=rastersteps;
+    stepsY:=round(rastersteps*height5/width5);
+  end
+  else
+  begin
+    stepsY:=rastersteps;
+    stepsX:=round(rastersteps*width5/height5);
+  end;
+  setlength(background,3,stepsY+1,stepsX+1);
+  setlength(sigma,3, stepsY+1,stepsX+1);
+
+  for yy:=0 to stepsY do //find stars in stepsX x stepsY sections
+  for xx:=0 to stepsX do
+  begin
+    startX:=1+round(width5*xx/(stepsX+1));
+    endX:=min(width5-1-1,round(width5*(xx+1)/(stepsX+1)));
+    startY:=1+round(height5*yy/(stepsY+1));
+    endY:=min(height5-1-1,round(height5*(yy+1)/(stepsY+1)));
+
+    SigmaClippedMeanFromHistogram(img,0,startX,endX,startY,endY,32000, 6,0.1,background[0,yy,xx],sigma[0,yy,xx]);//mean and noise of this sub section
+    SigmaClippedMeanFromHistogram(img,1,startX,endX,startY,endY,32000, 6,0.1,background[1,yy,xx],sigma[1,yy,xx]);//mean and noise of this sub section
+    SigmaClippedMeanFromHistogram(img,2,startX,endX,startY,endY,32000, 6,0.1,background[2,yy,xx],sigma[2,yy,xx]);//mean and noise of this sub section
+  end;
+
+  for fitsY:=0 to height5 - 1 do
+    for fitsX:=0 to width5 - 1 do
+    begin
+      red:=0;
+      green:=0;
+      blue:=0;
+      Count:=0;
+      peak:=0;
+
+      interpolatedBackground(fitsY, fitsX); //find local background and noise using linear interpolation
+
+      r2:=img[0, fitsY, fitsX] - back[0];
+      g2:=img[1, fitsY, fitsX] - back[1];
+      b2:=img[2, fitsY, fitsX] - back[2];
+
+      if ((r2 > sd * sig[0]) or (g2 > sd * sig[1]) or (b2 > sd * sig[2])) then  {some relative flux}
+      begin
+        for y:=-step to step do
+          for x:=-step to step do
+          begin
+            x2:=fitsX + x;
+            y2:=fitsY + y;
+
+            if ((x2 >= 0) and (x2 < width5) and (y2 >= 0) and (y2 < height5)) then {within image}
+            begin
+              sqr_dist:=x * x + y * y;
+              if sqr_dist <= step * step then {circle only}
+              begin
+                r:=img[0, y2, x2];
+                G:=img[1, y2, x2];
+                B:=img[2, y2, x2];
+
+                {find peak value}
+                if r > peak then peak:=r;
+                if g > peak then peak:=g;
+                if b > peak then peak:=b;
+
+                if ((r < 60000) and (g < 60000) and (b < 60000)) then  {no saturation, ignore saturated pixels}
+                begin
+                  if (r - back[0]) > 0 then red  :=red + (r - back[0]); {level >0 otherwise centre of M31 get yellow circle}
+                  if (g - back[1]) > 0 then green:=green + (g - back[1]);
+                  if (b - back[2]) > 0 then blue :=blue + (b - back[2]);
+                  Inc(Count);//count the non-saturated surface
+                end;
+              end;
+            end;
+          end;
+      end;
+
+      copydata:=True;
+      rgb:=0;
+      if Count >= 1 then
+      begin
+
+        red:=red / Count;{scale using the number of data points=count}
+        green:=green / Count;
+        blue:=blue / Count;
+
+        star_level:=30*max(sig[0],max(sig[1],sig[2]));
+        if peak > star_level then {star level very close}
+        begin
+          if red < blue * 1.06 then{>6000k}
+            green:=max(green, 0.6604 * red + 0.3215 * blue);   {prevent purple stars, purple stars are physical not possible. Emperical formula calculated from colour table http://www.vendian.org/mncharity/dir3/blackbody/UnstableURLs/bbr_color.html}
+
+          flux:=r2 + g2 + b2;//pixel flux
+          rgb:=red + green + blue + 0.00001;
+          {average pixel flux, 0.00001, prevent dividing by zero}
+
+          strongest_colour_local:=max(red, max(green, blue));
+          top:=(back[0] + back[1] + back[2]) / 3 + strongest_colour_local * (flux / rgb);
+          {calculate the highest colour value}
+          if top >= 65534.99 then
+            flux:=flux - (top - 65534.99) * rgb / strongest_colour_local;{prevent values above 65535}
+
+          lumr:=flux / rgb;
+          img_temp2[0, fitsY, fitsX]:=back[0] + red * lumr; //use average bg and not bgR. See "if copydata" below.
+          img_temp2[1, fitsY, fitsX]:=back[1] + green * lumr;
+          img_temp2[2, fitsY, fitsX]:=back[2] + blue * lumr;
+
+          copydata:=False;{data is already copied}
+
+        end;
+      end;
+      if copydata then {keep original data but adjust zero level}
+      begin
+        img_temp2[0, fitsY, fitsX]:=max(0, back[0] + r2);
+        {copy data, but equalise background levels by using the same background value}
+        img_temp2[1, fitsY, fitsX]:=max(0, back[1] + g2);
+        img_temp2[2, fitsY, fitsX]:=max(0, back[2] + b2);
+      end;
+
+    end;
+  img:=img_temp2;{copy the array}
+  img_temp2:=nil;
+end;
+
+
+procedure global_colour_smoothORG(var img: Timage_array; wide, sd: double;  measurehist: boolean);{Bright star colour smooth. Combine color values of wide x wide pixels, keep luminance intact}
 var
   fitsX, fitsY, x, y, step, x2, y2, Count, width5, height5: integer;
   img_temp2: Timage_array;
@@ -8823,6 +9032,7 @@ end;
 
 
 
+
 procedure green_purple_filter(var img: Timage_array);
 {Balances RGB to remove green and purple. For e.g. Hubble palette}
 var
@@ -8891,10 +9101,10 @@ procedure Tstackmenu1.smart_colour_smooth_button1Click(Sender: TObject);
 begin
   if Length(img_loaded) < 3 then
   begin
-    memo2_message('Error, no three colour image loaded!');
+    memo2_message('Error, not a three colour image!');
     exit;
   end;
-  memo2_message('Start colour smooth.');
+  memo2_message('Start global colour smooth.');
   Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
   backup_img;
 
@@ -8903,7 +9113,7 @@ begin
   plot_image(mainform1.image1, False);{plot real}
 
   Screen.Cursor:=crDefault;
-  memo2_message('Ready colour smooth.');
+  memo2_message('Ready global colour smooth.');
 end;
 
 
@@ -9504,7 +9714,6 @@ begin
   hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
   rad:=strtofloat2(smooth_diameter)/2;
   nr_stars:=strtoint(smooth_stars);
-  // find_stars(img_loaded, hfd_min, 500, starlist);
   binning:=report_binning(head.height);{select binning based on the height of the light}
   bin_and_find_stars(img_loaded,head, binning,1  {cropping},hfd_min,nr_stars{max_stars},false{update hist},starlist,mean_hfd,warning);{bin, measure background, find stars}
 
@@ -9515,15 +9724,10 @@ begin
     if snr>3 then //should always be the case
     begin
       radius:=rad*hfd1;
-
-//      if abs(xc-2377)<10 then
-//        if abs(yc-2389)<10 then
-//        beep;
-
       local_color_smooth(round(xc-radius),round(xc+radius),round(yc-radius),round(yc+radius));
     end;
   end;
-  memo2_message('Star smooth applied on '+inttostr(nrstars-1)+ ' stars.');
+  memo2_message('Star colour smooth applied on '+inttostr(nrstars-1)+ ' stars.');
 end;
 
 
@@ -9904,14 +10108,13 @@ begin
   clear_added_AAVSO_columns;
   hide_show_columns_listview7(true {tab8 photometry});
   snr_min_photo1.enabled:=measuring_method1.itemindex>=1;//enabled if not manual
-//  disable_autocenter1.enabled:=measuring_method1.itemindex>=1;//enabled if not manual selection
 end;
 
 procedure Tstackmenu1.export_to_tg1Click(Sender: TObject);
 var
    col,row,nr   :integer;
-   abrv,info,R,V,B,I,Rc,auid,julian_str,filt_line,data_line : string;
-   filt_done,b_filt,v_filt,r_filt,i_filt,rc_filt,skip,selected_rows  : boolean;
+   abrv,info,R,V,B,I,auid,julian_str,filt_line,data_line : string;
+   filt_done,b_filt,v_filt,r_filt,i_filt,skip,selected_rows  : boolean;
 begin
   nr:=(p_nr-p_nr_norm) div 3;
   if nr<2 then
@@ -9937,7 +10140,6 @@ begin
   v_filt:=false;
   r_filt:=false;
   i_filt:=false;
-  rc_filt:=false;
   selected_rows:=false;
   filt_line:='Filt';
   with stackmenu1.listview7 do
@@ -9960,27 +10162,19 @@ begin
             julian_str:='Julian_Day;'+listview7.Items.item[row].subitems.Strings[p_jd_mid];
            try
              case Items.item[row].SubitemImages[P_filter] of
-                       0 : begin R:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';R';R_filt:=true; data_line:=data_line+';'+R; end;  //red
-                       1 : begin V:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';V';V_filt:=true; data_line:=data_line+';'+V;  end;   //V or G TG
-                       2 : begin B:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';B';B_filt:=true; data_line:=data_line+';'+B; end;   //B or TB
-                       28: begin I:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';I';I_filt:=true; data_line:=data_line+';'+I; end;   //I FILTER
-
-//                       21 : begin si:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';SI' end; //SDSS-i
-//                       22 : begin sr:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';SR' end;  //SDSS-r not
-//                       23 : begin sg:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';SG end;  //SDSS-g
-                       24 : begin Rc:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';R';Rc_filt:=true;data_line:=data_line+';'+Rc;  end;  //Cousins red
-
-
+                       filter_R,0 : begin R:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';R';R_filt:=true; data_line:=data_line+';'+R; end;  //red
+                       filter_V    : begin V:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';V';V_filt:=true; data_line:=data_line+';'+V;  end;   //V or G TG
+                       filter_B    : begin B:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';B';B_filt:=true; data_line:=data_line+';'+B; end;   //B or TB
+                       filter_I   : begin I:=listview7.Items.item[row].subitems.Strings[col];filt_line:=filt_line+';I';I_filt:=true; data_line:=data_line+';'+I; end;   //I FILTER
              end;
             except
-              info:=info + ':' + 'Error';
             end;
         end;
         if filt_done=false then
         begin
           info:=julian_str+#13+#10;
           info:=info+Filt_line;
-          if ((b_filt) or (v_filt) or (r_filt) or (i_filt) or (Rc_filt))=false then
+          if ((b_filt) or (v_filt) or (r_filt) or (i_filt))=false then
             begin
               memo2_message('Abort. No B,V,R or I magnitudes found. Press first the play button and the select rows to process!');
               beep;
@@ -9994,7 +10188,6 @@ begin
         if ((V_filt) and (V='')) then skip:=true;//missing magnitude
         if ((R_filt) and (R='')) then skip:=true;//missing magnitude
         if ((I_filt) and (I='')) then skip:=true;//missing magnitude
-        if ((Rc_filt) and (Rc='')) then skip:=true;//missing magnitude
         if pos('Satur',data_line)>0 then skip:=true;
 
         if skip=false then //add star line
@@ -10382,158 +10575,8 @@ begin
 end;
 
 
-//not used
-procedure SpeedButton2ClickExperimental;
-var
-  j,i,k,count,count30 : integer;
-  sd,snr,
-  best_aperture,
-  sd_check_star30, best30, best_aperture30,
-  best_aperture90  : double;
-  results,beststr,abrv   : string;
-  sd_check_starAR30      : array of double;
-  abbreviations     : array of string;
-  sd_values        : array of array of double;
-const
-   start=2; //min radius *10
-   stop=22;   //max radius*10
-
-begin
-  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-  esc_pressed:=false;
-  best30:=99;
-  results:='';
-
-  if (IDYES = Application.MessageBox(
-    'This routine will test aperture radii from 0.7 to 2.2 HFD in steps of 0.1 to find the value that gives the lowest standard deviation for the comparison stars.' +
-    ' In manual mode, you should select comparison stars first.' + #10#10 +
-    ' Use this with images that have FAINT comparison stars taken with a SINGLE filter. Preferable from a rich cluster like M67. Set measure all minimum SNR at 10.' + #10#10 +
-    ' This process may take a long time.' + #10#10 +
-    'Continue?',
-    'Find Best Aperture?',
-    MB_ICONQUESTION + MB_YESNO
-  )) then
-  begin
-    if ((mainform1.Fshapes=nil) and (stackmenu1.measuring_method1.itemindex=0)) then
-    begin
-      application.messagebox(PChar('Abort!'+#10+#10+ 'No comparison stars selected with an AUID (000-...) selected!'), PChar('Missing comparison stars'), MB_OK);
-      Screen.Cursor:=crDefault;{back to normal }
-      exit;
-    end;
-
-    best30:=999;
-    best_aperture:=0;
-    best_aperture30:=0;
-    best_aperture90:=0;
-
-    setlength(abbreviations,30);
-    setlength(sd_values,stop+1,30);
-
-
-    for j:=start to stop do
-    begin
-
-     stackmenu1.flux_aperture1.text:=floattostr(j/10);
-     application.processmessages;
-     if esc_pressed then exit;
-     stackmenu1.photometry_button1Click(nil);
-
-     count:=0;
-     count30:=0;
-     sd_check_star30:=0;
-     sd_check_starAR30:=nil;
-     setlength(sd_check_starAR30,1+(p_nr-p_nr_norm) div 3);
-
-     for i:=p_nr_norm to p_nr-1 do
-
-       if frac((i-p_nr_norm)/3)=0 then //not snr column
-       begin
-         abrv:=stackmenu1.listview7.Column[i+1].Caption;
-         if pos('000-',abrv)>0 then  //check star or iau code
-         begin
-           find_sd_star(i,sd,snr);
-           //memo2_message(abrv+', sd='+floattostr(sd)+',  snr= '+floattostr(snr));
-
-           if ((sd>0) and (snr<100)) then
-           begin
-             if count<length(abbreviations) then
-             begin
-               abbreviations[count]:=abrv;
-               sd_values[j,count]:=sd;
-               inc(count);
-             end;
-
-             if snr<=30 then
-             begin //faint stars
-               sd_check_starAR30[count30]:=sd;
-               inc(count30);
-             end;
-           end;
-         end;
-        end;//all stars checked for this image
-
-        if count30>0 then //SNR30
-        begin
-           //sd_check_star30:=sd_check_star30/count30;
-           sd_check_star30:=smedian(sd_check_starAR30,count30);
-           if sd_check_star30<best30 then
-           begin
-             best30:=sd_check_star30;
-             best_aperture30:=j/10;
-           end;
-         end;
-
- {        if ((count=0) and (count30=0) and (count90=0)) then
-         begin
-           if stackmenu1.measuring_method1.itemindex=0 then
-             application.messagebox(PChar('Abort!'+#10+#10+ 'Select one or more comparison stars starting with 000- !'), PChar('Missing comparison stars'), MB_OK)
-           else
-              application.messagebox(PChar('Abort!'+#10+#10+ 'No suitable comparison star(s) starting with 000- found! '), PChar('Missing comparison stars'), MB_OK);
-           flux_aperture1.text:=oldstr;
-           memo2_message('Abort, no suitable comparison star(s) selected or found');
-           break;
-         end;}
-
-//         results:=results+'Aperture '+floattostrF(j/10,FFfixed,0,1)+',   SNR<30 σ: '+ floattostrF(sd_check_star30,FFgeneral,4,0)+',   30<SNR<60 σ: '+ floattostrF(sd_check_star90,FFgeneral,4,0)+',   60<SNR σ: '+ floattostrF(sd_check_star,FFgeneral,4,0)+#13+#10;
-
-//         +',   SNR<30 σ: '+ floattostrF(sd_check_star30,FFgeneral,4,0)+',   30<SNR<60 σ: '+ floattostrF(sd_check_star90,FFgeneral,4,0)+',   60<SNR σ: '+ floattostrF(sd_check_star,FFgeneral,4,0)+#13+#10;
-    end; //all images done
-  end;
-
-  results:='Aperture';
-  for k:=0 to count-1 do
-     results:=results+';  '+abbreviations[k];  //header
-  results:=results+#13+#10;
-  for j:=start to stop do
-  begin
-    results:=results+floattostrF(j/10,FFfixed,0,1);
-    for k:=0 to count-1 do
-      results:=results +';  '+floattostrF(sd_values[j,k],FFfixed,0,4);
-   results:=results+#13+#10;
-  end;
-
-
-  if sd_check_star30>0 then
-  begin
-    beststr:=floattostrF(best_aperture30,FFgeneral,2,1);
-    stackmenu1.flux_aperture1.text:=beststr;
-    memo2_message('Test completed.: '+#13+#10+results+#13+#10+#13+#10+
-    'Best aperture setting for faint stars with SNR<30 is '+beststr+#13+#10+
-    'Best aperture setting for faint stars with 30<SNR<60 is '+floattostrF(best_aperture90,FFgeneral,2,1)+#13+#10+
-    'Best aperture setting for faint stars with 60<SNR is '+floattostrF(best_aperture,FFgeneral,2,1)    );
-  end
-  else
-    memo2_message('Test completed.: '+#13+#10+results+#13+#10+#13+#10+'Could not detect faint stars with SNR<30.');
-
-  Screen.Cursor:=crDefault;{back to normal }
-end;
-
-
-
-
 procedure Tstackmenu1.transformation2Click(Sender: TObject);
 begin
-
   if Form_transformation1 = nil then
     Form_transformation1:=TForm_transformation1.Create(self); {in project option not loaded automatic}
   Form_transformation1.Show{Modal};
@@ -12931,7 +12974,6 @@ begin
   end;
 
   stacking_running:=true;
-//  stacking_paused:=false;
   esc_pressed:=False;
 
   memo2_message('Stack method ' + stack_method1.Text);
@@ -14065,7 +14107,7 @@ begin
 
     case themethod of
       0: local_sigma_clip_mean_and_sd(round(0.2 * head.Width),round(0.2 * head.Height), round(0.8 * head.Width),round(0.8 * head.Height),k, img_loaded,{out} sd,bg,iterations);{calculate sigma clip mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-      1: bg:=trimmed_median_background(img_loaded,true{ellipse shape}, k, round(0.2 * head.Width), round(0.8 * head.Width), round(0.2 * head.Height), round(0.8 * head.Height), 32000,greylevels);
+      1: bg:=trimmed_median_background(img_loaded,true{ellipse shape}, k, round(0.2 * head.Width), round(0.8 * head.Width), round(0.2 * head.Height), round(0.8 * head.Height),0, 32000,greylevels);
     end;
 
     {vertical}
@@ -14083,7 +14125,7 @@ begin
 
           case themethod of
              0: local_sigma_clip_mean_and_sd(x1,y1,x2,y2,k, img_backup[index_backup].img,{out} sd,val,iterations);{calculate sigma clip mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-             1: val:=trimmed_median_background(img_backup[index_backup].img,false{ellipse shape}, k,x1,x2, y1, y2, 32000,greylevels);
+             1: val:=trimmed_median_background(img_backup[index_backup].img,false{ellipse shape}, k,x1,x2, y1, y2,0, 32000,greylevels);
            end;
 
           if val>0 then correction_factor:=bg/val else correction_factor:=1;
@@ -14113,7 +14155,7 @@ begin
 
           case themethod of
              0: local_sigma_clip_mean_and_sd(x1,y1,x2,y2,k, img_backup[index_backup].img,{out} sd,val,iterations);{calculate sigma clip mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-             1: val:=trimmed_median_background(img_backup[index_backup].img,false{ellipse shape}, k,x1,x2, y1, y2, 32000,greylevels);
+             1: val:=trimmed_median_background(img_backup[index_backup].img,false{ellipse shape}, k,x1,x2, y1, y2,0, 32000,greylevels);
            end;
 
           if val>0 then correction_factor:=bg/val else correction_factor:=1;

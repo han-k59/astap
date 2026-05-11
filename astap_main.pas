@@ -25,14 +25,16 @@ https://gitlab.com/freepascal.org/fpc/source/-/issues/40302
 
 
 GTK3
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42173
-https://github.com/LongDirtyAnimAlf/fpcupdeluxe/issues/806?reload=1
+fixed: https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42173
+fixed: https://github.com/LongDirtyAnimAlf/fpcupdeluxe/issues/806?reload=1
+fixed  https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42256
+fixed https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42260
+https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42268
+https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42269
 
-GTK3, bug in sorting Tlistview columns
-https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42215
 
 
-https://gitlab.com/freepascal.org/fpc/source/-/issues/41022   allow larger TIFF files
+fixed https://gitlab.com/freepascal.org/fpc/source/-/issues/41022   allow larger TIFF files
 https://gitlab.com/freepascal.org/fpc/source/-/issues/41033#example-project  internalsize tiff
 
 
@@ -78,7 +80,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2026.04.12';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2026.05.11';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -863,7 +865,7 @@ procedure ExecuteAndWait(const aCommando: string; show_console:boolean);
 procedure execute_unix(const execut:string; param: TStringList; show_output: boolean);{execute linux program and report output}
 procedure execute_unix2(s:string);
 {$endif}
-function trimmed_median_background(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
+function trimmed_median_background(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,annulus, max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
 function get_negative_noise_level(img :Timage_array;colorm,xmin,xmax,ymin,ymax: integer;common_level:double): double;{find the negative noise level below most_common_level  of a local area}
 function prepare_ra5(rax:double; sep:string):string; {radialen to text  format 24h 00.0}
 function prepare_ra6(rax:double; sep:string):string; {radialen to text  format 24h 00 00}
@@ -907,7 +909,7 @@ procedure HSV2RGB(h {0..360}, s {0..1}, v {0..1} : single; out r,g,b: single); {
 function get_demosaic_pattern : integer; {get the required de-bayer range 0..3}
 Function LeadingZero(w : integer) : String;
 procedure log_to_file(logf,mess : string);{for testing}
-procedure log_to_file2(logf,mess : string);{used for platesolve2 and photometry}
+procedure log_to_file2(logf,mess : string);{used for photometry}
 procedure demosaic_advanced(var img : Timage_array);{demosaic img_loaded}
 procedure bin_X2X3X4(var img :Timage_array; var head : theader;memo:tstrings; binfactor:integer);{bin img 2x,3x or 4x}
 procedure local_sigma_clip_mean_and_sd(x1,y1, x2,y2{regio of interest},col : integer; img : Timage_array; out sd,mean :double; out iterations :integer);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
@@ -1146,6 +1148,7 @@ end;{reset global variables}
 //  ra1:=ra1-(dra*t*100);{multiply with number of years is t*100. Subtract because we go back to J2000}
 //  dec1:=dec1-(ddec*t*100);
 //end;
+
 
 
 function load_fits(filen:string;light {load as light or dark/flat},load_data,update_memo: boolean;get_ext: integer;const memo: tstrings;out head: Theader; out img_loaded2: Timage_array): boolean;{load a fits or Astro-TIFF file}
@@ -1450,19 +1453,6 @@ begin
           else
           if ((header[i+1]='L')  and (header[i+2]='A') and (header[i+3]='T') and (header[i+4]='_') and (header[i+5]='C') and (header[i+6]='N')and (header[i+7]='T')) then
                head.flat_count:=round(validate_double);{read integer as double value}
-
-          if ((header[i+1]='R')  and (header[i+2]='A') and (header[i+3]='M') and (header[i+4]='E')) then
-          begin
-            //FRAMEX  =                  100 / Frame start x
-            //FRAMEY  =                  500 / Frame start y
-            //FRAMEHGT=                  600 / Frame height
-            //FRAMEWDH=                  500 / Frame width
-            if header[i+5]='X' then head.xorgsubf:=round(validate_double)
-            else
-            if header[i+5]='Y' then head.yorgsubf:=round(validate_double);
-          end;
-
-
         end; {F}
 
         if ((header[i]='G') and (header[i+1]='A')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]=' ')) then
@@ -2595,6 +2585,9 @@ begin
     if key='SITELAT =' then sitelat:=read_string else
     if key='SITELONG=' then sitelong:=read_string;
 
+    if key='XORGSUBF=' then head.xorgsubf:=round(read_float);
+    if key='YORGSUBF=' then head.yorgsubf:=round(read_float);
+
 
     {adjustable keywords}
     if key=sqm_key+'='    then sqm_value:=read_string;
@@ -2976,7 +2969,7 @@ begin
   saved_header:=false;
   ext:=uppercase(ExtractFileExt(filen));
 
-  read_tiff(filename2,img, descrip,bitspersample, head.datamax_org,result); {unit tiff}
+  read_tiff(filen,img, descrip,bitspersample, head.datamax_org,result); {unit tiff}
 
   if result=false then
   begin
@@ -3222,6 +3215,114 @@ begin
 end;
 
 
+procedure ghost_blackout(threshold,dx,dy,diameter: integer);//blackout of ghost stars for spectroscopy
+var
+  jy,jx,radius,sqrradius,ny,nx,fwidth,fheight,cx,cy,fluxmain,fluxghost1,fluxghost2,gy,gx: integer;
+
+    procedure setpixel(ay,ax : integer; val: single);
+    begin
+      if ((ax>=0) and (ax<Fwidth) and (ay>=0) and (ay<Fheight)) then
+        img_loaded[0,ay ,ax]:=val;
+    end;
+
+    function getpixel(ay,ax: integer): single;
+    begin
+      if ((ax>=0) and (ax<Fwidth) and (ay>=0) and (ay<Fheight)) then
+        result:=img_loaded[0,ay ,ax]
+      else
+        result:=0;
+    end;
+
+    function center_of_gravity(iy,ix : integer; out cy,cx,flux : integer): boolean;
+    var
+      sumval,sumvalx,sumvaly : double;
+      val                    : single;
+      i,j,signal_counter: integer;
+    begin
+      result:=false;//default failure
+      flux:=0;//default failure
+      SumVal:=0;
+      SumValX:=0;
+      SumValY:=0;
+      signal_counter:=0;
+
+      for j:=-diameter to diameter do //search wide enough to center on donuts
+      for i:=-diameter to diameter do
+      begin
+        val:=getpixel(iy+j,ix+i);
+        if val>threshold div 2 then
+        begin
+          SumVal:=SumVal+val;
+          SumValX:=SumValX+val*(i);
+          SumValY:=SumValY+val*(j);
+          inc(signal_counter); {how many pixels are illuminated}
+        end;
+      end;
+      if signal_counter<4 then //no star detected
+      begin
+        cy:=iy;
+        cx:=ix;
+      end
+      else
+      begin //center of gravity
+        cy:=round(iy+SumValY/SumVal);
+        cx:=round(ix+SumValX/SumVal);
+        flux:=round(Sumval);
+        result:=true;
+
+      end;
+    end;
+
+begin
+  Radius:=diameter div 2;
+  sqrradius:=sqr(radius);
+  fheight:=length(img_loaded[0]);
+  fwidth:=length(img_loaded[0,0]);
+
+  sqrradius:=sqr(diameter) div 4;
+  try
+    for jy:=1 to Fheight-2 do
+    for jx:=1 to Fwidth-2 do
+    begin
+      if ((img_loaded[0,jy ,  jx  ]>threshold) and
+          (img_loaded[0,jy+1 ,jx  ]>threshold) and
+          (img_loaded[0,jy   ,jx+1]>threshold) and
+          (img_loaded[0,jy+1 ,jx+1]>threshold)) then //four pixels above threshold
+      begin
+        if center_of_gravity(jy,jx,cy,cx,fluxmain) then  //found a possible true star
+        begin
+          if getpixel(cy+dy,cx+dx)<>0 then
+            center_of_gravity(cy+dy,cx+dy,gy,gx,fluxghost1) //calculate ghost1 flux
+          else //no need to check
+            fluxghost1:=0;
+
+          if getpixel(cy-dy,cx-dx)<>0 then
+            center_of_gravity(cy-dy,cx-dy,gy,gx,fluxghost2) //calculate ghost2 flux
+          else //no need to check
+            fluxghost2:=0;
+
+          if ((fluxghost1<fluxmain) and (fluxghost2<fluxmain)) then //found the main star and not a ghost
+          begin
+            if getpixel(cy+dy,cx+dx)<>0 then //ghost star is not yet blackouted
+            for ny:=-radius to +radius do
+              for nx:=-radius to +radius do
+               if sqr(ny)+sqr(nx)<=sqrradius then //round spot
+                 setpixel(cy+dy+ny,cx+dx+nx,$000000); //blackout ghost1 above
+
+           if getpixel(cy-dy,cx-dx)<>0 then //ghost star is not yet blackouted
+           for ny:=-radius to +radius do
+              for nx:=-radius to +radius do
+               if sqr(ny)+sqr(nx)<=sqrradius then //round spot
+                 setpixel(cy-dy+ny,cx-dx+nx,$000000); //blackout ghost2 below
+          end;
+        end;
+      end;
+    end;
+  except
+  end;
+end;
+
+
 procedure Tmainform1.LoadFITSPNGBMPJPEG1Click(Sender: TObject);
 begin
   OpenDialog1.Title := 'Open in viewer';
@@ -3245,6 +3346,9 @@ begin
     LoadFITSPNGBMPJPEG1filterindex:=opendialog1.filterindex;{remember filterindex}
     Screen.Cursor:=crDefault;
   end;
+
+//  ghost_blackout(10000,0,40,25);//blackout of ghost stars for spectroscopy
+//  plot_image(mainform1.image1,false);
 end;
 
 
@@ -3920,7 +4024,7 @@ begin
 end;
 
 
-function trimmed_median_background(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
+function trimmed_median_background(img :Timage_array;ellipse:  boolean; colorm,  xmin,xmax,ymin,ymax,annulus, max1 {maximum background expected}:integer; out greylevels:integer):integer;{find the most common value of a local area and assume this is the best average background value}
 var
    i,j,val,width3,height3,sum, upperlimit,Q   :integer;
    histogram : array of integer;
@@ -3948,17 +4052,19 @@ begin
 
   for i:=ymin to  ymax do
     begin
-      for j:=xmin to xmax do
-      begin
-        if ((ellipse=false {use no ellipse}) or (sqr(j-centerX)/sqr(a) +sqr(i-centerY)/sqr(b)<1)) then // standard equation of the ellipse
-        begin
-          val:=round(img[colorM,i,j]);{get one color value}
-          if ((val>=1) and (val<max1)) then {ignore black areas and bright stars}
+      if  abs(i-centerY)>=annulus then //outside defined square center defined by annulus
+        for j:=xmin to xmax do
+          if  abs(j-centerX)>=annulus then //outside defined square center defined by annulus
           begin
-            inc(histogram[val],1);{calculate histogram}
-            sum:=sum+1;
-          end;
-        end;
+            if ((ellipse=false {use no ellipse}) or (sqr(j-centerX)/sqr(a) +sqr(i-centerY)/sqr(b)<1)) then // standard equation of the ellipse
+            begin
+              val:=round(img[colorM,i,j]);{get one color value}
+              if ((val>=1) and (val<max1)) then {ignore black areas and bright stars}
+              begin
+                inc(histogram[val],1);{calculate histogram}
+                sum:=sum+1;
+              end;
+            end;
       end;{j}
     end; {i}
   result:=0; {for case histogram is empthy due to black area}
@@ -6171,7 +6277,7 @@ begin
     local_sigma_clip_mean_and_sd(startX+1 ,startY+1, stopX-1,stopY-1{within rectangle},col,img_loaded, {var} sd,mean,iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
     measure_hotpixels(startX+1 ,startY+1, stopX-1,stopY-1{within rectangle},col,sd,mean,img_loaded,{out}hotpixel_perc,hotpixel_adu);{calculate the hotpixel_adu ratio and average value}
 
-    most_common:=trimmed_median_background(img_loaded,CtrlButton {ellipse},col,startx,stopX,starty,stopY,65535,greylevels);
+    most_common:=trimmed_median_background(img_loaded,CtrlButton {ellipse},col,startx,stopX,starty,stopY,0,65535,greylevels);
 
     {median sampling and min , max}
     max_counter:=1;
@@ -6279,10 +6385,10 @@ begin
   end;
   if ((abs(stopX-startx)>=head.width-1) and (most_common<>0){prevent division by zero}) then
   begin
-    mc_1:=trimmed_median_background(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},           0{y1},       50{y2},32000,greylevels2);{for this area get most common value equals peak in histogram}
-    mc_2:=trimmed_median_background(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},head.height-1-50{y1},head.height-1{y2},32000,greylevels2);
-    mc_3:=trimmed_median_background(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},head.height-1-50{y1},head.height-1{y2},32000,greylevels2);
-    mc_4:=trimmed_median_background(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},           0{y1},50       {y2},32000,greylevels2);
+    mc_1:=trimmed_median_background(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},           0{y1},       50{y2},0,32000,greylevels2);{for this area get most common value equals peak in histogram}
+    mc_2:=trimmed_median_background(img_loaded,false{ellipse shape},0,          0{x1},      50{x2},head.height-1-50{y1},head.height-1{y2},0,32000,greylevels2);
+    mc_3:=trimmed_median_background(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},head.height-1-50{y1},head.height-1{y2},0,32000,greylevels2);
+    mc_4:=trimmed_median_background(img_loaded,false{ellipse shape},0,head.width-1-50{x1},head.width-1{x2},           0{y1},50       {y2},0,32000,greylevels2);
 
     info_message:=info_message+#10+#10+'Vignetting [Mo corners/Mo]: '+inttostr(round(100*(1-(mc_1+mc_2+mc_3+mc_4)/(most_common*4))))+'%';
   end;
@@ -6830,11 +6936,11 @@ begin
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
 
-      mode_left_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,starty-bsize,starty+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_left_top:=   trimmed_median_background(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,stopY-bsize,stopY+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,starty-bsize,starty+bsize,0,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_top:=   trimmed_median_background(img_loaded,false{ellipse shape},k,startx-bsize,startx+bsize,stopY-bsize,stopY+bsize,0,32000,greylevels);{for this area get most common value equals peak in histogram}
 
-      mode_right_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,starty-bsize,starty+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_right_top:=   trimmed_median_background(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,starty-bsize,starty+bsize,0,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_top:=   trimmed_median_background(img_loaded,false{ellipse shape},k,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,0,32000,greylevels);{for this area get most common value equals peak in histogram}
 
       noise_left_bottom:=get_negative_noise_level(img_loaded,k,startx-bsize,startx+bsize,starty-bsize,starty+bsize, mode_left_bottom);{find the negative noise level below most_common_level of a local area}
       noise_left_top:=get_negative_noise_level(img_loaded,k,startx-bsize,startx+bsize,stopY-bsize,stopY+bsize, mode_left_top);{find the negative noise level below most_common_level of a local area}
@@ -7639,10 +7745,7 @@ var
 begin
   V := Max(R, Max(G,B));
 
-
   m := Min(R, Min(G,B));
-
-
 
   C := V - m;
   if V > 1e-6 then
@@ -7860,13 +7963,13 @@ begin
       if head.naxis3>=3 then {at least three colours}
         AdjustSaturationHSV(colrr,colgg,colbb,saturationFactor,selectiveStrength);
 
-      luminance:=0.333333*colrr+0.333333*colgg+0.333333*colbb;//keep equal ratio in image development and not luminance := 0.2126*colRR + 0.7152*colGG + 0.0722*colBB;
       if stretch_on then {Stretch luminance only. Keep RGB ratio !!}
       begin
-        luminance:=(colrr+colgg+colbb)/3;{luminance in range 0..1}
+      //  luminance:=(colrr+colgg+colbb)/3;{luminance in range 0..1}
+        luminance:=0.333333*colrr+0.333333*colgg+0.333333*colbb;//luminance in range 0..1. keep equal ratio in image development and not luminance := 0.2126*colRR + 0.7152*colGG + 0.0722*colBB;
         luminance_stretched:=stretch_c[trunc(32768*luminance)];
         factor:=luminance_stretched/luminance;
-        if factor*largest>1 then factor:=1/largest; {clamp again, could be lengther then 1}
+        if factor*largest>1 then factor:=1/largest; {clamp again, could be larger then 1}
         colrr:=colrr*factor;{stretch only luminance but keep rgb ratio!}
         colgg:=colgg*factor;{stretch only luminance but keep rgb ratio!}
         colbb:=colbb*factor;{stretch only luminance but keep rgb ratio!}
@@ -8589,6 +8692,8 @@ begin
       stackmenu1.lrgb_auto_level1.checked:=Sett.ReadBool('stack','lrgb_al',true);
       stackmenu1.green_purple_filter1.checked:=Sett.ReadBool('stack','gr_pu_fl',false);
       stackmenu1.lrgb_global_colour_smooth1.checked:=Sett.ReadBool('stack','lrgb_cs',true);
+      stackmenu1.fix_colour_saturated1.checked:=Sett.ReadBool('stack','fix_saturated',true);
+
       dum:=Sett.ReadString('stack','lrgb_sl','');if dum<>'' then stackmenu1.lrgb_global_colour_smooth_sd1.text:=dum;
       dum:=Sett.ReadString('stack','lrgb_sw','');if dum<>'' then stackmenu1.lrgb_global_colour_smooth_width1.text:=dum;
 
@@ -8714,11 +8819,11 @@ begin
 
       dum:=Sett.ReadString('stack','font_size_p',''); if dum<>'' then stackmenu1.font_size_photometry1.text:=dum;
 
-      c:=Sett.ReadInteger('stack','measure_mode',0); stackmenu1.measuring_method1.itemindex:=c;
+      stackmenu1.measuring_method1.itemindex:=Sett.ReadInteger('stack','measure_mode',0);
       dum:=Sett.ReadString('stack','snr_min_p',''); if dum<>'' then stackmenu1.snr_min_photo1.text:=dum;
       dum:=Sett.ReadString('stack','flux_apert',''); if dum<>'' then stackmenu1.flux_aperture1.text:=dum;
       dum:=Sett.ReadString('stack','annulus_rad',''); if dum<>'' then stackmenu1.annulus_radius1.text:=dum;
-      dum:=Sett.ReadString('stack','ref_database',''); if dum<>'' then stackmenu1.reference_database1.text:=dum else stackmenu1.star_database1.text:='Online Gaia';//for photometry
+      stackmenu1.reference_database1.text:=Sett.ReadString('stack','ref_database','Online Gaia'); //for photometry
       c:=Sett.ReadInteger('stack','annotate_i',2); stackmenu1.annotate_mode1.itemindex:=c;
 
       dum:=Sett.ReadString('stack','max_period',''); if dum<>'' then stackmenu1.max_period1.text:=dum;
@@ -8987,8 +9092,9 @@ begin
 
       sett.writeInteger('stack','stackmenu_left',stackmenu1.left);
       sett.writeInteger('stack','stackmenu_top',stackmenu1.top);
-      sett.writeInteger('stack','stackmenu_height',stackmenu1.height);
-      sett.writeInteger('stack','stackmenu_width',stackmenu1.width);
+
+      sett.writeInteger('stack','stackmenu_height',max(stackmenu1.height,200)); //max temporary for GTK3
+      sett.writeInteger('stack','stackmenu_width',max(stackmenu1.width,300));
       sett.writeInteger('stack','splitter',stackmenu1.pairsplitter1.position);
 
       sett.writeInteger('stack','stack_method',stackmenu1.stack_method1.itemindex);
@@ -9018,6 +9124,8 @@ begin
       sett.writeBool('stack','gr_pu_fl',stackmenu1.green_purple_filter1.checked);
 
       sett.writeBool('stack','lrgb_cs',stackmenu1.lrgb_global_colour_smooth1.checked);
+      sett.writeBool('stack','fix_saturated',stackmenu1.fix_colour_saturated1.checked);
+
       sett.writestring('stack','lrgb_sd',stackmenu1.lrgb_global_colour_smooth_sd1.text);
 
       sett.writeBool('stack','lrgb_sm',stackmenu1.star_colour_smooth1.checked);
@@ -9463,11 +9571,11 @@ begin
 
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
-      mode_left_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,startX-20,startX,startY-20,startY,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_left_top:=trimmed_median_background(img_loaded,false{ellipse shape},k,startX-20,startX,stopY,stopY+20,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,startX-20,startX,startY-20,startY,0,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_left_top:=trimmed_median_background(img_loaded,false{ellipse shape},k,startX-20,startX,stopY,stopY+20,0,32000,greylevels);{for this area get most common value equals peak in histogram}
 
-      mode_right_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX,stopX+20,startY-20,startY,32000,greylevels);{for this area get most common value equals peak in histogram}
-      mode_right_top:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX,stopX+20,stopY,stopY+20,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_bottom:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX,stopX+20,startY-20,startY,0,32000,greylevels);{for this area get most common value equals peak in histogram}
+      mode_right_top:=trimmed_median_background(img_loaded,false{ellipse shape},k,stopX,stopX+20,stopY,stopY+20,0,32000,greylevels);{for this area get most common value equals peak in histogram}
 
       for fitsY:=startY to stopY-1 do
       begin
@@ -11412,13 +11520,13 @@ begin
     backup_img;
 
     bsize:=20;
-    colrr1:=trimmed_median_background(img_loaded,false{ellipse shape},0,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>1 then colgg1:=trimmed_median_background(img_loaded,false{ellipse shape},1,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>2 then colbb1:=trimmed_median_background(img_loaded,false{ellipse shape},2,startX-bsize,startX+bsize,startY-bsize,startY+bsize,65535,greylevels);{find most common colour of a local area}
+    colrr1:=trimmed_median_background(img_loaded,false{ellipse shape},0,startX-bsize,startX+bsize,startY-bsize,startY+bsize,0,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>1 then colgg1:=trimmed_median_background(img_loaded,false{ellipse shape},1,startX-bsize,startX+bsize,startY-bsize,startY+bsize,0,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>2 then colbb1:=trimmed_median_background(img_loaded,false{ellipse shape},2,startX-bsize,startX+bsize,startY-bsize,startY+bsize,0,65535,greylevels);{find most common colour of a local area}
 
-    colrr2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>1 then colgg2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
-    if head.naxis3>2 then colbb2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,65535,greylevels);{find most common colour of a local area}
+    colrr2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,0,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>1 then colgg2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,0,65535,greylevels);{find most common colour of a local area}
+    if head.naxis3>2 then colbb2:=trimmed_median_background(img_loaded,false{ellipse shape},0,stopX-bsize,stopX+bsize,stopY-bsize,stopY+bsize,0,65535,greylevels);{find most common colour of a local area}
 
     a:=sqrt(sqr(stopX-startX)+sqr(stopY-startY)); {distance between bright and dark area}
 
@@ -12217,6 +12325,7 @@ begin
 end;
 
 
+
 {type
    adata = array of word;
 function rice_encoding(inp : adata; k,bitdepth : integer; out  outp : adata ; out compressedSize : integer) : boolean;
@@ -12673,11 +12782,7 @@ begin
 
   {OneInstance of ASTAP if only one parameter is specified. So if user clicks on an associated image in explorer}
   if paramcount=1 then
-  begin
-    param1:=paramstr(1);
-    if ord(param1[length(param1)])>57  {letter, not a platesolve command}  then {2019-5-4, modification only unique instance if called with file as parameter(1)}
-      check_second_instance;{check for and other instance of the application. If so send paramstr(1) and quit}
-  end
+    check_second_instance{check for and other instance of the application. If so send paramstr(1) and quit}
   else
   if paramcount>1 then {commandline trimmed_median_background}
      trayicon1.visible:=true;{Show trayicon. Do it early otherwise in Win10 it is not shown in the command line trimmed_median_background}
@@ -13384,7 +13489,7 @@ begin
 end;
 
 
-procedure log_to_file2(logf,mess : string);{used for platesolve2 and photometry}
+procedure log_to_file2(logf,mess : string);{used for photometry}
 var
   f   :  textfile;
 begin
@@ -13457,146 +13562,6 @@ begin
   end;
   if warning_str<>'' then writeln(f,'WARNING='+warning_str);
   closefile(f);
-end;
-
-
-function platesolve2_command: boolean;
-var
-  i,error1,regions,count        : integer;
-  List: TStrings;
-  command1 : string;
-  f        : textfile;
-  resultstr,rastr,decstr,cdelt,crota,flipped,confidence,resultV,line1,line2 : string;
-  field_size,search_field,dummy {do not remove}                             : double;
-  source_fits,solved,apt_request,file_loaded:boolean;
-begin
-  settingstring := Tstringlist.Create;
- {load program parameters, overriding initial settings if any}
-  with mainform1 do
-  if paramcount>0 then
-  begin
-   // Command line:
-   //PlateSolve2.exe (Right ascension in radians),(Declination in radians),(x dimension in radians),(y dimension in radians),(Number of regions to search),(fits filename),(wait time at the end)
-   //The wait time is optional. The 6 of 7  parameters should be separated by a comma. The values should have a decimal point not a comma. Example:  platesolve2.exe 4.516,0.75,0.0296,0.02268,999,1.fit,0
-   //Example platesolve2.exe   4.516,0.75,0.0296,0.02268,999,1.fit,0
-
-    List := TStringList.Create;
-    try
-      List.Clear;
-      list.StrictDelimiter:=true;{accept spaces in command but reconstruct since they are split over several parameters}
-
-      command1:=paramstr(1);
-      for i:=2 to paramcount do command1:=command1+' '+paramstr(i);{accept spaces in command but reconstruct since they are split over several parameters}
-
-      ExtractStrings([','], [], PChar(command1),List);
-
-      if list.count>=6  then
-         val(list[0],dummy,error1);{extra test, is this a platesolve2 command?}
-
-      if ((list.count>=6) and (error1=0)) then {this is a platesolve2 command line}
-      begin
-        result:=true;
-        commandline_execution:=true; {later required for trayicon and popup notifier}
-
-        filename2:=list[5];
-        source_fits:=fits_file_name(filename2);{fits file extension?}
-        file_loaded:=load_image(filename2,img_loaded,head,mainform1.memo1.lines,false,false {plot});{load file first to give commandline parameters later priority}
-
-        if file_loaded=false then errorlevel:=16;{error file loading}
-
-        ra1.Text:=floattostr6(strtofloat2(list[0])*12/pi);
-        dec1.Text:=floattostr6(strtofloat2(list[1])*180/pi);
-        field_size:=strtofloat2(list[3])*180/pi;{field height in degrees}
-        stackmenu1.search_fov1.text:=floattostr6(field_size);{field width in degrees}
-        fov_specified:=true; {always for platesolve2 command}
-        regions:=strtoint(list[4]);{use the number of regions in the platesolve2 command}
-        if regions=3000{maximum for SGP, force a field of 90 degrees} then   search_field:=90
-        else
-        search_field:= min(180,sqrt(regions)*0.5*field_size);{regions 1000 is equivalent to 32x32 regions. So distance form center is 0.5*32=16 region heights}
-
-        stackmenu1.radius_search1.text:=floattostrF(search_field,ffFixed,0,1);{convert to radius of a square search field}
-        if ((file_loaded) and (solve_image(img_loaded,head,mainform1.memo1.lines,true {get hist},false {check filter}) )) then {find plate solution, filename2 extension will change to .fit}
-        begin
-          resultstr:='Valid plate solution';
-          confidence:='999';
-          resultV:=',1';
-          solved:=true;
-        end
-        else
-        begin
-         //999,999,-1
-         //0,0,0,0,404
-         //Maximum search limit exceeded
-          head.ra0:=999;
-          head.dec0:=999;
-          resultV:=',-1';
-          resultstr:='Maximum search limit exceeded';
-          confidence:='000';
-          solved:=false;
-          errorlevel:=1;{no solution}
-        end;
-        //  0.16855631,0.71149576,1              (ra [rad],dec [rad],1 }
-        //  2.69487,0.5,1.00005,-0.00017,395     {pixelsize*3600, head.crota2, flipped,? ,confidence}
-        //  Valid plate solution
-
-        // .1844945, .72046475, 1
-        // 2.7668, 180.73,-1.0001,-.00015, 416
-        // Valid plate solution
-
-        //  0.16855631,0.71149576,0.0296,0.02268,999,c:\temp\3.fits,0   {m31}
-
-        assignfile(f,ChangeFileExt(filename2,'.apm'));
-        rewrite(f);
-
-        str(head.ra0:9:7,rastr);{mimic format of PlateSolve2}
-        str(head.dec0:9:7,decstr);
-        line1:=rastr+','+decstr+resultV {,1 or ,-1};
-
-        str(head.cdelt2*3600:7:5,cdelt);
-        if ((head.cdelt2=0{prevent divide by zero}) or (head.cdelt1/head.cdelt2<0)) then
-        begin
-          if source_fits then flipped:='1.0000' else flipped:='-1.0000'; {PlateSolve2 sees a FITS file flipped while not flipped due to the orientation 1,1 at left bottom}
-        end
-        else
-        begin
-          if source_fits then flipped:='-1.0000' else flipped:='1.0000';{PlateSolve2 sees a FITS file flipped while not flipped due to the orientation 1,1 at left bottom}
-          head.crota2:=180-head.crota2;{mimic strange Platesolve2 angle calculation.}
-        end;
-
-        head.crota2:=fnmodulo(head.crota2,360); {Platesolve2 reports in 0..360 degrees, mimic this behavior for SGP}
-
-        str(head.crota2:7:2,crota);
-        line2:=cdelt+','+crota+','+flipped+',0.00000,'+confidence;
-
-        apt_request:=pos('IMAGETOSOLVE',uppercase(filename2))>0; {if call from APT then write with numeric separator according Windows setting as for PlateSolve2 2.28}
-        if ((apt_Request) and (formatSettings.decimalseparator= ',' )) then {create PlateSolve2 v2.28 format}
-        begin
-          line1:=stringreplace(line1, '.', ',',[rfReplaceAll]);
-          line2:=stringreplace(line2, '.', ',',[rfReplaceAll]);
-        end;
-
-        writeln(f,line1);
-        writeln(f,line2);
-        writeln(f,resultstr);
-        closefile(f);
-
-        {note SGP uses PlateSolve2 v2.29. This version writes APM always with dot as decimal separator}
-
-        {extra log}
-        write_ini(filename2,solved);{write solution to ini file}
-        count:=0;
-        while  ((fileexists(ChangeFileExt(filename2,'.apm'))=false) and  (count<60)) do begin sleep(50);inc(count); end;{wait maximum 3 seconds till solution file is available before closing the program}
-      end {list count}
-      else
-      begin {not a platesolve2 command}
-        result:=false;
-        filename2:=command1;{for load this file in viewer}
-      end;
-    finally
-      List.Free;
-    end;
-  end
-  else result:=false; {no parameters specified}
 end;
 
 
@@ -13805,21 +13770,11 @@ begin
     if DirectoryExists(user_path)=false then ForceDirectories(user_path);{create c:\users\yourname\appdata\local\astap   or /users/../.config/astap
                    Force directories will make also .config if missing. Using createdir doesn't work if both a directory and subdirectory are to be made in Linux and Mac}
   end;
-
-
   fov_specified:=false;{assume no FOV specification in commandline}
   screen.Cursor:=0;
-  if platesolve2_command then
-  begin
-    esc_pressed:=true;{kill any running activity. This for APT}
-    {stop program, platesolve command already executed}
-    halt(errorlevel); {don't save only do form.destroy. Note  mainform1.close causes a window flash briefly, so don't use}
-  end
-  else
+
   if paramcount>0 then   {file as first parameter}
   begin
-    {filename2 is already made in platesolve2_command}
-
     with application do
     begin
       if hasOption('h','help') then
@@ -13917,10 +13872,11 @@ begin
         {else dec from fits header}
 
         if hasoption('z') then
-                 stackmenu1.downsample_for_solving1.text:=GetOptionValue('z');
+           stackmenu1.downsample_for_solving1.text:=GetOptionValue('z');
         if hasoption('s') then
-                 stackmenu1.max_stars1.text:=GetOptionValue('s');
-        if hasoption('t') then stackmenu1.quad_tolerance1.text:=GetOptionValue('t');
+           stackmenu1.max_stars1.text:=GetOptionValue('s');
+        if hasoption('t') then
+           stackmenu1.quad_tolerance1.text:=GetOptionValue('t');
 
         if hasoption('m') then stackmenu1.min_star_size1.text:=GetOptionValue('m');
         if hasoption('sip') then
@@ -14138,7 +14094,16 @@ begin
     end
     else
     if  paramcount=1 then
+    begin
+      filename2:=paramstr(1);
+      if ord(filename2[length(filename2)])<=57  {number, a platesolve command} then
+      begin
+        error_label1.caption:='PlateSolve2 command-line is no longer supported! Use an older ASTAP version from before 2026.04.21.';//remove in 2030
+        error_label1.visible:=true;
+      end
+      else
       load_image(filename2,img_loaded,head,mainform1.memo1.lines,true,true {plot});{show image of parameter1}
+    end;
 
   end {paramcount>0}
   else
@@ -14547,14 +14512,9 @@ var
 begin
    if ((head.xorgsubf=0) and (head.yorgsubf=0)) then  //head, so from image in the viewer
    begin
-     application.messagebox(pchar('Abort. No image in the viewer or the image in the viewer does not contain keywords XORGSUBF, YORGSUBF or FRAMEX, FRAMEY. Crop an sample image first with the popup menu and mouse.'),'',MB_OK);
+     application.messagebox(pchar('Abort. No image in the viewer or the image in the viewer does not contain keywords XORGSUBF, YORGSUBF. Crop an sample image first with the popup menu and mouse.'),'',MB_OK);
      exit;
    end;
-
-{ FRAMEX  =                  671 / Frame start X
-  FRAMEY  =                 1088 / Frame start Y
-  FRAMEHGT=                  148 / Frame start
-  FRAMEWDH=                  178 / Frame start}
 
   OpenDialog1.Options:= [ofAllowMultiSelect, ofFileMustExist,ofHideReadOnly];
   opendialog1.Filter:=dialog_filter_fits_tif;
@@ -14566,8 +14526,6 @@ begin
   frameY_sample:=head.yorgsubf;//ascom/alpaca inverse stored
   frameW_sample:=head.width;
   frameH_sample:=head.height;
-
-
 
   sample_binning:=round(head.xbinning);
 
@@ -16244,7 +16202,7 @@ end;
 
 
 {Procedure uses two global accessible variables:  r_aperture and sd_bg }
-procedure HFD_without_auto_center(img: Timage_array;xc,yc : double; rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out snr, flux :double);//special for photmetry
+procedure HFD_without_auto_center(img: Timage_array;xc,yc : double; rs {annulus radius}: integer;aperture_small {radius}, adu_e {unbinned} :double; out snr, flux :double);//special for photometry
 const
   samplepoints=5; // for photometry. emperical gives about 10% to 20 % improvment
 
@@ -16537,9 +16495,16 @@ var
   hfd2,fwhm_star2,snr,flux,xf,yf, raM,decM,sd,dummy,conv_factor, adu_e : double;
   s1,s2, hfd_str, fwhm_str,snr_str,mag_str,dist_str,pa_str             : string;
   width5,height5,box_SX,box_SY,flipH,flipV,iterations, box_LX,box_LY,i : integer;
-  color1:tcolor;
+  color1  :tcolor;
   r,b :single;
+  inside: boolean;
 begin
+//  {$IFDEF unix}
+//   y:=max(y,0);//for GTK3 widget, Linux
+//   x:=max(x,0);
+//  {$ELSE}
+//  {$ENDIF}
+
    if ssleft in shift then {swipe effect}
    begin
      if down_xy_valid then
@@ -16648,108 +16613,132 @@ begin
    str(mouse_fitsx:4:1,s1);  {fits images start with 1 and not with 0}
    str(mouse_fitsy:4:1,s2); {Y from bottom to top}
 
+   pixel_to_celestial(head,mouse_fitsx,mouse_fitsy,mainform1.Polynomial1.itemindex,raM,decM);
+   mainform1.statusbar1.panels[0].text:=position_to_string('   ',raM,decM);
+
    {prevent some rounding errors just outside the dimensions}
-   if mouse_fitsY<1 then mouse_fitsY:=1;
-   if mouse_fitsX<1 then mouse_fitsX:=1;
-   if mouse_fitsY>height5 then mouse_fitsY:=height5;
-   if mouse_fitsX>width5 then mouse_fitsX:=width5;
+   inside:=false;
+   if mouse_fitsY<1 then begin mouse_fitsY:=1; inside:=true; end;
+   if mouse_fitsX<1 then begin mouse_fitsX:=1; inside:=true; end;
+   if mouse_fitsY>height5 then begin mouse_fitsY:=height5;inside:=true; end;
+   if mouse_fitsX>width5 then begin mouse_fitsX:=width5;inside:=true; end;
 
    if copy_paste then
    begin
       show_marker_shape(mainform1.shape_paste1,copy_paste_shape {rectangle or ellipse},copy_paste_w,copy_paste_h,0{minimum}, mouse_fitsx, mouse_fitsy);{show the paste shape}
    end;
-   try color1:=ColorToRGB(mainform1.image1.canvas.pixels[trunc(x*width5/image1.width),trunc(y*height5/image1.height)]); ;except;end;  {note  getpixel(image1.canvas.handle,x,y) doesn't work well since X,Y follows zoom  factor !!!}
+   try
+     if ((x>=0) and (y>=0) and (x<width5) and (y<height5)) then
+       color1:=ColorToRGB(mainform1.image1.canvas.pixels[trunc(x*width5/image1.width), trunc(y*height5/image1.height) ]) {x,y should follow zoom factor}
+     else
+       color1:=0;
+   except;
+   end;
 
-   if head.naxis3=3 then {for star temperature}
+
+   if inside=false then  //inside image
    begin
      try
-       r:=img_loaded[0,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-head.backgr;
-       b:=img_loaded[2,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-head.backgr;
+       if head.naxis3=1 then mainform1.statusbar1.panels[3].text:=s1+', '+s2+' = ['+floattostrF(img_loaded[0,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+']' else
+       if head.naxis3=3 then mainform1.statusbar1.panels[3].text:=s1+', '+s2+' = ['+floattostrF(img_loaded[0,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+'/'+ {color}
+                                                                                floattostrF(img_loaded[1,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+'/'+
+                                                                                floattostrF(img_loaded[2,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+' '+']'
+       else mainform1.statusbar1.panels[3].text:='';
      except
-       {some rounding error, just outside dimensions}
      end;
-   end
-   else
-   begin
-     r:=0;
-     b:=0;
-   end;
 
-   mainform1.statusbar1.panels[4].text:=floattostrF(GetRValue(color1),ffgeneral,5,0)+'/'   {screen colors}
-                                       + floattostrF(GetGValue(color1),ffgeneral,5,0)+'/'
-                                       + floattostrF(GetBValue(color1),ffgeneral,5,0)+
-                                       '  '+rgb_kelvin(r,b) ;
-   try
-     if head.naxis3=1 then mainform1.statusbar1.panels[3].text:=s1+', '+s2+' = ['+floattostrF(img_loaded[0,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+']' else
-     if head.naxis3=3 then mainform1.statusbar1.panels[3].text:=s1+', '+s2+' = ['+floattostrF(img_loaded[0,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+'/'+ {color}
-                                                                              floattostrF(img_loaded[1,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+'/'+
-                                                                              floattostrF(img_loaded[2,round(mouse_fitsY)-1,round(mouse_fitsX)-1],ffgeneral,5,0)+' '+']'
-     else mainform1.statusbar1.panels[3].text:='';
-   except
-
-   end;
-
-   pixel_to_celestial(head,mouse_fitsx,mouse_fitsy,mainform1.Polynomial1.itemindex,raM,decM);
-   mainform1.statusbar1.panels[0].text:=position_to_string('   ',raM,decM);
-
-   adu_e:=retrieve_ADU_to_e_unbinned(head.egain);//Used for SNR calculation in procedure HFD. Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
-
-   hfd2:=999;
-   HFD(img_loaded,round(mouse_fitsX-1),round(mouse_fitsY-1),annulus_radius {annulus radius},head.mzero_radius,adu_e {adu_e unbinned},hfd2,fwhm_star2,snr,flux,object_xc,object_yc);{input coordinates in array[0..] output coordinates in array [0..]}
-   //mainform1.caption:=floattostr(mouse_fitsX)+',   '+floattostr(mouse_fitsy)+',         '+floattostr(object_xc)+',   '+floattostr(object_yc);
-   if ((hfd2<99) and (hfd2>0)) then //star detected
-   begin
-     object_hfd:=hfd2;
-     if ((hfd_arcseconds) and (head.cd1_1<>0)) then conv_factor:=abs(head.cdelt2)*3600{arc seconds} else conv_factor:=1;{pixels}
-     if hfd2*conv_factor>1 then str(hfd2*conv_factor:0:1,hfd_str) else str(hfd2*conv_factor:0:2,hfd_str);
-     str(fwhm_star2*conv_factor:0:1,fwhm_str);
-     if ((hfd_arcseconds) and (head.cd1_1<>0)) then begin hfd_str:=hfd_str+'"';fwhm_str:=fwhm_str+'"';end;
-
-     str(snr:0:0,snr_str);
-     if adu_e=0 then snr_str:='SNR='+snr_str // noise based on ADU's
-       else snr_str:='SNR_e='+snr_str;// noise based on electrons. No unit
-
-     if head.mzero<>0 then {offset calculated in star annotation call}
+     if head.naxis3=3 then {for star temperature}
      begin
-       str(head.mzero -ln(flux)*2.5/ln(10):0:2,mag_str);
-       mag_str:=', '+head.passband_database+'='+mag_str
+       try
+         r:=img_loaded[0,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-head.backgr;
+         b:=img_loaded[2,round(mouse_fitsy)-1,round(mouse_fitsx)-1]-head.backgr;
+       except
+         {some rounding error, just outside dimensions}
+       end;
      end
-     else mag_str:='';
-
-     {centered coordinates}
-     pixel_to_celestial(head,object_xc+1,object_yc+1,mainform1.Polynomial1.itemindex,object_raM,object_decM);{input in FITS coordinates}
-     if ((object_raM<>0) and (object_decM<>0)) then
-       mainform1.statusbar1.panels[1].text:=position_to_string('   ',object_raM,object_decM)
-                                               //prepare_ra8(object_raM,': ')+'   '+prepare_dec2(object_decM,'° '){object position in RA,DEC}
      else
-       mainform1.statusbar1.panels[1].text:=floattostrF(object_xc+1,ffFixed,7,2)+',  '+floattostrF(object_yc+1,ffFixed,7,2);{object position in FITS X,Y}
-     mainform1.statusbar1.panels[2].text:='HFD='+hfd_str+', FWHM='+FWHM_str+', '+snr_str+mag_str; {+', '+floattostrF(flux,ffFixed,0,0)};
-
-     if adu_e<>0 then
-       mainform1.statusbar1.panels[7].text:=floattostrF(flux,ffFixed,0,0)+' e-'
-     else
-       mainform1.statusbar1.panels[7].text:=floattostrF(flux,ffFixed,0,0)+' ADU';
-
-     if star_profile1.checked then
      begin
-       plot_star_profile(round(object_xc),round(object_yc));
-       star_profile_plotted:=true;
+       r:=0;
+       b:=0;
      end;
-   end
+
+     mainform1.statusbar1.panels[4].text:=floattostrF(GetRValue(color1),ffgeneral,5,0)+'/'   {screen colors}
+                                         + floattostrF(GetGValue(color1),ffgeneral,5,0)+'/'
+                                         + floattostrF(GetBValue(color1),ffgeneral,5,0)+
+                                         '  '+rgb_kelvin(r,b) ;
+
+
+     adu_e:=retrieve_ADU_to_e_unbinned(head.egain);//Used for SNR calculation in procedure HFD. Factor for unbinned files. Result is zero when calculating in e- is not activated in the statusbar popup menu. Then in procedure HFD the SNR is calculated using ADU's only.
+
+
+     hfd2:=999;
+     HFD(img_loaded,round(mouse_fitsX-1),round(mouse_fitsY-1),annulus_radius {annulus radius},head.mzero_radius,adu_e {adu_e unbinned},hfd2,fwhm_star2,snr,flux,object_xc,object_yc);{input coordinates in array[0..] output coordinates in array [0..]}
+     //mainform1.caption:=floattostr(mouse_fitsX)+',   '+floattostr(mouse_fitsy)+',         '+floattostr(object_xc)+',   '+floattostr(object_yc);
+     if ((hfd2<99) and (hfd2>0)) then //star detected
+     begin
+       object_hfd:=hfd2;
+       if ((hfd_arcseconds) and (head.cd1_1<>0)) then conv_factor:=abs(head.cdelt2)*3600{arc seconds} else conv_factor:=1;{pixels}
+       if hfd2*conv_factor>1 then str(hfd2*conv_factor:0:1,hfd_str) else str(hfd2*conv_factor:0:2,hfd_str);
+       str(fwhm_star2*conv_factor:0:1,fwhm_str);
+       if ((hfd_arcseconds) and (head.cd1_1<>0)) then begin hfd_str:=hfd_str+'"';fwhm_str:=fwhm_str+'"';end;
+
+       str(snr:0:0,snr_str);
+       if adu_e=0 then snr_str:='SNR='+snr_str // noise based on ADU's
+         else snr_str:='SNR_e='+snr_str;// noise based on electrons. No unit
+
+       if head.mzero<>0 then {offset calculated in star annotation call}
+       begin
+         str(head.mzero -ln(flux)*2.5/ln(10):0:2,mag_str);
+         mag_str:=', '+head.passband_database+'='+mag_str
+       end
+       else mag_str:='';
+
+       {centered coordinates}
+       pixel_to_celestial(head,object_xc+1,object_yc+1,mainform1.Polynomial1.itemindex,object_raM,object_decM);{input in FITS coordinates}
+       if ((object_raM<>0) and (object_decM<>0)) then
+         mainform1.statusbar1.panels[1].text:=position_to_string('   ',object_raM,object_decM)
+                                                 //prepare_ra8(object_raM,': ')+'   '+prepare_dec2(object_decM,'° '){object position in RA,DEC}
+       else
+         mainform1.statusbar1.panels[1].text:=floattostrF(object_xc+1,ffFixed,7,2)+',  '+floattostrF(object_yc+1,ffFixed,7,2);{object position in FITS X,Y}
+       mainform1.statusbar1.panels[2].text:='HFD='+hfd_str+', FWHM='+FWHM_str+', '+snr_str+mag_str; {+', '+floattostrF(flux,ffFixed,0,0)};
+
+       if adu_e<>0 then
+         mainform1.statusbar1.panels[7].text:=floattostrF(flux,ffFixed,0,0)+' e-'
+       else
+         mainform1.statusbar1.panels[7].text:=floattostrF(flux,ffFixed,0,0)+' ADU';
+
+       if star_profile1.checked then
+       begin
+         plot_star_profile(round(object_xc),round(object_yc));
+         star_profile_plotted:=true;
+       end;
+     end
+     else
+     begin
+       object_xc:=-999999;{indicate object_raM is unlocked}
+       object_raM:=raM; {use mouse position instead}
+       object_decM:=decM; {use mouse position instead}
+       mainform1.statusbar1.panels[1].text:='';
+
+       local_sigma_clip_mean_and_sd(round(mouse_fitsX-1)-10,round(mouse_fitsY-1)-10, round(mouse_fitsX-1)+10,round(mouse_fitsY-1)+10{regio of interest},0 {col},img_loaded, sd,dummy {mean},iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
+
+       mainform1.statusbar1.panels[2].text:='σ = '+noise_to_electrons(adu_e, sd); //reports noise in ADU's (adu_e=0) or electrons
+
+       if star_profile_plotted then plot_north;
+       star_profile_plotted:=false;
+     end;
+   end //inside
    else
-   begin
-     object_xc:=-999999;{indicate object_raM is unlocked}
-     object_raM:=raM; {use mouse position instead}
-     object_decM:=decM; {use mouse position instead}
-     mainform1.statusbar1.panels[1].text:='';
-
-     local_sigma_clip_mean_and_sd(round(mouse_fitsX-1)-10,round(mouse_fitsY-1)-10, round(mouse_fitsX-1)+10,round(mouse_fitsY-1)+10{regio of interest},0 {col},img_loaded, sd,dummy {mean},iterations);{calculate mean and standard deviation in a rectangle between point x1,y1, x2,y2}
-
-     mainform1.statusbar1.panels[2].text:='σ = '+noise_to_electrons(adu_e, sd); //reports noise in ADU's (adu_e=0) or electrons
-
-     if star_profile_plotted then plot_north;
-     star_profile_plotted:=false;
+   begin//outside image
+     mainform1.statusbar1.panels[1].text:='';//ra,dec object
+     mainform1.statusbar1.panels[2].text:='';//HFD
+     mainform1.statusbar1.panels[3].text:=s1+', '+s2;//fitsX,fitsY
+     mainform1.statusbar1.panels[4].text:='';
+     mainform1.statusbar1.panels[5].text:='';
+     mainform1.statusbar1.panels[6].text:='';
+     mainform1.statusbar1.panels[7].text:='';
    end;
+
 end;
 
 
