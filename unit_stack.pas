@@ -668,8 +668,6 @@ type
     PopupMenu8: TPopupMenu;
     removeselected8: TMenuItem;
     renametobak8: TMenuItem;
-    result_compress1: TMenuItem;
-    MenuItem25: TMenuItem;
     rename_result1: TMenuItem;
     MenuItem24: TMenuItem;
     MenuItem20: TMenuItem;
@@ -881,7 +879,6 @@ type
     procedure reference_database1Change(Sender: TObject);
     procedure remove_luminance1Change(Sender: TObject);
     procedure remove_stars1Click(Sender: TObject);
-    procedure result_compress1Click(Sender: TObject);
     procedure restore_file_ext1Click(Sender: TObject);
     procedure colournebula1Click(Sender: TObject);
     procedure clear_photometry_list1Click(Sender: TObject);
@@ -7442,37 +7439,6 @@ begin
 end;
 
 
-procedure Tstackmenu1.result_compress1Click(Sender: TObject);
-var
-  index, counter: integer;
-  filen: string;
-begin
-  index:=0;
-  Screen.Cursor:=crHourglass;{$IfDef Darwin}{$else}application.processmessages;{$endif}// Show hourglass cursor, processmessages is for Linux. Note in MacOS processmessages disturbs events keypress for lv_left, lv_right key
-
-  counter:=listview5.Items.Count;
-  esc_pressed:=False;
-  while index < counter do
-  begin
-    if listview5.Items[index].Selected then
-    begin
-      filen:=listview5.items[index].Caption;
-      Application.ProcessMessages;
-      if ((esc_pressed) or (pack_cfitsio(filen) = False)) then
-      begin
-        beep;
-        mainform1.Caption:='Exit with error!!';
-        Screen.Cursor:=crDefault;
-        exit;
-      end;
-    end;
-    Inc(index); {go to next file}
-  end;
-  stackmenu1.Caption:='Finished, all files compressed with extension .fz.';
-  Screen.Cursor:=crDefault;  { Always restore to normal }
-end;
-
-
 procedure Tstackmenu1.restore_file_ext1Click(Sender: TObject);
 var
   searchResult: TSearchRec;
@@ -8155,7 +8121,7 @@ begin
           progress_indicator(c/listview7.items.Count,' Solved');
           Application.ProcessMessages;
 
-          if solve_image(img_temp, headx,memox, True  {get hist},false {check filter}) then
+          if solve_image(img_temp,headx,memox,ra_radians,dec_radians, True  {get hist},false {check filter}) then
           begin{match between loaded image and star database}
             if save_fits_tiff_secure(img_temp,memox,filename1,headx.bitpix)=false then
             begin
@@ -8471,7 +8437,7 @@ begin
           mainform1.image1.Canvas.Pen.style:=psSolid;
           mainform1.image1.Canvas.Pen.Color:=$000050; {dark red}
 
-          for i:=0 to length(starlistx[0]) - 2 do
+          for i:=0 to high(starlistx[0]) do
           begin
             size:=round(5 * starlistX[2, i]);{5*hfd}
             x_new:= round(aa * (starlistX[0, i]) +  bb * (starlistX[1, i]) + cc); {correction x:=aX+bY+c}
@@ -9781,7 +9747,7 @@ begin
         listview6.Items[c].MakeVisible(False);{scroll to selected item}
         memo2_message(filename2 + ' Adding astrometric solution to files.');
 
-        if solve_image(img_loaded, head,mainform1.memo1.lines, True  {get hist},false {check filter}) then
+        if solve_image(img_loaded, head,mainform1.memo1.lines,ra_radians,dec_radians, True  {get hist},false {check filter}) then
         begin{match between loaded image and star database}
           memo2_message(filename2 + ' astrometric solved.');
         end
@@ -10698,7 +10664,7 @@ begin
           memo2_message(filename1 + ' Adding astrometric solution to file.');
           Application.ProcessMessages;
 
-          if solve_image(img_temp, headx,memox, True  {get hist},false {check filter}) then
+          if solve_image(img_temp, headx,memox, ra_radians,dec_radians, True  {get hist},false {check filter}) then
           begin{match between loaded image and star database}
             remove_key(memox,'ANNOTATE',true{all});//remove key word in header. If solution requeres update then annotations are likely not correct.
             result:=save_fits_tiff;
@@ -12552,7 +12518,7 @@ end;
 
 function update_solution_and_save(img: Timage_array; var hd: theader;memo:tstrings): boolean;  {plate solving, image should be already loaded create internal solution using the internal solver}
 begin
-  if solve_image(img, hd,memo, True,false) then {match between loaded image and star database}
+  if solve_image(img, hd,memo, ra_radians,dec_radians, True,false) then {match between loaded image and star database}
   begin
     if fits_file_name(filename2) then
     begin
@@ -13093,6 +13059,7 @@ begin
     calibration_only;
     if process_as_osc > 0 then Memo2_message('OSC images are converted to colour.');
     Memo2_message('Completed. Resulting files are available in tab Results and can be copied to the Blink, Photometry  or Lights tab.');
+    stacking_running:=false;
     exit;
   end;
 
@@ -13112,6 +13079,7 @@ begin
           begin
             memo2_message( '█ █ █  Abort! █ █ █  Reference object missing for one or more files. Double click on all file names and mark with the mouse the reference object. The file name will then turn green.');
             Screen.Cursor:=crDefault;
+            stacking_running:=false;
             exit;
           end;
           Application.ProcessMessages;
@@ -13151,6 +13119,7 @@ begin
           begin
             restore_img;
             Screen.Cursor:=crDefault;
+            stacking_running:=false;
             exit;
           end;
 
@@ -13159,6 +13128,7 @@ begin
           begin
             memo2_message('Error loading file ' + filename2); {failed to load}
             Screen.Cursor:=crDefault;
+            stacking_running:=false;
             exit;
           end;
           solution:=update_solution_and_save(img_loaded, head,mainform1.memo1.lines);//solve and save
@@ -13217,6 +13187,7 @@ begin
           begin
             restore_img;
             Screen.Cursor:=crDefault;
+            stacking_running:=false;
             exit;
           end;
 
@@ -13225,6 +13196,7 @@ begin
           begin
             memo2_message('Error loading file ' + filename2); {failed to load}
             Screen.Cursor:=crDefault;
+            stacking_running:=false;
             exit;
           end;
           plot_mpcorb(StrToInt(maxcount_asteroid), strtofloat2(maxmag_asteroid), True {add_annotations},true {use asteroid buffer. Was loaded by analyse_objects_visible});
@@ -13238,6 +13210,7 @@ begin
           begin
             ShowMessage('Write error !!' + filename2);
             Screen.Cursor:=crDefault;
+            stacking_running:=false;
             exit;
           end;
 
@@ -13255,6 +13228,7 @@ begin
   begin
     restore_img;
     Screen.Cursor:=crDefault;
+    stacking_running:=false;
     exit;
   end;
 
@@ -13392,7 +13366,8 @@ begin
           progress_indicator(-2, 'ESC');
           restore_img;
           Screen.Cursor:=crDefault;
-          { back to normal }  exit;
+          stacking_running:=false;
+          exit;
         end;
 
       end
@@ -13496,6 +13471,7 @@ begin
               progress_indicator(-2, 'ESC');
               restore_img;
               Screen.Cursor:=crDefault;{ back to normal }
+              stacking_running:=false;
               exit;
             end;
 
@@ -13528,6 +13504,7 @@ begin
 
             stack_info:=' ' + IntToStr(head.flatdark_count) + 'x' + 'FD  ' + IntToStr(head.flat_count) + 'x' + 'F  ' + IntToStr(head.dark_count) + 'x' + 'D  ' +  IntToStr(counterL) + 'x' + RemoveSpecialChars(head.filter_name);//filter filter_name for e.g. G/Oiii
 
+            filename2:=stringreplace(filename2,'.fz','',[rfIgnoreCase]);//floating point images can not be saved as compressed
             filename3:=filename2;
             filename2:=StringReplace(ChangeFileExt(filename2, '.fit'),'.fit', '@ ' + stack_info + '_stacked.fit', []); {give new file name for any extension, FIT, FTS, fits}
             memo2_message('█ █ █ Saving as ' + filename2);
@@ -13593,8 +13570,9 @@ begin
           begin
             progress_indicator(-2, 'ESC');
             restore_img;
-            Screen.Cursor:=crDefault;
-            { back to normal }  exit;
+            Screen.Cursor:=crDefault; { back to normal }
+            stacking_running:=false;
+            exit;
           end;
         end
         else
@@ -13606,11 +13584,12 @@ begin
       end;
     end;
 
-    Screen.Cursor:=crDefault;  { Always restore to normal }
     if esc_pressed then
     begin
       progress_indicator(-2, 'ESC');
       restore_img;
+      Screen.Cursor:=crDefault;  { Always restore to normal }
+      stacking_running:=false;
       exit;
     end;
 
@@ -13899,7 +13878,12 @@ begin
         memo2_message('█ █ █  Saving result ' + IntToStr(image_counter) + ' as ' + filename2);
 
         head.bitpix:=-32;
-        if save_fits(img_loaded,mainform1.memo1.lines,head, filename2, True) = False then exit;
+        if save_fits(img_loaded,mainform1.memo1.lines,head, filename2, True) = False then
+        begin
+          Screen.Cursor:=crDefault;  { Always restore to normal }
+          stacking_running:=false;
+          exit;
+        end;
         inc(total_counter);
         if save_settings_image_path1.Checked then save_settings(changefileext(filename2, '.cfg'));
 
@@ -13938,6 +13922,7 @@ begin
 
   if write_log1.Checked then memo2.Lines.SaveToFile(ChangeFileExt(Filename2, '.txt'));
 
+  Screen.Cursor:=crDefault;  { Always restore to normal }
   stacking_running:=false;
 
   if powerdown_enabled1.Checked then {power down system}

@@ -102,7 +102,7 @@ interface
 uses  Classes, SysUtils, Controls, Forms, Math, StdCtrls,
       unit_star_align, unit_star_database, astap_main, unit_stack, unit_annotation, unit_stars_wide_field, unit_calc_trans_cubic, unit_profiler;
 
-function solve_image(img: Timage_array;var hd: Theader; memo: TStrings; get_hist{update hist}, check_patternfilter: boolean): boolean;{find match between image and star database}
+function solve_image(img: Timage_array; var hd: Theader; memo: TStrings; const ra_start,dec_start:double; get_hist{update hist}, check_patternfilter: boolean): boolean; {find match between image and star database}
 procedure bin_and_find_stars(img: Timage_array; var head: theader; binfactor: integer; cropping, hfd_min: double; max_stars: integer; get_hist{update hist}: boolean; out starlist3: Tstar_list; out mean_hfd: double;  out short_warning: string);{bin, measure background, find stars}
 function report_binning(Height: double): integer;{select the binning}
 function position_angle(ra1, dec1, ra0, dec0: double): double;//Position angle of a body at ra1,dec1 as seen at ra0,dec0. Rigorous method
@@ -501,6 +501,7 @@ begin
 
 
     find_stars(img_binned, head, hfd_min, max_stars, starlist3, mean_hfd); {find stars of the image and put them in a list}
+    mean_hfd:=mean_hfd*binfactor;//correct for binning
 
 //    profiler_start;
 //    find_stars(img_binned, head, hfd_min, max_stars, starlist3, mean_hfd); {find stars of the image and put them in a list}
@@ -750,24 +751,24 @@ end;
 
 
 
-function solve_image(img: Timage_array; var hd: Theader; memo: TStrings; get_hist{update hist}, check_patternfilter: boolean): boolean; {find match between image and star database}
+function solve_image(img: Timage_array; var hd: Theader; memo: TStrings; const ra_start,dec_start:double; get_hist{update hist}, check_patternfilter: boolean): boolean; {find match between image and star database}
 var
   nrstars_image, nrstars_required, nrstars_required2, Count, max_distance, nr_quads,
   minimum_quads, binning, match_nr, spiral_x, spiral_y, spiral_dx,
-  spiral_dy, spiral_t, max_stars, i, database_density, limit, err: integer;
+  spiral_dy, spiral_t, max_stars, i, database_density, limit, err,nstars_visible : integer;
   search_field, step_size, ra_database, dec_database, ra_database_offset, radius, fov2, fov_org,
   max_fov, fov_min, oversize, oversize2, sep_search, seperation, ra7, dec7,
   centerX, centerY, correctionX, correctionY, cropping, min_star_size_arcsec, hfd_min,
-  quad_tolerance, dummy, flip, extra, distance, mount_sep,
-  mount_ra_sep, mount_dec_sep, ra_start, dec_start, pixel_aspect_ratio,
-  crota1_rad, crota2_rad, flipped_image, arcsec_per_px, mean_hfd, xi, yi, scale, cdelt1_arcsec, cdelt2_arcsec,vfov : double;
+  quad_tolerance, flip, extra, distance, mount_sep,
+  mount_ra_sep, mount_dec_sep,pixel_aspect_ratio, crota1_rad, crota2_rad, flipped_image,
+  arcsec_per_px, mean_hfd, xi, yi, scale, cdelt1_arcsec, cdelt2_arcsec,vfov,
+  ra_seed, dec_seed, ra_solved, dec_solved                                           : double;
   solution, go_ahead, autoFOV                              : boolean;
   startTick: qword;{for timing/speed purposes}
-  distancestr, mess, info_message, popup_warningG05, popup_warningSample, suggest_str,
+  distancestr, info_message, popup_warningG05, popup_warningSample, suggest_str,
   solved_in, offset_found, ra_offset_str, dec_offset_str, mount_info_str,
   mount_offset_str, warning_downsample: string;
   starlist1, starlist2  : Tstar_list;
-  yy: integer;
 var {with value}
   quads_str: string = ' quads';
 const
@@ -794,8 +795,6 @@ begin
 
   max_stars := strtoint2(stackmenu1.max_stars1.Text, 500); {maximum star to process, if so filter out brightest stars later}
 
-  ra_start := ra_radians;//start position search;
-  dec_start := dec_radians;//start position search;
 
   if ((fov_specified = False) and (hd.cdelt2 <> 0)) then  {no fov in native command line and hd.cdelt2 in header}
     fov_org := apply_arctan(hd.Height * abs(hd.cdelt2))  {calculate FOV. PI can give negative hd.cdelt2}
@@ -831,8 +830,6 @@ begin
   else
     max_fov := 180;
 
-  if max_stars = 0 then max_stars := 500;// temporary. Remove in 2024;
-
   val(copy(name_database, 2, 2), database_density, err);
   if ((err <> 0) or (database_density = 17) or (database_density = 18)) then  //old databases V17, G17, G18, H17, H18
     database_density := 9999
@@ -844,6 +841,9 @@ begin
   autoFOV := (fov_org = 0);{specified auto FOV}
 
   repeat {autoFOV loop}
+    ra_seed  := ra_start;  // start position search;
+    dec_seed := dec_start; // start position search;
+
     if autoFOV then
     begin
       if fov_org = 0 then
@@ -989,6 +989,7 @@ begin
       match_nr := 0;
 
       repeat {Maximum accuracy loop. In case math is found on a corner, do a second solve. Result will be more accurate using all stars of the image}
+        solution:=false;//could be true from a single lock. Super rare.
         Count := 0;{search field counter}
         distance := 0; {required for reporting no too often}
         {spiral variables}
@@ -1012,7 +1013,7 @@ begin
           end;{end spiral around [0 0]}
 
           {adapt search field to matrix position, +0+0/+1+0,+1+1,+0+1,-1+1,-1+0,-1-1,+0-1,+1-1..}
-          dec_database := STEP_SIZE * spiral_y + dec_radians;
+          dec_database := STEP_SIZE * spiral_y + dec_seed;
           flip := 0;
           if dec_database > +pi / 2 then
           begin
@@ -1026,14 +1027,13 @@ begin
             flip := pi;
           end;
 
-
           if dec_database > 0 then extra := step_size / 2  else  extra := -step_size / 2;{use the distance furthest away from the pole}
 
           ra_database_offset := (STEP_SIZE * spiral_x / cos(dec_database - extra)); {step larger near pole. This ra_database is an offset from zero}
           if ((ra_database_offset <= +pi / 2 + step_size / 2) and (ra_database_offset >= -pi / 2)) then  {step_size for overlap}
           begin
-            ra_database := fnmodulo(flip + ra_radians + ra_database_offset, 2 * pi);{add offset to ra after the if statement! Otherwise no symmetrical search}
-            ang_sep(ra_database, dec_database, ra_radians, dec_radians, {out}seperation); {calculates angular separation. according formula 9.1 old Meeus or 16.1 new Meeus, version 2018-5-23}
+            ra_database := fnmodulo(flip + ra_seed + ra_database_offset, 2 * pi);{add offset to ra after the if statement! Otherwise no symmetrical search}
+            ang_sep(ra_database, dec_database, ra_seed, dec_seed, {out}seperation); {calculates angular separation. according formula 9.1 old Meeus or 16.1 new Meeus, version 2018-5-23}
 
             //if solve_show_log then
             //begin
@@ -1082,8 +1082,7 @@ begin
               nrstars_required2 := round(nrstars_required * oversize2 * oversize2); //nr of stars requested request from database
 
               //profiler_start;
-
-              if read_stars(ra_database, dec_database, search_field * oversize2, database_type, nrstars_required2,{out} starlist1) = False then
+               if read_stars(ra_database, dec_database, search_field * oversize2, database_type, nrstars_required2,{out} starlist1) = False then
               begin
                 {$IFDEF linux}
                  //keep till 2026
@@ -1098,11 +1097,11 @@ begin
 
               //profiler_log('Find_stars');
 
-
               //mod 2025 ###################################################
               if match_nr = 1 then  //2025 first solution found, filter out stars for the second match. Avoid that stars outside the image boundaries are used to create database quads
               begin //keep only stars which are visible in the image according the first solution
-                Count := 0;
+                nstars_visible := 0;
+
                 for i := 0 to Length(starlist1[0]) - 1 do
                 begin
                   rotate(crota2_rad, starlist1[0, i] / cdelt1_arcsec, starlist1[1, i] / cdelt2_arcsec, xi, yi);{rotate to screen orientation}
@@ -1110,12 +1109,12 @@ begin
                   yi := centerY - yi;
                   if ((xi > 0) and (xi < hd.Width) and (yi > 0) and (yi < hd.Height)) then //within image boundaries
                   begin
-                    starlist1[0, Count] := starlist1[0, i];
-                    starlist1[1, Count] := starlist1[1, i];
-                    Inc(Count);
+                    starlist1[0, nstars_visible] := starlist1[0, i];
+                    starlist1[1, nstars_visible] := starlist1[1, i];
+                    Inc(nstars_visible);
                   end;
                 end;
-                setlength(starlist1, 2, Count);
+                setlength(starlist1, 2, nstars_visible);
               end; //keep only stars visible in image
               //mod 2025 ###################################################
 
@@ -1124,11 +1123,11 @@ begin
               //profiler_log('Find_quads1');
 
               if solve_show_log then {global variable set in find stars}
-                memo2_message('Search ' + IntToStr(Count) + ', [' + IntToStr(spiral_x) + ',' + IntToStr(spiral_y) + '],' + #9 + 'position: ' +
+                memo2_message('Search '+ inttostr(count) + ', [' + IntToStr(spiral_x) + ',' + IntToStr(spiral_y) + '],' + #9 + 'position: ' +
                              #9 + prepare_ra(ra_database, ': ') + #9 + prepare_dec(dec_database, '° ') +
                              #9 + ' Down to magn ' + floattostrF(mag2 / 10, ffFixed, 0, 1) +
                              #9 + ' ' + IntToStr(length(starlist1[0])) + ' database stars' +
-                             #9 + ' ' + IntToStr(length(quad_star_distances1[0])) + ' database quads to compare.' + mess);
+                             #9 + ' ' + IntToStr(length(quad_star_distances1[0])) + ' database quads to compare.');
 
               //profiler_start;
 
@@ -1138,8 +1137,8 @@ begin
               // stackmenu1.memo2.lines.add(floattostr(ra_database*12/pi)+',,,'+floattostr(dec_database*180/pi)+',,,,'+inttostr(count)+',,-99');
 
               //profiler_start(true);
-              solution := find_offset_and_rotation(minimum_quads {>=3}, quad_tolerance);
-              {find an solution}
+              solution := find_offset_and_rotation(minimum_quads {>=3}, quad_tolerance);{find an solution}
+
               //profiler_log('Find_offset and rotation');
 
               // for testing purpose
@@ -1172,7 +1171,9 @@ begin
           standard_equatorial(ra_database, dec_database,
             (solution_vectorX[0] * (centerX) + solution_vectorX[1] * (centerY) + solution_vectorX[2]), {x}
             (solution_vectorY[0] * (centerX) + solution_vectorY[1] * (centerY) + solution_vectorY[2]), {y}
-            1, {CCD scale}  ra_radians, dec_radians {put the calculated image center equatorial position into the start search position});
+            1, {CCD scale}  ra_solved, dec_solved {put the calculated image center equatorial position into the start search position});
+          ra_seed  := ra_solved;       // re-seed the max-accuracy second pass
+          dec_seed := dec_solved;
 
           //current_dist:=sqrt(sqr(solution_vectorX[0]*(centerX) + solution_vectorX[1]*(centerY) +solution_vectorX[2]) + sqr(solution_vectorY[0]*(centerX) + solution_vectorY[1]*(centerY) +solution_vectorY[2]))/3600; {current distance telescope and image center in degrees}
 
@@ -1187,7 +1188,7 @@ begin
             (solution_vectorX[0] * (centerX) + solution_vectorX[1] * (centerY + 1) + solution_vectorX[2]), {x}
             (solution_vectorY[0] * (centerX) + solution_vectorY[1] * (centerY + 1) + solution_vectorY[2]), {y}  1, {CCD scale}  ra7, dec7{equatorial position}); // the position 1 pixel away
 
-          crota2_rad := -position_angle(ra7, dec7, ra_radians, dec_radians); //Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
+          crota2_rad := -position_angle(ra7, dec7, ra_solved, dec_solved); //Position angle of the image +Y axis (to ra7,dec7, one pixel along CRPIX2) measured at the image center from north eastwards. Negated for the CROTA2 convention. Rigorous method.
           cdelt1_arcsec := flipped_image * sqrt(sqr(solution_vectorX[0]) + sqr(solution_vectorX[1])); // unit arcsec
           cdelt2_arcsec := sqrt(sqr(solution_vectorY[0]) + sqr(solution_vectorY[1])); //unit arcsec
           //mod 2025 ############################################################
@@ -1195,8 +1196,7 @@ begin
           Inc(match_nr);
         end
         else
-          match_nr := 0;//This should not happen for the second solve but just in case
-
+          match_nr := 0;//This will rarely happen for the second solve
       until ((solution = False) {or (current_dist<fov2*0.05)} {within 5% if image height from center} or (match_nr >= 2)); {Maximum accuracy loop. After match possible on a corner do a second solve using the found hd.ra0,hd.dec0 for maximum accuracy USING ALL STARS}
 
       stackmenu1.Memo2.enablealign;
@@ -1211,12 +1211,12 @@ begin
 
   if solution then
   begin
-    hd.ra0 := ra_radians;//store solution in header
-    hd.dec0 := dec_radians;
+    hd.ra0 := ra_solved;//store solution in header
+    hd.dec0 := dec_solved;
     hd.crpix1 := centerX + 1;{center image in fits coordinate range 1..hd.width}
     hd.crpix2 := centery + 1;
 
-    ang_sep(ra_radians, dec_radians, ra_start, dec_start, sep_search); //calculate search offset
+    ang_sep(ra_start, dec_start, ra_solved, dec_solved, sep_search); //calculate search offset
 
     memo2_message(IntToStr(nr_references) + ' of ' +  IntToStr(nr_references2) + quads_str + ' selected matching within ' + floattostr(quad_tolerance) + ' tolerance.' //  3 quads are required giving 3 center quad references}
       + '  Solution["] x:=' + floattostr6(solution_vectorX[0]) + 'x+ ' + floattostr6(solution_vectorX[1]) + 'y+ ' + floattostr6( solution_vectorX[2])
@@ -1237,8 +1237,7 @@ begin
       (solution_vectorY[0] * (centerX + flipped_image) + solution_vectorY[1] * (centerY) + solution_vectorY[2]), {y}
       1, {CCD scale} ra7, dec7{equatorial position});
 
-    crota1_rad := pi / 2 - position_angle(ra7, dec7, hd.ra0, hd.dec0);
-    //Position angle between a line from ra0,dec0 to ra1,dec1 and a line from ra0, dec0 to the celestial north . Rigorous method
+    crota1_rad := pi/2 - position_angle(ra7, dec7, ra_solved,dec_solved); //PA of the image +X axis (one pixel along CRPIX1, sign corrected for a flipped image), converted from north-referenced to the CROTA1 convention.
     if crota1_rad > pi then crota1_rad := crota1_rad - 2 * pi;//keep within range -pi to +pi
 
 
@@ -1257,9 +1256,10 @@ begin
 
     if ra_mount < 99 then {mount position known and specified. Calculate mount offset}
     begin
-      mount_ra_sep := pi * frac((ra_mount - ra_radians) / pi) * cos(
-        (dec_mount + dec_radians) * 0.5 {average dec});//total mount error. Only used for scaling
-      mount_dec_sep := dec_mount - dec_radians;
+      mount_ra_sep :=fnmodulo(ra_mount-hd.ra0,2*pi); if mount_ra_sep >pi then mount_ra_sep :=mount_ra_sep-2*pi;//2026 fix, map to range -pi..+pi. The old expression pi*frac((ra_mount-head.ra0)/pi) removed multiples of pi instead of 2*pi and reported a wrong offset when the mount RA and solution RA are on opposite sides of 0h RA
+      mount_ra_sep:=mount_ra_sep * cos((hd.dec0+dec_mount)*0.5 {average dec});//only used for scaling
+
+      mount_dec_sep := dec_mount - hd.dec0;
       mount_sep := sqrt(sqr(mount_ra_sep) + sqr(mount_dec_sep));  //mount_sep is only used for scaling}
 
       ra_offset_str := distance_to_string(mount_sep, mount_ra_sep);
@@ -1290,6 +1290,7 @@ begin
       update_text(memo, 'CTYPE2  =', #39 + 'DEC--TAN' + #39 + '           / second parameter DEC,  projection TANgential   ');
     end;
 
+    update_text(memo, 'HFD_MEAN= ',floattostr2(mean_hfd)+'                / Mean HFD. Could be higher then median HFD.     ');//just for info
     update_text(memo, 'CUNIT1  =', #39 + 'deg     ' + #39 + '           / Unit of coordinates                            ');
 
     update_text(memo, 'EQUINOX =','              2000.0 / Equinox of coordinates                         ');  {the equinox is 2000 since the database is in 2000}
