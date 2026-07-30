@@ -9245,6 +9245,7 @@ object stackmenu1: Tstackmenu1
     object bin_selectedB1: TMenuItem
       Caption = 'Bin 2x2 the selected files'
       Hint = '#Bin 2x2 the selected files.'
+      OnClick = bin_selectedB1Click
     end
     object Separator7: TMenuItem
       Caption = '-'
