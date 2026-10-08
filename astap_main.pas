@@ -29,6 +29,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 https://forum.lazarus.freepascal.org/index.php/topic,63511.0.html
 https://gitlab.com/freepascal.org/fpc/source/-/issues/40302      (min(1,0.999999)
 
+Selection of multiple directories:
+https://gitlab.com/freepascal.org/lazarus/lazarus/-/work_items/42588
+
 
 GTK3
 All fixed
@@ -81,7 +84,7 @@ uses
   IniFiles;{for saving and loading settings}
 
 const
-  astap_version='2026.09.15';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
+  astap_version='2026.10.08';  //  astap_version := {$I %DATE%} + ' ' + {$I %TIME%});
 type
   tshapes = record //a shape and it positions
               shape : Tshape;
@@ -802,6 +805,8 @@ var {################# initialised variables #########################}
   commandline_execution : boolean=false;{program executed in command line}
   commandline_log       : boolean=false;{file log request in command line}
   errorlevel        : integer=0;{report errors when shutdown}
+  halt_requested        : boolean=false;{command line finished, halt from OnIdle}
+  halt_errorlevel       : integer=0;
 
   mouse_positionRADEC1 : string='';{For manual reference solving}
   mouse_positionRADEC2 : string='';{For manual reference solving}
@@ -884,7 +889,7 @@ function convert_raw(loadfile,savefile :boolean;var filename3: string;out head: 
 
 function load_TIFF_NEW(filen:string;light {load as light or dark/flat}: boolean; out head : theader;out img: Timage_array;memo:tstrings) : boolean;{load a tiff file}
 function load_PNGJPEG(filen:string;light {load as light or dark/flat}: boolean; out head :theader; out img: Timage_array;memo : tstrings) : boolean;{load 8 or 16 bit TIFF, PNG, JPEG, BMP image}
-procedure get_background(colour: integer; img :Timage_array;var head :theader; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
+procedure get_background(colour: integer; img :Timage_array;var head :theader; max_stars:integer; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
 
 function extract_exposure_from_filename(filename8: string):integer; {try to extract exposure from filename}
 function extract_temperature_from_filename(filename8: string): integer; {try to extract temperature from filename}
@@ -1684,8 +1689,9 @@ begin
             jd2:=2400000.5+validate_double;// MJD to JD
             head.date_obs:=JdToDate(jd2);
           end;
-        if ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then
+        if ((header[i]='S') and (header[i+1]='E')  and (header[i+2]='T') and (header[i+3]='-') and (header[i+4]='T') and (header[i+5]='E') and (header[i+6]='M')) then //set-temp
                try head.set_temperature:=round(validate_double);{read double value} except; end; {some programs give huge values}
+
         if header[i]='X' then
         begin
           if ((header[i+1]='B')  and (header[i+2]='I') and (header[i+3]='N') and (header[i+4]='N') and (header[i+5]='I')) then
@@ -2243,6 +2249,61 @@ begin
     end;
   until end_record; {header, 2880 bytes loop}
   memo.endupdate;{for speed}
+
+  if light then //not required for darks and lights since some variables are not reset and could be nan cause runtime error
+  begin
+    if ((head.cd1_1<>0) and ((head.cdelt1=0) or (head.crota2>=999))) then
+    begin //formalism 3
+      new_to_old_WCS(head);{ convert old WCS to new}
+    end
+    else
+    if ((head.cd1_1=0) and (head.cdelt2<>0)) then {new style missing but valid old style solution}
+    begin
+      if PC1_1<>0 then //formalism 2
+      begin
+        head.CD1_1:=PC1_1* head.cdelt1;
+        head.CD1_2:=PC1_2* head.cdelt1;
+        head.CD2_1:=PC2_1* head.cdelt2;
+        head.CD2_2:=PC2_2* head.cdelt2;
+        new_to_old_WCS(head);{ convert old WCS to new}
+      end
+      else
+      if head.crota2<999 then {new style missing but valid old style solution}
+      begin //formalism 1
+        if head.crota1=999 then head.crota1:=head.crota2; {for case head.crota1 is not specified}
+        old_to_new_WCS(head);{ convert old WCS to new}
+       end;
+    end;
+    if ((head.cd1_1=0) and (head.cdelt2=0)) then  {no scale, try to fix it}
+    begin
+     if ((focallen<>0) and (head.xpixsz<>0)) then
+        head.cdelt2:=180/(pi*1000)*head.xpixsz/focallen; {use maxim DL key word. xpixsz is including binning}
+    end;
+    if ((head.ra0<>0) or (head.dec0<>0) or (equinox<>2000)) then
+    begin
+      if equinox<>2000 then //e.g. in SharpCap
+      begin
+        jd_obs:=(equinox-2000)*365.25+2451545;
+        precession3(jd_obs, 2451545 {J2000},head.ra0,head.dec0); {precession, from unknown equinox to J2000}
+        if dec_mount<999 then precession3(jd_obs, 2451545 {J2000},ra_mount,dec_mount); {precession, from unknown equinox to J2000}
+      end;
+      mainform1.ra1.text:=prepare_ra(head.ra0,' ');{this will create Ra_radians for solving}
+      mainform1.dec1.text:=prepare_dec(head.dec0,' ');
+    end;
+    { condition           keyword    to
+     if ra_mount>999 then objctra--->ra1.text--------------->ra_radians--->ra_mount
+                               ra--->ra_mount  if head.ra0=0 then   ra_mount--->head.ra0
+                           crval1--->head.ra0
+     if head.ra0<>0 then           head.ra0--->ra1.text------------------->ra_radians}
+  end; //lights
+  if head.set_temperature=999 then
+    head.set_temperature:=round(ccd_temperature); {temperature, for stacking}
+
+  unsaved_import:=false;{file is available for astrometry.net}
+
+
+
+
   { ##################################################################
     Rice compressed image decompression  (ZCMPTYPE = 'RICE_1')
     The BINTABLE extension stores tiles of compressed pixel data in
@@ -2299,6 +2360,8 @@ begin
       result := true;
       exit;
     end;
+
+
     if (table_rows <= 0) or (table_rowwidth <= 0) then
     begin
       memo2_message('Error: compressed BINTABLE has no rows.');
@@ -2550,55 +2613,7 @@ begin
          head.bitpix:=24; {threat RGB fits as 2 dimensional with 24 bits data}
          head.naxis3:=3; {will be converted while reading}
       end;
-      if light then //not required for darks and lights since some variables are not reset and could be nan cause runtime error
-      begin
-        if ((head.cd1_1<>0) and ((head.cdelt1=0) or (head.crota2>=999))) then
-        begin //formalism 3
-          new_to_old_WCS(head);{ convert old WCS to new}
-        end
-        else
-        if ((head.cd1_1=0) and (head.cdelt2<>0)) then {new style missing but valid old style solution}
-        begin
-          if PC1_1<>0 then //formalism 2
-          begin
-            head.CD1_1:=PC1_1* head.cdelt1;
-            head.CD1_2:=PC1_2* head.cdelt1;
-            head.CD2_1:=PC2_1* head.cdelt2;
-            head.CD2_2:=PC2_2* head.cdelt2;
-            new_to_old_WCS(head);{ convert old WCS to new}
-          end
-          else
-          if head.crota2<999 then {new style missing but valid old style solution}
-          begin //formalism 1
-            if head.crota1=999 then head.crota1:=head.crota2; {for case head.crota1 is not specified}
-            old_to_new_WCS(head);{ convert old WCS to new}
-           end;
-        end;
-        if ((head.cd1_1=0) and (head.cdelt2=0)) then  {no scale, try to fix it}
-        begin
-         if ((focallen<>0) and (head.xpixsz<>0)) then
-            head.cdelt2:=180/(pi*1000)*head.xpixsz/focallen; {use maxim DL key word. xpixsz is including binning}
-        end;
-        if ((head.ra0<>0) or (head.dec0<>0) or (equinox<>2000)) then
-        begin
-          if equinox<>2000 then //e.g. in SharpCap
-          begin
-            jd_obs:=(equinox-2000)*365.25+2451545;
-            precession3(jd_obs, 2451545 {J2000},head.ra0,head.dec0); {precession, from unknown equinox to J2000}
-            if dec_mount<999 then precession3(jd_obs, 2451545 {J2000},ra_mount,dec_mount); {precession, from unknown equinox to J2000}
-          end;
-          mainform1.ra1.text:=prepare_ra(head.ra0,' ');{this will create Ra_radians for solving}
-          mainform1.dec1.text:=prepare_dec(head.dec0,' ');
-        end;
-        { condition           keyword    to
-         if ra_mount>999 then objctra--->ra1.text--------------->ra_radians--->ra_mount
-                                   ra--->ra_mount  if head.ra0=0 then   ra_mount--->head.ra0
-                               crval1--->head.ra0
-         if head.ra0<>0 then           head.ra0--->ra1.text------------------->ra_radians}
-      end; //lights
-      if head.set_temperature=999 then
-         head.set_temperature:=round(ccd_temperature); {temperature}
-      unsaved_import:=false;{file is available for astrometry.net}
+
       if load_data=false then
       begin
          close_fits_file;
@@ -3954,7 +3969,7 @@ begin
 end;
 
 
-procedure get_background(colour: integer; img :Timage_array;var head :theader; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
+procedure get_background(colour: integer; img :Timage_array;var head :theader; max_stars:integer; calc_hist, calc_noise_level: boolean{; out back : Tbackground}); {get background and star level from peek histogram}
 var
   i, pixels,max_range,above, fitsX, fitsY,counter,stepsize,width5,height5, iterations : integer;
   value,sd, sd_old,factor,factor2,sd2 : double;
@@ -4034,14 +4049,15 @@ begin
     head.star_level:=0;
     head.star_level2:=0;
     i:=max_range;
-    factor:=  6*strtoint2(stackmenu1.max_stars1.text,500);// Number of pixels to test. This produces about 700 stars at hfd=2.25
-    factor2:=24*strtoint2(stackmenu1.max_stars1.text,500);// Number of pixels to test. This produces about 700 stars at hfd=4.5.
+    factor:=  6*max_stars;// Number of pixels to test. This produces about 700 stars at hfd=2.25
+    factor2:=24*max_stars;// Number of pixels to test. This produces about 700 stars at hfd=4.5.
     above:=0;
     while ((head.star_level=0) and (i>head.backgr+1) and (i>0)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
     begin
       dec(i);
       above:=above+histogram[colour,i];//sum of pixels above pixel level i
-      if above>=factor then head.star_level:=i;//level found for stars with HFD=2.25.
+      if above>=factor then
+              head.star_level:=i;//level found for stars with HFD=2.25.
     end;
     while ((head.star_level2=0) and (i>head.backgr+1) and (i>0)) do {Assuming stars are dominant. Find star level. Level where factor pixels are above. If there a no stars this should be all pixels with a value 3.0 * sigma (SD noise) above background}
     begin
@@ -5938,7 +5954,9 @@ begin
   begin
     if deletefile(user_path+'astap.cfg') then
     begin
-      halt(0); {don't save only do mainform1.destroy. Note  mainform1.close will save the setting again, so don't use}
+      halt_errorlevel:=0;
+      halt_requested:=true;
+      exit;{halt from ApplicationIdle, after this frame unwinds}
     end
     else beep;
   end;
@@ -8698,111 +8716,105 @@ begin
   {create bitmap}
   bitmap := TBitmap.Create;
   try
-
-  bitmap := TBitmap.Create;
-  bitmap.PixelFormat := pf24bit;  // faster on Windows then pf32bit
-  with bitmap do
-  begin
-    width := ww;
-    height := hh;
-  end;
-
-  saturationFactor:=mainform1.saturation_factor_plot1.position/20;
-  selectiveStrength:=mainform1.selective_colour_saturation1.position/10;//high is stronger
-  head.backgr:=mainform1.minimum1.position;
-  cwhite:=mainform1.maximum1.position;
-  if cwhite<=head.backgr then cwhite:=head.backgr+1;
-
-  flipv:=mainform1.flip_vertical1.Checked;
-  fliph:=mainform1.Flip_horizontal1.Checked;
-
-  scale:=1/(cwhite-head.backgr);
-  for i:=0 to hh-1 do
-  begin
-    if flipv then linenr:=i else linenr:=(hh-1)-i;{flip vertical?. Note FITS count from bottom, windows from top}
-    xLine := Bitmap.ScanLine[linenr];
-    for j:=0 to ww-1 do
+    bitmap.PixelFormat := pf24bit;  // faster on Windows then pf32bit
+    with bitmap do
     begin
-      if fliph then columnr:=(ww-1)-j else columnr:=j;{flip horizontal?}
+      width := ww;
+      height := hh;
+    end;
 
-      colrr:=(img_loaded[0,i,columnr]-head.backgr)*scale; {scale to 1}
+    saturationFactor:=mainform1.saturation_factor_plot1.position/20;
+    selectiveStrength:=mainform1.selective_colour_saturation1.position/10;//high is stronger
+    head.backgr:=mainform1.minimum1.position;
+    cwhite:=mainform1.maximum1.position;
+    if cwhite<=head.backgr then cwhite:=head.backgr+1;
 
-      if colours2>=2 then {at least two colours}
-        colgg:=(img_loaded[1,i,columnr]-head.backgr)*scale {scale to 1}
-      else
-        colgg:=colrr;
+    flipv:=mainform1.flip_vertical1.Checked;
+    fliph:=mainform1.Flip_horizontal1.Checked;
 
-      if head.naxis3>=3 then {at least three colours}
-        colbb:=(img_loaded[2,i,columnr]-head.backgr)*scale {scale to 1}
-      else
-        colbb:=colrr;
-
-      {find brightest colour and resize all if above 1. Avoid whitening of stars and run time error in stretch_c table}
-      largest:=colrr;
-      if colgg>largest then largest:=colgg;
-      if colbb>largest then largest:=colbb;
-      if largest>1 then {clamp to 1 but preserve colour, so ratio r,g,b}
+    scale:=1/(cwhite-head.backgr);
+    for i:=0 to hh-1 do
+    begin
+      if flipv then linenr:=i else linenr:=(hh-1)-i;{flip vertical?. Note FITS count from bottom, windows from top}
+      xLine := Bitmap.ScanLine[linenr];
+      for j:=0 to ww-1 do
       begin
-        inv_largest:=1/largest;
-        colrr:=colrr*inv_largest;
-        colgg:=colgg*inv_largest;
-        colbb:=colbb*inv_largest;
-        largest:=1;
-      end;
+        if fliph then columnr:=(ww-1)-j else columnr:=j;{flip horizontal?}
 
-      colrr:=max(colrr,0.000000001);//keep just above zero for dividing by luminance and stretch_c
-      colgg:=max(colgg,0.000000001);
-      colbb:=max(colbb,0.000000001);
+        colrr:=(img_loaded[0,i,columnr]-head.backgr)*scale; {scale to 1}
 
-      if head.naxis3>=3 then {at least three colours}
-        AdjustSaturationHSV(colrr,colgg,colbb,saturationFactor,selectiveStrength);
+        if colours2>=2 then {at least two colours}
+          colgg:=(img_loaded[1,i,columnr]-head.backgr)*scale {scale to 1}
+        else
+          colgg:=colrr;
 
-      if stretch_on then {Stretch luminance only. Keep RGB ratio !!}
-      begin
-      //  luminance:=(colrr+colgg+colbb)/3;{luminance in range 0..1}
-        luminance:=0.333333*colrr+0.333333*colgg+0.333333*colbb;//luminance in range 0..1. keep equal ratio in image development and not luminance := 0.2126*colRR + 0.7152*colGG + 0.0722*colBB;
-        luminance_stretched:=stretch_c[trunc(65535*luminance)];
-        factor:=luminance_stretched/luminance;
-        if factor*largest>1 then factor:=1/largest; {clamp again, could be larger then 1}
-        colrr:=colrr*factor;{stretch only luminance but keep rgb ratio!}
-        colgg:=colgg*factor;{stretch only luminance but keep rgb ratio!}
-        colbb:=colbb*factor;{stretch only luminance but keep rgb ratio!}
-      end;
+        if head.naxis3>=3 then {at least three colours}
+          colbb:=(img_loaded[2,i,columnr]-head.backgr)*scale {scale to 1}
+        else
+          colbb:=colrr;
 
-      //convert to range 0..255
-      col_r:=trunc(255*colrr);//trunc is faster then round
-      col_g:=trunc(255*colgg);
-      col_b:=trunc(255*colbb);
+        {find brightest colour and resize all if above 1. Avoid whitening of stars and run time error in stretch_c table}
+        largest:=colrr;
+        if colgg>largest then largest:=colgg;
+        if colbb>largest then largest:=colbb;
+        if largest>1 then {clamp to 1 but preserve colour, so ratio r,g,b}
+        begin
+          inv_largest:=1/largest;
+          colrr:=colrr*inv_largest;
+          colgg:=colgg*inv_largest;
+          colbb:=colbb*inv_largest;
+          largest:=1;
+        end;
+
+        colrr:=max(colrr,0.000000001);//keep just above zero for dividing by luminance and stretch_c
+        colgg:=max(colgg,0.000000001);
+        colbb:=max(colbb,0.000000001);
+
+        if head.naxis3>=3 then {at least three colours}
+          AdjustSaturationHSV(colrr,colgg,colbb,saturationFactor,selectiveStrength);
+
+        if stretch_on then {Stretch luminance only. Keep RGB ratio !!}
+        begin
+        //  luminance:=(colrr+colgg+colbb)/3;{luminance in range 0..1}
+          luminance:=0.333333*colrr+0.333333*colgg+0.333333*colbb;//luminance in range 0..1. keep equal ratio in image development and not luminance := 0.2126*colRR + 0.7152*colGG + 0.0722*colBB;
+          luminance_stretched:=stretch_c[trunc(65535*luminance)];
+          factor:=luminance_stretched/luminance;
+          if factor*largest>1 then factor:=1/largest; {clamp again, could be larger then 1}
+          colrr:=colrr*factor;{stretch only luminance but keep rgb ratio!}
+          colgg:=colgg*factor;{stretch only luminance but keep rgb ratio!}
+          colbb:=colbb*factor;{stretch only luminance but keep rgb ratio!}
+        end;
+
+        //convert to range 0..255
+        col_r:=trunc(255*colrr);//trunc is faster then round
+        col_g:=trunc(255*colgg);
+        col_b:=trunc(255*colbb);
 
 
-     {$ifdef mswindows}
-        xLine^[j*3]  :=col_b; {3*8=24 bit}
-        xLine^[j*3+1]:=col_g; {fast pixel write routine }
-        xLine^[j*3+2]:=col_r;
-     {$endif}
-     {$ifdef darwin} {MacOS}
-        xLine^[j*4+1]:=col_r; {4*8=32 bit}
-        xLine^[j*4+2]:=col_g; {fast pixel write routine }
-        xLine^[j*4+3]:=col_b;
-        // j*4+3 = alpha/padding, left as 0
-     {$endif}
-     {$ifdef linux}
-        xLine^[j*4]  :=col_b; {4*8=32 bit}
-        xLine^[j*4+1]:=col_g; {fast pixel write routine }
-        xLine^[j*4+2]:=col_r;
-        // j*4+3 = alpha/padding, left as 0
-      {$endif}
-    end;{j}
-  end; {i}
+       {$ifdef mswindows}
+          xLine^[j*3]  :=col_b; {3*8=24 bit}
+          xLine^[j*3+1]:=col_g; {fast pixel write routine }
+          xLine^[j*3+2]:=col_r;
+       {$endif}
+       {$ifdef darwin} {MacOS}
+          xLine^[j*4+1]:=col_r; {4*8=32 bit}
+          xLine^[j*4+2]:=col_g; {fast pixel write routine }
+          xLine^[j*4+3]:=col_b;
+          // j*4+3 = alpha/padding, left as 0
+       {$endif}
+       {$ifdef linux}
+          xLine^[j*4]  :=col_b; {4*8=32 bit}
+          xLine^[j*4+1]:=col_g; {fast pixel write routine }
+          xLine^[j*4+2]:=col_r;
+          // j*4+3 = alpha/padding, left as 0
+        {$endif}
+      end;{j}
+    end; {i}
 
-  //img.picture.Graphic := Bitmap; {show image}
-  img.Picture.Assign(bitmap);  // Show image. safer than .Graphic :=
+    img.Picture.Assign(bitmap);  // Show image. safer than .Graphic :=
   finally
     bitmap.Free;  // always freed, even if pixel loop raises an exception
   end;
-
- // img.Picture.Bitmap.Transparent := True;
- // img.Picture.Bitmap.TransparentColor := clblack;
 
   if center_image then {image new of resized}
   begin
@@ -9628,7 +9640,7 @@ begin
       stackmenu1.classify_flat_filter1.checked:= Sett.ReadBool('stack','classify_flat_filter',false);
       stackmenu1.classify_dark_date1.checked:= Sett.ReadBool('stack','classify_dark_date',false);
       stackmenu1.classify_flat_date1.checked:= Sett.ReadBool('stack','classify_flat_date',false);
-      stackmenu1.classify_flat_duration1.checked:= Sett.ReadBool('stack','classify_flat_duration',false);
+      stackmenu1.classify_flat_dark_exposure1.checked:= Sett.ReadBool('stack','classify_fd_exposure',false);
 
       stackmenu1.add_time1.checked:= Sett.ReadBool('stack','add_time',false); {add a copy of the settings at image path}
       stackmenu1.save_settings_image_path1.checked:= Sett.ReadBool('stack','copy_sett',false); {add time to resulting stack file name}
@@ -10066,7 +10078,7 @@ begin
       sett.writeBool('stack','classify_flat_filter',stackmenu1.classify_flat_filter1.Checked);
       sett.writeBool('stack','classify_dark_date',stackmenu1.classify_dark_date1.Checked);
       sett.writeBool('stack','classify_flat_date',stackmenu1.classify_flat_date1.Checked);
-      sett.writeBool('stack','classify_flat_duration',stackmenu1.classify_flat_duration1.Checked);
+      sett.writeBool('stack','classify_fd_exposure',stackmenu1.classify_flat_dark_exposure1.Checked);
 
       sett.writeBool('stack','add_time',stackmenu1.add_time1.Checked);
       sett.writeBool('stack','copy_sett',stackmenu1.save_settings_image_path1.Checked);
@@ -11563,8 +11575,8 @@ begin
     deleteold  := (MessageDlg('Delete the original files?', mtConfirmation,
                    [mbYes, mbNo], 0) = mrYes);
     if deleteold then
-        deleteold  := (MessageDlg('This will:'+LineEnding+
-                                  '1) Compress the fits files to .fits.fz'+LineEnding+
+        deleteold  := (MessageDlg('This will:'+LineEnding+LineEnding+
+                                  '1) Compress the fits files to .fits.fz'+LineEnding+LineEnding+
                                   '2) DELETE the old files.'+LineEnding+LineEnding+
                                   'Are you sure?', mtConfirmation,
                    [mbYes, mbNo], 0) = mrYes);
@@ -11909,7 +11921,7 @@ end;
 function download_vsx(limiting_mag: double): boolean;//AAVSO API access variables
 var
   s,dummy,url                               : string;
-  count,i,j,k,errorRa,errorDec,err,idx,len  : integer;
+  count,i,j,k,errorRa,errorDec,err,len     : integer;
   fov,ra,dec,ProperMotionRA,ProperMotionDEC,years_since_2000,var_period,max_period : double;
   skip,auid_filter  : boolean;
 begin
@@ -11931,7 +11943,7 @@ begin
 
 //  if fov>3 {degrees} then limiting_mag:=min(12,limiting_mag); //There is no limitation for VSX but follow the one of the VSP
 
-  idx:=stackmenu1.annotate_mode1.itemindex;
+  //idx:=stackmenu1.annotate_mode1.itemindex;
   auid_filter:=stackmenu1.with_auid_only1.checked; //((idx>=5+4) and (idx<=8+4)); //variable has an AUID so it can be reported
   max_period:=strtofloat2(stackmenu1.max_period1.text);//infinity result in 0 meaning switched off.
 
@@ -12857,7 +12869,7 @@ end;
 
 procedure measure_magnitudes(img : Timage_array; var headx : Theader; annulus_rad,x1,y1,x2,y2:integer;histogram_update, deep: boolean; var stars :Tstar_list);{find stars and return, x,y, hfd, flux. x1,y1,x2,y2 are a subsection if required}
 var
-  fitsX,fitsY,radius, i, j,nrstars,n,m,xci,yci,sqr_radius: integer;
+  fitsX,fitsY,radius, i, j,nrstars,n,m,xci,yci,sqr_radius, max_stars : integer;
   hfd1,star_fwhm,snr,flux,xc,yc,detection_level,hfd_min,adu_e  : double;
   img_sa : Timage_array;
   saturation_level : single;
@@ -12868,7 +12880,8 @@ begin
 
   setlength(img_sa,1,headx.height,headx.width);//In case the length is set to a larger length than the current one, the new elements are zeroed out for a dynamic array. See https://www.freepascal.org/docs-html/rtl/system/setlength.html.
 
-  get_background(0,img,headx,histogram_update{histogram is already available},true {calculate noise level});{calculate background level from peek histogram}
+  max_stars:=strtoint2(stackmenu1.max_stars1.Text,500);
+  get_background(0,img,headx,max_stars, histogram_update{histogram is already available},true {calculate noise level});{calculate background level from peek histogram}
 
   if deep then detection_level:=5*headx.noise_level else detection_level:=headx.star_level;
   hfd_min:=max(0.8 {two pixels},strtofloat2(stackmenu1.min_star_size_stacking1.caption){hfd});{to ignore hot pixels which are too small}
@@ -13824,6 +13837,7 @@ begin
 
 procedure Tmainform1.ApplicationIdle(Sender: TObject; var Done: Boolean);
 begin
+  if halt_requested then halt(halt_errorlevel);{command line work done, frame of FormShow has unwound}
   if not FStartupDone then
   begin
     FStartupDone := True;
@@ -13832,7 +13846,10 @@ begin
       if hasoption('p') then  //do photometry
       begin
         photometry_auto(GetOptionValue('p'));
-        halt(errorlevel); {don't save only, do mainform1.destroy. Note  mainform1.close causes a window flash briefly, so don't use}
+        halt_errorlevel:=errorlevel;
+        halt_requested:=true;
+        Done:=False;{force an immediate second idle pass, don't wait for a message}
+        exit;{halt on the next idle, after this frame unwinds}
       end;
     end;
   end;
@@ -13846,6 +13863,7 @@ begin
   if paramcount=1 then
     check_second_instance{check for and other instance of the application. If so send paramstr(1) and quit}
   else
+  ;
   if paramcount>1 then {commandline trimmed_median_background}
      trayicon1.visible:=true;{Show trayicon. Do it early otherwise in Win10 it is not shown in the command line trimmed_median_background}
 
@@ -14860,6 +14878,7 @@ begin
     begin
       if hasOption('h','help') then
       begin
+        mainform1.Visible:=false;//prevent flash
         application.messagebox( pchar(
         'Solver command-line usage:'+#10+
         '-f  filename {fits, fits.fz, tiff, png, pgm, jpg files}'+#10+
@@ -14901,7 +14920,7 @@ begin
         'Star database expected at: '+database_path), pchar('ASTAP astrometric solver usage:'),MB_OK);
 
         esc_pressed:=true;{kill any running activity. This for APT}
-        halt(0); {don't save only do mainform1.destroy. Note  mainform1.close causes a window flash briefly, so don't use}
+        begin halt_errorlevel:=0; halt_requested:=true; exit; end;
       end;
 
       //log_to_file('c:\temp\text.txt',cmdline);
@@ -14914,6 +14933,11 @@ begin
       if ((filespecified) or (debug) or (focusrequest)) then
       begin
         commandline_execution:=true;{later required for trayicon and popup notifier and Memo3 scroll in Linux}
+        if debug=false then
+        begin
+          mainform1.Visible:=false;{no window flash before halt in ApplicationIdle. In debug mode the GUI must stay visible}
+          stackmenu1.Visible:=false;{already false via load_settings, harmless insurance}
+        end;
 
         commandline_log:=((debug) or (hasoption('log')));{log to file. In debug trimmed_median_background enable logging to memo2}
         if commandline_log then memo2_message(cmdline);{write the original commmand line}
@@ -14984,9 +15008,9 @@ begin
                writeln('ERROR_MIN='+floattostrF(lowest_error2,ffFixed,0,5));
              end;
             {$IFDEF msWindows}
-             halt(round(focus_best)*10000 +min(9999,round(lowest_error2*1000)));
+            begin halt_errorlevel:=round(focus_best)*10000 + min(9999,round(lowest_error2*1000)); halt_requested:=true; exit; end;
             {$ELSE}
-             halt(errorlevel);{report hfd in errorlevel. In linux only range 0..255 possible}
+             begin halt_errorlevel:=errorlevel; halt_requested:=true; exit; end;{report hfd in errorlevel. In linux only range 0..255 possible}
              {$ENDIF}
            end;
         end;
@@ -15022,11 +15046,12 @@ begin
             end;
             {$IFDEF msWindows}
             if analysespecified then
-              halt(round(head.hfd_median*100)*1000000+head.hfd_counter){report in errorlevel the hfd and the number of stars used}
+              begin halt_errorlevel:=round(head.hfd_median*100)*1000000+head.hfd_counter; halt_requested:=true; exit; end {report in errorlevel the hfd and the number of stars used}
             else
-              halt(errorlevel);
-            {$ELSE}
-            halt(errorlevel);//In linux only range 0..255 possible
+              begin halt_errorlevel:=errorlevel; halt_requested:=true; exit; end;
+             {$ELSE}
+             begin halt_errorlevel:=errorlevel; halt_requested:=true; exit; end;//In linux only range 0..255 possible
+
             {$ENDIF}
           end;{analyse fits and report HFD value}
 
@@ -15132,7 +15157,8 @@ begin
           esc_pressed:=true;{kill any running activity. This for APT}
           if commandline_log then stackmenu1.Memo2.Lines.SavetoFile(ChangeFileExt(filename_output,'.log'));{save Memo2 log to log file}
 
-          halt(errorlevel); {don't save only, do mainform1.destroy. Note  mainform1.close causes a window flash briefly, so don't use}
+          begin halt_errorlevel:=errorlevel; halt_requested:=true; exit; end;{don't save only, do mainform1.destroy. Note  mainform1.close causes a window flash briefly, so don't use}
+
 
           //  Exit status:
           //  0 no errors.
