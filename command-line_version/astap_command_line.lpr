@@ -31,11 +31,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.   }
 
 {$mode objfpc}{$H+}
 uses
-  {$IFDEF UNIX or ANDROID}{$IFDEF UseCThreads}
-  cthreads,
-  {$ENDIF}{$ENDIF}
+  {$IFDEF UNIX}
+  cthreads, {thread manager, required for the parallel image conversion, binning and search}
+  {$ENDIF}
   Classes, SysUtils, CustApp,
-  unit_command_line_solving, unit_command_line_general;
+  unit_command_line_solving, unit_command_line_general, unit_cli_parallel;
 
 type
 
@@ -105,7 +105,8 @@ begin
     '-wcs  {Write a .wcs file  in similar format as Astrometry.net. Else text style}' +#10+
     '-log  {Write the solver log to a .log text file.}'+#10+
     '-update  {Add the solution to the input fits file header. Jpeg, png, tiff will be written as fits}' +#10+
-    '-progress   {Log all progress steps and messages}'+#10+
+    '-progress   {Log all progress steps and messages. Runs the search on one core}'+#10+
+    '-threads n  {Number of cores to use for loading, star detection and the search. Default all}'+#10+
     #10+
     'Analyse options:' +#10+
     '-analyse snr_min {Analyse only and report median HFD and number of stars used}'+#10+
@@ -132,7 +133,10 @@ begin
 
 
     filename2:=GetOptionValue('f');
-    file_loaded:=load_image; {load file first to give commandline parameters later priority}
+    if hasoption('threads') then set_thread_count(strtointdef(GetOptionValue('threads'),0));
+    dbg_t0:=gettickcount64;
+    file_loaded:=load_image;
+    if cli_timing then writeln(stderr,'T load ',gettickcount64-dbg_t0,' ms');
     if file_loaded=false then errorlevel:=16;{error file loading}
 
     {apply now overriding parameters}

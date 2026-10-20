@@ -60,7 +60,7 @@
       </Debugging>
     </Linking>
     <Other>
-      <CustomOptions Value="-XX
+      <CustomOptions Value="-O3 -CpARMV8 -OpARMV8 -XX
 -Si
 -vh"/>
     </Other>

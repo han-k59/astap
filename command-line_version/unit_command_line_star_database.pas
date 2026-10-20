@@ -19,9 +19,24 @@ interface
 uses
   Classes, SysUtils, math;
 
-var
-  cos_telescope_dec : double;{store here the cos(telescope_dec) value before and read series}
-  database_header         : array[0..(11*10)-1] of ansichar;{info star database, length 110 char equals 10x11 bytes}
+type
+  Tdbreader = record {state of one star database reader. One per thread, see db_reader, so the spiral search can run on all cores}
+    cos_telescope_dec : double;{store here the cos(telescope_dec) value before and read series}
+    database_header   : array[0..(11*10)-1] of ansichar;{info star database, length 110 char equals 10x11 bytes}
+    cache_valid_pos   : integer;
+    file_open         : boolean;{file is not open. Threadvars start zeroed}
+    old_area          : integer;{0 is never a valid area, so the first open_database on a thread opens the file}
+    cache_position    : integer;
+    record_size       : integer;{set at every open_database. Upstream default 11}
+    cache_size        : integer;
+    dec9_storage      : shortint;
+    buf2              : array[1..11] of byte;  {read buffer stars}
+    thefile_stars     : tfilestream;
+    cache_array       : array of byte;{Maximum 53 mbyte for largest G18 file}
+  end;
+  Pdbreader = ^Tdbreader;
+
+function db_reader: Pdbreader; {the calling thread's star database reader}
 
 // telescope_ra, telescope_dec [radians], contains to center position of the field of interest
 // field_diameter [radians], FOV diameter of field of interest. This is ignored in searchmode=T}
@@ -37,9 +52,9 @@ var
 
 function select_star_database(database:string;fov:double): boolean; {select a star database, report false if none is found}
 procedure find_areas(ra1,dec1,fov :double; out area1,area2,area3,area4 :integer; out frac1,frac2,frac3,frac4:double);{find up to four star database areas for the square image.  Maximum size is a little lesse the one database field 9.5x9.5 degrees for .290 files and 5.14 x 5.14 degrees for .1476 files}
-function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{star 290 file database search}
-procedure close_star_database;{Close the tfilestream}
-function open_database(telescope_dec: double; area290: integer): boolean; {open database file}
+function readdatabase290(r: Pdbreader; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{star 290 file database search}
+procedure close_star_database(r: Pdbreader);{Close the tfilestream}
+function open_database(r: Pdbreader; telescope_dec: double; area290: integer): boolean; {open database file}
 
 // The format of the 290 star databases is described in the HNSKY help file
 //
@@ -161,15 +176,10 @@ type
 
 var
   name_database         : string;{name star database}
-  cache_valid_pos       : integer;
   database_type         : integer;
 
-
 var {################# initialised variables #########################}
-  file_open: boolean=false;{file is not open}
   area2    : double=1*pi/180; {search area}
-  old_area  : integer=999;
-  cache_position : integer=0;
 
 implementation
 
@@ -2097,18 +2107,13 @@ var {################# initialised variables #########################}
      90*pi/180);
 
 
-var {################# initialised variables #########################}
-   record_size:integer=11;{default}
+threadvar
+  dbr : Tdbreader; {this thread's reader}
 
-var
-  p6        : ^hnskyrec290_6;       { pointer to hnsky record }
-  p5        : ^hnskyrec290_5;       { pointer to hnsky record }
-  dec9_storage: shortint;
-
-  buf2: array[1..11] of byte;  {read buffer stars}
-  thefile_stars      : tfilestream;
-  cache_array       : array of byte;{Maximum 53 mbyte for largest G18 file}
-  cache_size        : integer;
+function db_reader: Pdbreader;
+begin
+  result:=@dbr;
+end;
 
 
 procedure area_and_boundaries(ra1,dec1 :double; out area_nr: integer; out spaceE,spaceW,spaceN,spaceS: double); {For a ra, dec position find the star database area number and the corresponding boundary distances N, E, W, S}
@@ -2813,26 +2818,26 @@ end;
 
 
 
-procedure close_star_database;{Close the tfilestream}
+procedure close_star_database(r: Pdbreader);{Close the tfilestream}
 begin
-  if file_open then
+  if r^.file_open then
   begin
-    FreeAndNil(thefile_stars);
-    file_open:=false;
+    FreeAndNil(r^.thefile_stars);
+    r^.file_open:=false;
   end;
 end;
 
 
-function open_database(telescope_dec: double; area290: integer): boolean; {open database file}
+function open_database(r: Pdbreader; telescope_dec: double; area290: integer): boolean; {open database file}
 var
   namefile : string;
 begin
   result:=true;{assume succes}
-  cos_telescope_dec:=cos(telescope_dec);{here to save CPU time}
+  r^.cos_telescope_dec:=cos(telescope_dec);{here to save CPU time}
 
-  if ((area290<>old_area) or (file_open=false)) then
+  if ((area290<>r^.old_area) or (r^.file_open=false)) then
   begin
-    close_star_database;{close the reader if open}
+    close_star_database(r);{close the reader if open}
 
     if  database_type=290 then
       namefile:=name_database+'_'+filenames290[area290] {g17_0101.290}
@@ -2841,36 +2846,36 @@ begin
 
 
     try
-      thefile_stars:=tfilestream.Create( database_path+namefile, fmOpenRead or fmShareDenyWrite); {read but do not lock file}
+      r^.thefile_stars:=tfilestream.Create( database_path+namefile, fmOpenRead or fmShareDenyWrite); {read but do not lock file}
     except
-       FreeAndNil(thefile_stars);
+       FreeAndNil(r^.thefile_stars);
        result:=false;
        exit;
     end;
-    file_open:=true; {file is open in tfilestream}
+    r^.file_open:=true; {file is open in tfilestream}
 
-    cache_valid_pos:=0;{new file name}
+    r^.cache_valid_pos:=0;{new file name}
 
     try
-      thefile_stars.read(database_header,110); {read header info, 10x11 is 110 bytes}
+      r^.thefile_stars.read(r^.database_header,110); {read header info, 10x11 is 110 bytes}
     except
-      close_star_database;
+      close_star_database(r);
       exit;
     end;
 
-    if database_header[109]=' ' then record_size:=11 {default}
+    if r^.database_header[109]=' ' then r^.record_size:=11 {default}
     else
-    record_size:=ord(database_header[109]);{5,6,7,9,10 or 11 bytes record}
+    r^.record_size:=ord(r^.database_header[109]);{5,6,7,9,10 or 11 bytes record}
 
-    cache_size:=thefile_stars.size-110;
+    r^.cache_size:=r^.thefile_stars.size-110;
 
-    if cache_size>length(cache_array) then  {Only resize when required. Resizing takes time}
+    if r^.cache_size>length(r^.cache_array) then  {Only resize when required. Resizing takes time}
     begin
-      cache_array:=nil;{prevent it is copied to the new resized array}
-      setlength(cache_array,cache_size);{ increase cache to star database file size}
+      r^.cache_array:=nil;{prevent it is copied to the new resized array}
+      setlength(r^.cache_array,r^.cache_size);{ increase cache to star database file size}
     end;
 
-    old_area:=area290;
+    r^.old_area:=area290;
   end;
   {else  use old data in cache}
 
@@ -2880,7 +2885,7 @@ begin
   //fov=0.5  degrees, 60% of total time
   //fov=4.6  degrees,  8% of total time
 
-  cache_position:=0;
+  r^.cache_position:=0;
 end;
 
 
@@ -2899,7 +2904,7 @@ end;
 //   cos_telescope_dec, double variable should contains the cos(telescope_dec) to detect if star read is within the FOV diameter}
 //
 {$INLINE ON}
-function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean; inline;{star 290 file database search}
+function readdatabase290(r: Pdbreader; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean; inline;{star 290 file database search}
             {searchmode=S screen update }
             {searchmode=M mouse click  search}
             {searchmode=T text search}
@@ -2907,31 +2912,35 @@ function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out 
     ra_raw,block_to_read         : integer;
     delta_ra                       : double;
     header_record                  : boolean;
+    p6                             : ^hnskyrec290_6;       { pointer to hnsky record in this reader's buffer }
+    p5                             : ^hnskyrec290_5;
 const
    blocksize=5*6*4*1024; {a multiply of record sizes 5, 6}
 begin
    {$I-}
   readdatabase290:=true;
+  p6:=@r^.buf2[1];
+  p5:=@r^.buf2[1];
   repeat
-    if cache_position>=cache_size then {should be end of file}
+    if r^.cache_position>=r^.cache_size then {should be end of file}
     begin
       readdatabase290:=false; {no more data in this file}
       exit;
     end;
 
-    if cache_position>=cache_valid_pos then {add more data to cache. This cache works  about 35 % faster then Treader for files with FOV of 0.5 degrees. This due to re-use cache. No difference for FOV 1.3 degrees. At FOV=0.25 the improvement is 40%}
+    if r^.cache_position>=r^.cache_valid_pos then {add more data to cache. This cache works  about 35 % faster then Treader for files with FOV of 0.5 degrees. This due to re-use cache. No difference for FOV 1.3 degrees. At FOV=0.25 the improvement is 40%}
     begin
-      block_to_read:=min(cache_size, blocksize);{don't read more than cache size!}
-      block_to_read:=min(block_to_read,cache_size - cache_valid_pos);{don't read more than file size!}
-      thefile_stars.read(cache_array[cache_valid_pos],block_to_read); {fill cache more. In most cases it can be reused. Especially for small field of view}
-      cache_valid_pos:=cache_valid_pos+block_to_read;{increase postion where cache buffer is valid.}
+      block_to_read:=min(r^.cache_size, blocksize);{don't read more than cache size!}
+      block_to_read:=min(block_to_read,r^.cache_size - r^.cache_valid_pos);{don't read more than file size!}
+      r^.thefile_stars.read(r^.cache_array[r^.cache_valid_pos],block_to_read); {fill cache more. In most cases it can be reused. Especially for small field of view}
+      r^.cache_valid_pos:=r^.cache_valid_pos+block_to_read;{increase postion where cache buffer is valid.}
     end;
-    move(cache_array[cache_position],buf2,record_size);{move one record for reading}
-    cache_position:=cache_position + record_size;{update cache position}
+    move(r^.cache_array[r^.cache_position],r^.buf2,r^.record_size);{move one record for reading}
+    r^.cache_position:=r^.cache_position + r^.record_size;{update cache position}
 
     header_record:=false;
 
-    case record_size of
+    case r^.record_size of
     5: begin {record size 5}
          with p5^ do
          begin
@@ -2940,13 +2949,13 @@ begin
            begin
              mag2:=dec8-16;{new magn shifted 16 to make sirius and other positive}
              {magnitude is stored in mag2 till new magnitude record is found}
-             dec9_storage:=dec7-128;{recover dec9 shortint and put it in storage}
+             r^.dec9_storage:=dec7-128;{recover dec9 shortint and put it in storage}
             header_record:=true;
            end
            else
            begin {normal record without magnitude}
              ra2:= ra_raw*(pi*2  /((256*256*256)-1));
-             dec2:=((dec9_storage shl 16)+(dec8 shl 8)+dec7)*(pi*0.5/((128*256*256)-1));// dec2:=(dec7+(dec8 shl 8)+(dec9 shl 16))*(pi*0.5/((128*256*256)-1)); {FPC compiler makes mistake, but dec7 behind}
+             dec2:=((r^.dec9_storage shl 16)+(dec8 shl 8)+dec7)*(pi*0.5/((128*256*256)-1));// dec2:=(dec7+(dec8 shl 8)+(dec9 shl 16))*(pi*0.5/((128*256*256)-1)); {FPC compiler makes mistake, but dec7 behind}
              {The RA is stored as a 3 bytes word. The DEC position is stored as a two's complement (=standard), three bytes integer. The resolution of this three byte storage will be for RA: 360*60*60/((256*256*256)-1) = 0.077 arc seconds. For the DEC value it will be: 90*60*60/((128*256*256)-1) = 0.039 arc seconds.}
            end;
          end;
@@ -2959,13 +2968,13 @@ begin
             begin
               mag2:=dec8-16;{new magn shifted 16 to make sirius and other positive}
               {magnitude is stored in mag2 till new magnitude record is found}
-              dec9_storage:=dec7-128;{recover dec9 shortint and put it in storage}
+              r^.dec9_storage:=dec7-128;{recover dec9 shortint and put it in storage}
              header_record:=true;
             end
             else
             begin {normal record without magnitude}
               ra2:= ra_raw*(pi*2  /((256*256*256)-1));
-              dec2:=((dec9_storage shl 16)+(dec8 shl 8)+dec7)*(pi*0.5/((128*256*256)-1));// dec2:=(dec7+(dec8 shl 8)+(dec9 shl 16))*(pi*0.5/((128*256*256)-1)); {FPC compiler makes mistake, but dec7 behind}
+              dec2:=((r^.dec9_storage shl 16)+(dec8 shl 8)+dec7)*(pi*0.5/((128*256*256)-1));// dec2:=(dec7+(dec8 shl 8)+(dec9 shl 16))*(pi*0.5/((128*256*256)-1)); {FPC compiler makes mistake, but dec7 behind}
             end;
             Bp_Rp:=b_r;{gaia (Bp-Rp)*10}    {color information not used in ASTAP}
           end;
@@ -2975,12 +2984,9 @@ begin
     delta_ra:=abs(ra2-telescope_ra); if delta_ra>pi then delta_ra:=pi*2-delta_ra;
   until
     (header_record=false) and
-    (  (abs(delta_ra*cos_telescope_dec)<field_diameter/2) and (abs(dec2-telescope_dec)<field_diameter/2)  );
+    (  (abs(delta_ra*r^.cos_telescope_dec)<field_diameter/2) and (abs(dec2-telescope_dec)<field_diameter/2)  );
                            {calculate distance and skip when too far from center screen, {if false then outside screen,go to next line}
 end;
 
-begin
-  p6:= @buf2[1];	{ set pointer }
-  p5:= @buf2[1];	{ set pointer }
 end.
 
