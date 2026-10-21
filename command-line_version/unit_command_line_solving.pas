@@ -128,6 +128,7 @@ type
     nr_references,nr_references2           : integer;
     solution_vectorX, solution_vectorY     : solution_vector ;
     mag2                                   : double; {magnitude of star found}
+    bucket_overflows                       : integer; {find_quads: hash bucket overflows of the last call. Reported once per solve, see solve_image}
   end;
   Pmatchstate = ^Tmatchstate;
 
@@ -638,6 +639,7 @@ begin
   for i := 0 to hash_table_len - 1 do  bucket_counts[i] := 0; // Initialize counts
   max_bucket_size := 0;
   overflow_count := 0;
+  match_state^.bucket_overflows:=0; {also when exiting early below}
 
   nrquads := 0;
   SetLength(quads, 8, nrstars); //will contain the six distances and the central position or if display is true then eight x,y positions and central position
@@ -805,8 +807,7 @@ begin
   begin
     memo2_message('Find Quads, max bucket size: '+inttostr(max_bucket_size)+', bucket overflows: '+inttostr(overflow_count) );
   end;
-  if overflow_count>0 then
-    memo2_message('Warning, bucket size increased!');
+  match_state^.bucket_overflows:=overflow_count; {report later from the main thread, find_quads runs on worker threads during the search}
 end;
 
 
@@ -1272,10 +1273,17 @@ end;
 
 
 type
-  Tfsband = record {stars found by one worker band}
-    stars : Tstar_list;
-    n     : integer;
-    hsnr  : double;
+  Tfscand = record {a star candidate measured by a band}
+    xc, yc, snr : double;
+    sx, sy      : integer; {seed pixel where the scan found it}
+    radius      : integer; {round(3*hfd), the star area to mark}
+    marked      : boolean; {the band marked the star area in its private mask}
+  end;
+  Tfsband = record {candidates found by one worker band}
+    cands       : array of Tfscand;
+    n           : integer;
+    first, last : integer; {image rows scanned by this band}
+    used        : boolean;
   end;
   Tfsdata = record {parameters for the parallel star detection}
     img, img_sa                        : Timage_array;
@@ -1287,33 +1295,51 @@ type
   end;
   Pfsdata = ^Tfsdata;
 
+{The single core find_stars scans the image top to bottom and marks the area of each accepted star in img_sa, so
+ pixels of that star are not measured again. That makes every decision depend on the stars found above it.
+ To use all cores and still get exactly the single core star list, the work is split in two phases:
+   A. find_stars_band (parallel): each band scans its rows. It reads the shared img_sa (marks of earlier retries and
+      sections) but writes its marks only to a private mask. Every candidate passing the HFD/SNR tests is stored
+      with its seed pixel, also those rejected only because the private mask covered the centroid.
+   B. collect_bands (serial, bands in row order): replays the candidates in scan order against the shared img_sa and
+      applies the single core rules. A candidate rejected here that had marked its area in phase A may have hidden
+      pixels the single core scan would have tested, so those pixels (its area after the seed, not covered by the
+      shared marks) are re-tested in scan order. This happens only for stars straddling a band border and costs a few
+      pixel tests, so the result is bit identical to the serial scan while nearly all HFD work runs in parallel.}
+
 procedure find_stars_band(startRow, endRow: integer; data: pointer);
-{Scan rows startRow+rowOffset..endRow+rowOffset for stars. Runs on a worker thread. img_sa marks are shared between bands:
- a star straddling a band border is skipped by the band that arrives second. In the rare case both bands measure it before
- either marks it, collect_bands removes the duplicate.}
+{Phase A. Scan rows startRow+rowOffset..endRow+rowOffset for star candidates. Runs on a worker thread}
 const
   buffersize=5000;
 var
   d                                         : Pfsdata;
-  fitsX, fitsY, m, n, i, j, radius, sqr_radius, xci, yci, starpixels, nr : integer;
-  hfd1, star_fwhm, snr, flux, xc, yc, hsnr  : double;
+  fitsX, fitsY, m, n, i, j, radius, sqr_radius, xci, yci, starpixels, nr, nrows, row0 : integer;
+  hfd1, star_fwhm, snr, flux, xc, yc        : double;
   rowC, rowM, rowP, rowSA                   : PSingle;
+  rowPM                                     : PByte;
   b                                         : ^Tfsband;
+  pmask                                     : array of byte; {private marks of this band, rows row0..row0+nrows-1}
 begin
   d:=Pfsdata(data);
   b:=@d^.bands[startRow];
-  SetLength(b^.stars,3,buffersize);
+  SetLength(b^.cands,buffersize);
   nr:=0;
-  hsnr:=0;
-  for fitsY:=startRow+d^.rowOffset to endRow+d^.rowOffset do
+  row0:=startRow+d^.rowOffset;
+  nrows:=endRow-startRow+1;
+  b^.first:=row0;
+  b^.last:=endRow+d^.rowOffset;
+  b^.used:=true;
+  setlength(pmask, nrows*d^.width2); {zeroed}
+  for fitsY:=row0 to endRow+d^.rowOffset do
   begin
     rowC :=@d^.img[0,fitsY,0];
     rowM :=@d^.img[0,fitsY-1,0];
     rowP :=@d^.img[0,fitsY+1,0];
     rowSA:=@d^.img_sa[0,fitsY,0];
+    rowPM:=@pmask[(fitsY-row0)*d^.width2];
     for fitsX:=d^.startX to d^.endX do
     begin
-      if ((rowSA[fitsX]<>d^.retries){star free area for this retry} and (rowC[fitsX]>d^.level_star){star}) then {new star above noise level}
+      if ((rowSA[fitsX]<>d^.retries){star free area for this retry} and (rowPM[fitsX]=0) and (rowC[fitsX]>d^.level_star){star}) then {new star above noise level}
       begin
         starpixels:=0;
         //inspect in a cross around it. Should be above 4*noise level
@@ -1324,72 +1350,180 @@ begin
         if starpixels>=2 then //At least 3 illuminated pixels. Not a hot pixel
         begin
           HFD(d^.img,fitsX,fitsY,14{annulus radius}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
-          if ((hfd1<=30) and (snr>10) and (hfd1>d^.hfd_min) {0.8 is two pixels minimum} and (d^.img_sa[0,round(yc),round(xc)]<>d^.retries)) then
+          if ((hfd1<=30) and (snr>10) and (hfd1>d^.hfd_min) {0.8 is two pixels minimum}) then
           begin
-            radius:=round(3.0*hfd1);{for marking star area. A value between 2.5*hfd and 3.5*hfd gives same performance. Note in practice a star PSF has larger wings then predicted by a Gaussian function}
-            sqr_radius:=sqr(radius);
             xci:=round(xc);{star center as integer}
             yci:=round(yc);
-            for n:=-radius to +radius do {mark the whole circular star area as occupied to prevent double detection's}
-              for m:=-radius to +radius do
+            if nr>=length(b^.cands) then
+              SetLength(b^.cands,nr+buffersize);{adapt array size if required}
+            b^.cands[nr].xc:=xc;
+            b^.cands[nr].yc:=yc;
+            b^.cands[nr].snr:=snr;
+            b^.cands[nr].sx:=fitsX;
+            b^.cands[nr].sy:=fitsY;
+            radius:=round(3.0*hfd1);{for marking star area. A value between 2.5*hfd and 3.5*hfd gives same performance. Note in practice a star PSF has larger wings then predicted by a Gaussian function}
+            b^.cands[nr].radius:=radius;
+            {the centroid test of the serial code, here against the shared marks and this band's private marks}
+            b^.cands[nr].marked:=((d^.img_sa[0,yci,xci]<>d^.retries) and
+                                  ((yci<row0) or (yci>=row0+nrows) or (pmask[(yci-row0)*d^.width2+xci]=0)));
+            if b^.cands[nr].marked then
+            begin
+              sqr_radius:=sqr(radius);
+              for n:=-radius to +radius do {mark the whole circular star area as occupied to prevent double detection's}
               begin
                 j:=n+yci;
-                i:=m+xci;
-                if ((j>=0) and (i>=0) and (j<d^.height2) and (i<d^.width2) and (sqr(m)+sqr(n)<=sqr_radius)) then
-                  d^.img_sa[0,j,i]:=d^.retries;//mark as star area. Use retries value, so that img_sa does not requires a clearing!
+                if ((j<row0) or (j>=row0+nrows)) then continue; {private mask covers only this band}
+                for m:=-radius to +radius do
+                begin
+                  i:=m+xci;
+                  if ((i>=0) and (i<d^.width2) and (sqr(m)+sqr(n)<=sqr_radius)) then
+                    pmask[(j-row0)*d^.width2+i]:=1;
+                end;
               end;
-
-            {store values}
+            end;
             inc(nr);
-            if nr>=length(b^.stars[0]) then
-              SetLength(b^.stars,3,nr+buffersize);{adapt array size if required}
-            b^.stars[0,nr-1]:=xc; {store star position}
-            b^.stars[1,nr-1]:=yc;
-            b^.stars[2,nr-1]:=snr;{store SNR}
-            if snr>hsnr then hsnr:=snr;{find to highest snr value}
           end;
         end;
       end;
     end;
   end;
   b^.n:=nr;
-  b^.hsnr:=hsnr;
 end;
 
 procedure collect_bands(var d: Tfsdata; var starlistI: Tstar_list; var nrstars: integer; var highest_snr: double);
-{append the band results to starlistI in band order and drop duplicates (same star measured by two bands)}
+{Phase B. Replay the band candidates in scan order against the shared img_sa with the single core rules, see above}
 const
   buffersize=5000;
+type
+  Tpix = record y, x: integer; end;
 var
-  row, i, j, first : integer;
-  dup              : boolean;
-begin
-  for row:=0 to high(d.bands) do
-    if d.bands[row].n>0 then
-    begin
-      first:=nrstars;
-      for i:=0 to d.bands[row].n-1 do
-      begin
-        dup:=false;
-        if row>0 then {a band other than the first could have re-measured a star of the band above it}
-          for j:=0 to first-1 do
-            if ((abs(starlistI[0,j]-d.bands[row].stars[0,i])<2) and (abs(starlistI[1,j]-d.bands[row].stars[1,i])<2)) then
+  band, ci, pi, npend                  : integer;
+  pend, pend2                          : array of Tpix; {pixels to re-test, in scan order}
+  c                                    : ^Tfscand;
+  b                                    : ^Tfsband;
+  rowfirst, rowlast                    : integer; {image rows of the band being replayed}
+
+          procedure accept_star(xc, yc, snr: double; radius: integer);
+          var
+            m, n, i, j, xci, yci, sqr_radius : integer;
+          begin
+            sqr_radius:=sqr(radius);
+            xci:=round(xc);
+            yci:=round(yc);
+            for n:=-radius to +radius do {mark the whole circular star area as occupied to prevent double detection's}
+              for m:=-radius to +radius do
+              begin
+                j:=n+yci;
+                i:=m+xci;
+                if ((j>=0) and (i>=0) and (j<d.height2) and (i<d.width2) and (sqr(m)+sqr(n)<=sqr_radius)) then
+                  d.img_sa[0,j,i]:=d.retries;//mark as star area. Use retries value, so that img_sa does not requires a clearing!
+              end;
+            inc(nrstars);
+            if nrstars>=length(starlistI[0]) then
+              SetLength(starlistI,3,nrstars+buffersize);{adapt array size if required}
+            starlistI[0,nrstars-1]:=xc; {store star position}
+            starlistI[1,nrstars-1]:=yc;
+            starlistI[2,nrstars-1]:=snr;{store SNR}
+            if snr>highest_snr then highest_snr:=snr;{find to highest snr value}
+          end;
+
+          procedure test_pixel(fitsY, fitsX: integer); {the serial inner loop for one pixel}
+          var
+            starpixels                         : integer;
+            hfd1, star_fwhm, snr, flux, xc, yc : double;
+          begin
+            if ((d.img_sa[0,fitsY,fitsX]<>d.retries) and (d.img[0,fitsY,fitsX]>d.level_star)) then
             begin
-              dup:=true;
-              break;
+              starpixels:=0;
+              if d.img[0,fitsY,fitsX-1]>d.level_cross then inc(starpixels);
+              if d.img[0,fitsY,fitsX+1]>d.level_cross then inc(starpixels);
+              if d.img[0,fitsY-1,fitsX]>d.level_cross then inc(starpixels);
+              if d.img[0,fitsY+1,fitsX]>d.level_cross then inc(starpixels);
+              if starpixels>=2 then
+              begin
+                HFD(d.img,fitsX,fitsY,14{annulus radius}, hfd1,star_fwhm,snr,flux,xc,yc);
+                if ((hfd1<=30) and (snr>10) and (hfd1>d.hfd_min) and (d.img_sa[0,round(yc),round(xc)]<>d.retries)) then
+                  accept_star(xc,yc,snr,round(3.0*hfd1));
+              end;
             end;
-        if dup then continue;
-        inc(nrstars);
-        if nrstars>=length(starlistI[0]) then
-          SetLength(starlistI,3,nrstars+buffersize);
-        starlistI[0,nrstars-1]:=d.bands[row].stars[0,i];
-        starlistI[1,nrstars-1]:=d.bands[row].stars[1,i];
-        starlistI[2,nrstars-1]:=d.bands[row].stars[2,i];
+          end;
+
+          procedure add_uncovered(const cd: Tfscand); {queue the pixels of a rejected candidate's private area that the scan still has to see}
+          var
+            m, n, i, j, xci, yci, sqr_radius, k, a, bidx, nnew : integer;
+            batch : array of Tpix;
+          begin
+            sqr_radius:=sqr(cd.radius);
+            xci:=round(cd.xc);
+            yci:=round(cd.yc);
+            nnew:=0;
+            setlength(batch, sqr(2*cd.radius+1));
+            for n:=-cd.radius to +cd.radius do
+            begin
+              j:=n+yci;
+              if ((j<rowfirst) or (j>rowlast)) then continue; {the private mask covered only this band}
+              for m:=-cd.radius to +cd.radius do
+              begin
+                i:=m+xci;
+                if ((i<d.startX) or (i>d.endX) or (sqr(m)+sqr(n)>sqr_radius)) then continue;
+                if ((j<cd.sy) or ((j=cd.sy) and (i<=cd.sx))) then continue; {scanned before the candidate was found}
+                if d.img_sa[0,j,i]=d.retries then continue; {also hidden in the serial scan}
+                batch[nnew].y:=j;
+                batch[nnew].x:=i;
+                inc(nnew);
+              end;
+            end;
+            if nnew=0 then exit;
+            {merge the sorted batch with the sorted remainder pend[pi..npend-1]}
+            setlength(pend2, (npend-pi)+nnew);
+            a:=pi; bidx:=0; k:=0;
+            while ((a<npend) or (bidx<nnew)) do
+            begin
+              if ((bidx>=nnew) or ((a<npend) and ((pend[a].y<batch[bidx].y) or ((pend[a].y=batch[bidx].y) and (pend[a].x<=batch[bidx].x))))) then
+              begin pend2[k]:=pend[a]; inc(a); end
+              else
+              begin pend2[k]:=batch[bidx]; inc(bidx); end;
+              inc(k);
+            end;
+            pend:=pend2;
+            pend2:=nil;
+            npend:=k;
+            pi:=0;
+          end;
+
+begin
+  for band:=0 to high(d.bands) do
+    if d.bands[band].used then
+    begin
+      b:=@d.bands[band];
+      rowfirst:=b^.first;
+      rowlast:=b^.last;
+      {replay candidates and queued pixels in scan order}
+      ci:=0;
+      npend:=0; pi:=0;
+      while ((ci<b^.n) or (pi<npend)) do
+      begin
+        if ((pi<npend) and ((ci>=b^.n) or (pend[pi].y<b^.cands[ci].sy) or ((pend[pi].y=b^.cands[ci].sy) and (pend[pi].x<b^.cands[ci].sx)))) then
+        begin
+          test_pixel(pend[pi].y, pend[pi].x);
+          inc(pi);
+        end
+        else
+        begin
+          c:=@b^.cands[ci];
+          if ((d.img_sa[0,c^.sy,c^.sx]<>d.retries) {the serial scan would have tested this pixel} and
+              (d.img_sa[0,round(c^.yc),round(c^.xc)]<>d.retries) {and accepted the centroid}) then
+            accept_star(c^.xc,c^.yc,c^.snr,c^.radius)
+          else
+            if c^.marked then add_uncovered(c^); {the band hid pixels behind this candidate, re-test them}
+          inc(ci);
+        end;
       end;
-      if d.bands[row].hsnr>highest_snr then highest_snr:=d.bands[row].hsnr;
-      d.bands[row].stars:=nil;
-      d.bands[row].n:=0;
+      b^.cands:=nil;
+      b^.n:=0;
+      b^.used:=false;
     end;
+  pend:=nil;
 end;
 
 procedure find_stars(img :Timage_array; hfd_min:double; max_stars :integer;out starlistI: Tstar_list);{find stars and put them in a list}
@@ -2230,7 +2364,8 @@ type
     centerX, centerY, crota2_rad, cdelt1_arcsec, cdelt2_arcsec : double;
     lock                                              : TRTLCriticalSection;
     best                                              : integer; {lowest position index with a solution}
-    read_error                                        : boolean;
+    first_error                                       : integer; {lowest position index where the database could not be read. Fatal only if lower than best, as in the serial search}
+    bucket_warnings                                   : longint; {positions where find_quads overflowed a hash bucket}
     {result of the winning step}
     ra_database, dec_database, mag2                   : double;
     solution_vectorX, solution_vectorY                : solution_vector;
@@ -2256,8 +2391,10 @@ begin
 
   if read_stars(ra_database,dec_database,c^.search_field2,c^.nrstars_required2,{out} starlist1)= false then
   begin
-    c^.read_error:=true;
-    exit(true); {stop the search}
+    EnterCriticalSection(c^.lock);
+    if idx<c^.first_error then c^.first_error:=idx;
+    LeaveCriticalSection(c^.lock);
+    exit(true); {stop handing out higher positions. Positions below idx still finish and can win}
   end;
 
   //mod 2025 ###################################################
@@ -2282,6 +2419,7 @@ begin
   //mod 2025 ###################################################
 
   find_quads(c^.nrstars_image,starlist1,t^.quad_star_distances1);{find quads for reference image/database. Filter out too small quads for Earth based telescopes}
+  if t^.bucket_overflows>0 then InterlockedIncrement(c^.bucket_warnings);
 
   if solve_show_log then {serial search only, see solve_image}
     memo2_message('Search '+ inttostr(idx)+', position: '+ prepare_ra(ra_database,': ')+prepare_dec(dec_database,'d ')+#9+' Down to magn '+ floattostrF2(t^.mag2/10,0,1) +#9+' '+inttostr(length(starlist1[0]))+' database stars' +#9+' '+inttostr(length(t^.quad_star_distances1[0]))+' database quads to compare.');
@@ -2456,6 +2594,7 @@ begin
     begin
       dbg_t0:=gettickcount64;
       find_quads(nrstars_image,starlist2,quad_star_distances2);
+      if t^.bucket_overflows>0 then memo2_message('Warning, bucket size increased!');
       if cli_timing then writeln(stderr,'T image quads ',gettickcount64-dbg_t0,' ms');{find star quads for new image. Quads and quad_smallest are binning independend}
       nr_quads:=Length(quad_star_distances2[0]);
       go_ahead:=nr_quads>=3; {enough quads?}
@@ -2580,7 +2719,18 @@ begin
         ctx.cdelt1_arcsec:=cdelt1_arcsec;
         ctx.cdelt2_arcsec:=cdelt2_arcsec;
         ctx.best:=high(integer);
-        ctx.read_error:=false;
+        ctx.first_error:=high(integer);
+        ctx.bucket_warnings:=0;
+
+        if database_type=001 then {wide field database. Load the global wide_field_stars array once, here on the main thread, before the workers read it}
+          if wide_database<>name_database then
+            if read_stars_wide_field=false then
+            begin
+              memo2_message('Error, no star database found at '+database_path+' ! Download and install a star database.');
+              errorlevel:=33;{read error star database}
+              exit; {no stars}
+            end;
+
         InitCriticalSection(ctx.lock);
         dbg_t0:=gettickcount64;
         if ((match_nr=0) and (cli_thread_count>1) and (solve_show_log=false)) then
@@ -2589,7 +2739,7 @@ begin
         begin {serial, in spiral order. Used for the second pass (one step) and for -progress logging}
           distance:=0; {required for reporting no too often}
           i:=0;
-          while ((i<npos) and (ctx.best=high(integer)) and (ctx.read_error=false)) do
+          while ((i<npos) and (ctx.best=high(integer)) and (ctx.first_error=high(integer))) do
           begin
             if pos_sep[i]*180/pi>distance+fov_org then {new distance reached. Update once in the square spiral, so not too often since it cost CPU time}
             begin
@@ -2600,10 +2750,13 @@ begin
             inc(i);
           end;
         end;
-        if cli_timing then writeln(stderr,'T search ',gettickcount64-dbg_t0,' ms, ',npos,' positions, pass ',match_nr+1);
+        if cli_timing then writeln(stderr,'T search ',gettickcount64-dbg_t0,' ms, ',npos,' positions, pass ',match_nr+1,', ',cli_thread_count,' threads');
         DoneCriticalSection(ctx.lock);
+        detach_all_readers; {idle worker readers must not pin tiles in the cache}
 
-        if ctx.read_error then
+        if ctx.bucket_warnings>0 then memo2_message('Warning, bucket size increased at '+inttostr(ctx.bucket_warnings)+' search position(s)!');
+
+        if ctx.first_error<ctx.best then {a read error before the solution. A worker that ran ahead into a missing tile beyond the solution is ignored, the serial search would never have reached it}
         begin
           memo2_message('Error, no star database found at '+database_path+' ! Download and install a star database.');
           errorlevel:=33;{read error star database}

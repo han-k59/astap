@@ -126,7 +126,6 @@ var
   bp_0_0, bp_0_1,bp_0_2, bp_0_3, bp_1_0, bp_1_1, bp_1_2, bp_2_0, bp_2_1, bp_3_0 : double;{SIP, Simple Imaging Polynomial use by astrometry.net}
 
   histogram : array[0..2,0..65535] of integer;{red,green,blue,count}
-  r_aperture : integer; {histogram number of values}
   histo_peak_position : integer;
   his_mean : array[0..2] of integer;
   esc_pressed, fov_specified {, last_extension }: boolean;
@@ -285,15 +284,20 @@ end;
 
 procedure memo2_message(s: string);{message to memo2. Is also used for log to file in commandline mode}
 begin
-  {$IFDEF UNIX or ANDROID}  {linux and mac}
-  writeln(s); {linux command line can write unicode}
-  {$ELSE }
-  writeln(ansi_only(s)); {log to console for Windows when compiler WIN32 gui is off}
-  {$ENDIF}
+  cli_log_lock; {can be called from worker threads, keep lines whole and memo2 (TStringList) consistent}
+  try
+    {$IFDEF UNIX or ANDROID}  {linux and mac}
+    writeln(s); {linux command line can write unicode}
+    {$ELSE }
+    writeln(ansi_only(s)); {log to console for Windows when compiler WIN32 gui is off}
+    {$ENDIF}
 
-  if commandline_log=true then {no commandline or option -log is used}
-  begin
-     memo2.add(TimeToStr(time)+'  '+s); {fill memo2 with log}
+    if commandline_log=true then {no commandline or option -log is used}
+    begin
+       memo2.add(TimeToStr(time)+'  '+s); {fill memo2 with log}
+    end;
+  finally
+    cli_log_unlock;
   end;
 end;
 
@@ -772,6 +776,7 @@ type
     bscale : double;
     bzero  : double;
     rowmax : psingle;       {per row maximum, written by the worker}
+    error  : longint;       {set to 1 by a worker that could not open or read the file}
   end;
   Pconvert16 = ^Tconvert16;
 
@@ -787,8 +792,9 @@ var
   src      : pword;
   dst      : psingle;
   word16   : word;
-  col_float, mx : single;
-  bscale, bzero : single;
+  mx            : single;
+  col_float     : double;
+  bscale, bzero : double; {double as in the serial reader, so unusual bscale/bzero values give the same pixels}
 begin
   d:=Pconvert16(data);
   bscale:=d^.bscale;
@@ -797,6 +803,7 @@ begin
   try
     f:=TFileStream.Create(d^.filen, fmOpenRead or fmShareDenyNone);
   except
+    InterlockedExchange(d^.error, 1); {report instead of leaving the rows silently black}
     exit;
   end;
   try
@@ -805,7 +812,12 @@ begin
     while j<=endRow do
     begin
       nrows:=min(rows_per_read, endRow-j+1);
-      nread:=f.Read(buf[0], nrows*d^.width*2);
+      try
+        nread:=f.Read(buf[0], nrows*d^.width*2);
+      except
+        nread:=0;
+        InterlockedExchange(d^.error, 1);
+      end;
       if nread<nrows*d^.width*2 then fillchar(buf[nread div 2], nrows*d^.width*2-nread, 0); {short file, keep going with zeros like the serial reader}
       for r:=0 to nrows-1 do
       begin
@@ -1851,7 +1863,14 @@ begin
       cv16.bscale:=bscale;
       cv16.bzero:=bzero;
       cv16.rowmax:=@rowmax[0];
+      cv16.error:=0;
       parallel_rows(head.height, @convert_rows_16, @cv16);
+      if cv16.error<>0 then
+      begin
+        memo2_message('Error, could not read the image data of '+filen);
+        close_fits_file;
+        exit;
+      end;
       for j:=0 to head.height-1 do
         if rowmax[j]>measured_max then measured_max:=rowmax[j];{find max value for image. For for images with 0..1 scale or for debayer}
     end {colors head.naxis3 times}
@@ -3050,6 +3069,7 @@ const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
 var
   width2, height2, i, j, r1_square, r2_square,r2, distance,distance_top_value,illuminated_pixels,signal_counter,counter :integer;
+  r_aperture : integer; {histogram number of values. Local: HFD runs on several threads at once during star detection}
   SumVal, SumValX,SumValY,SumValR, Xg,Yg, r, val,star_bg,pixel_counter,valmax,mad_bg,sd_bg    : double;
   HistStart,boxed : boolean;
   distance_histogram : array [0..max_ri] of integer;
@@ -3109,7 +3129,6 @@ begin
     mad_bg:=Smedian(background,counter); //median absolute deviation (MAD)
     sd_bg:=mad_bg*1.4826; {Conversion from mad to sd for a normal distribution. See https://en.wikipedia.org/wiki/Median_absolute_deviation}
     sd_bg:=max(sd_bg,1); {add some value for images with zero noise background. This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net}
-    {sd_bg and r_aperture are global variables}
 
     repeat {reduce square annulus radius till symmetry to remove stars}
     // Get center of gravity whithin star detection box and count signal pixels, repeat reduce annulus radius till symmetry to remove stars

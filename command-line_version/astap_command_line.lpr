@@ -106,7 +106,8 @@ begin
     '-log  {Write the solver log to a .log text file.}'+#10+
     '-update  {Add the solution to the input fits file header. Jpeg, png, tiff will be written as fits}' +#10+
     '-progress   {Log all progress steps and messages. Runs the search on one core}'+#10+
-    '-threads n  {Number of cores to use for loading, star detection and the search. Default all}'+#10+
+    '-threads n  {Number of cores to use for loading, star detection and the search. Default all, maximum 16}'+#10+
+    '            {Environment: ASTAP_THREADS=n sets the default, ASTAP_TILE_CACHE_MB=n limits the star database cache (default 256), ASTAP_TIMING=1 prints phase timings}'+#10+
     #10+
     'Analyse options:' +#10+
     '-analyse snr_min {Analyse only and report median HFD and number of stars used}'+#10+

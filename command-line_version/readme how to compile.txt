@@ -19,4 +19,10 @@ How to compile ASTAP:
   Mac:  
      lazbuild -B astap_command_line.lpi
 
-
+Multi-core astap_cli:
+  The command line solver uses all cores for FITS loading, star detection and the spiral search (unit_cli_parallel.pas).
+  The results are identical to a single core run: -threads 1 and -threads 8 give the same star list and solution.
+  -threads n or ASTAP_THREADS=n selects the core count (max 16, default the cores the process may run on).
+  -progress runs the search on one core so the log stays in spiral order.
+  Star database tiles are loaded once and shared by all threads. ASTAP_TILE_CACHE_MB=n limits that cache (default 256 MB).
+  ASTAP_TIMING=1 prints the phase timings and the thread count to stderr.
