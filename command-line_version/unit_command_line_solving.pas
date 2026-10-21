@@ -1873,15 +1873,12 @@ begin
   end
   else
   begin {wide field database}
-    if wide_database<>name_database then
-    begin
-      EnterCriticalSection(wide_lock); {load once. Without this every worker would reload the global array while the others index it}
-      try
-        if wide_database<>name_database then
-          if read_stars_wide_field=false then exit;{load wide field stars array. 2026 fix: test the result. If the file is missing the routine returned true with an empty array and read below garbage at wide_field_stars[-3]}
-      finally
-        LeaveCriticalSection(wide_lock);
-      end;
+    EnterCriticalSection(wide_lock); {wide_database is a managed string the load assigns, so the test runs under the lock too. One uncontended lock per position is nothing next to the read below}
+    try
+      if wide_database<>name_database then
+        if read_stars_wide_field=false then exit;{load wide field stars array. 2026 fix: test the result. If the file is missing the routine returned true with an empty array and read below garbage at wide_field_stars[-3]}
+    finally
+      LeaveCriticalSection(wide_lock);
     end;
     count:=0;
     r^.cos_telescope_dec:=cos(telescope_dec);
@@ -2381,12 +2378,15 @@ begin
   if read_stars(ra_database,dec_database,c^.search_field2,c^.nrstars_required2,{out} starlist1)= false then
   begin
     EnterCriticalSection(c^.lock);
-    if idx<c^.first_error then
-    begin
-      c^.first_error:=idx;
-      c^.read_failed:=db_reader^.read_error;
+    try
+      if idx<c^.first_error then
+      begin
+        c^.first_error:=idx;
+        c^.read_failed:=db_reader^.read_error;
+      end;
+    finally
+      LeaveCriticalSection(c^.lock);
     end;
-    LeaveCriticalSection(c^.lock);
     exit(true); {stop handing out higher positions. Positions below idx still finish and can win}
   end;
 
@@ -2420,21 +2420,24 @@ begin
   if find_offset_and_rotation(c^.minimum_quads {>=3},c^.quad_tolerance) then {find an solution}
   begin
     EnterCriticalSection(c^.lock);
-    if idx<c^.best then
-    begin
-      c^.best:=idx;
-      c^.ra_database:=ra_database;
-      c^.dec_database:=dec_database;
-      c^.mag2:=t^.mag2;
-      c^.solution_vectorX:=t^.solution_vectorX;
-      c^.solution_vectorY:=t^.solution_vectorY;
-      c^.nr_references:=t^.nr_references;
-      c^.nr_references2:=t^.nr_references2;
-      c^.A_XYpositions:=t^.A_XYpositions; {used by add_sip after the search}
-      c^.b_Xrefpositions:=t^.b_Xrefpositions;
-      c^.b_Yrefpositions:=t^.b_Yrefpositions;
+    try {the array copies can raise on out of memory; the lock must not stay held or the other workers hang in it}
+      if idx<c^.best then
+      begin
+        c^.best:=idx;
+        c^.ra_database:=ra_database;
+        c^.dec_database:=dec_database;
+        c^.mag2:=t^.mag2;
+        c^.solution_vectorX:=t^.solution_vectorX;
+        c^.solution_vectorY:=t^.solution_vectorY;
+        c^.nr_references:=t^.nr_references;
+        c^.nr_references2:=t^.nr_references2;
+        c^.A_XYpositions:=t^.A_XYpositions; {used by add_sip after the search}
+        c^.b_Xrefpositions:=t^.b_Xrefpositions;
+        c^.b_Yrefpositions:=t^.b_Yrefpositions;
+      end;
+    finally
+      LeaveCriticalSection(c^.lock);
     end;
-    LeaveCriticalSection(c^.lock);
     result:=true;
   end;
 end;
@@ -2745,10 +2748,10 @@ begin
               inc(i);
             end;
           end;
-        finally {also when a worker raised: the readers must not keep tiles and file handles, and the lock must not leak}
-          DoneCriticalSection(ctx.lock);
-          detach_all_readers; {idle worker readers must not pin tiles in the cache}
+        finally
+          DoneCriticalSection(ctx.lock); {also when a worker raised, the exception then propagates and ends the program}
         end;
+        detach_all_readers; {idle worker readers must not pin tiles in the cache. Not in the finally: after a worker exception the pool is not used again}
         if cli_timing then writeln(stderr,'T search ',gettickcount64-dbg_t0,' ms, ',npos,' positions, pass ',match_nr+1,', ',cli_thread_count,' threads');
 
         if ctx.bucket_warnings>0 then memo2_message('Warning, bucket size increased at '+inttostr(ctx.bucket_warnings)+' search position(s)!');

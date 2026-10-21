@@ -32,12 +32,11 @@ type
   TTaskProc = function(idx: integer; data: pointer): boolean; {return true to stop handing out tasks with a higher index}
 
 procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer); {run proc over [0..nrows-1] split in chunks on all threads; returns when all chunks are done}
-procedure parallel_each_thread(proc: TRowProc; data: pointer); {run proc(0,0,data) on the calling thread and proc(i,i,data) on worker i, once per pool thread, for per-thread (threadvar) state. Returns when all are done}
+procedure parallel_each_thread(proc: TRowProc; data: pointer); {run proc(0,0,data) on the calling thread and proc(i,i,data) on worker i, once per pool thread, for per-thread (threadvar) state. Does not start the pool: with no workers only the calling thread runs it. Returns when all are done}
 procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer); {run proc(0..ntasks-1) on all threads in index order; a task returning true stops tasks with a higher index. Returns when all started tasks are done}
 function cli_thread_count: integer;
 procedure set_thread_count(n: integer); {from the -threads option; 0 = automatic}
 function cli_timing: boolean; {ASTAP_TIMING=1 in the environment prints phase timings to stderr}
-function cli_pool_running: boolean; {true once worker threads exist. Lets callers skip a parallel_rows call whose only purpose is to touch per-thread state}
 procedure cli_log_lock;   {serialise console/log output from worker threads}
 procedure cli_log_unlock;
 
@@ -81,11 +80,6 @@ begin
   else thread_count:=min(16,n);
 end;
 
-function cli_pool_running: boolean;
-begin
-  result:=pool_ready;
-end;
-
 function cli_timing: boolean;
 begin
   if timing_state<0 then
@@ -107,7 +101,7 @@ function online_cpu_count: integer;
 var
   n     : clong;
   {$IF DEFINED(LINUX) OR DEFINED(ANDROID)}
-  mask  : array[0..127] of byte; {1024 cpu bits}
+  mask  : array[0..1023] of byte; {8192 cpu bits. The kernel rejects a mask smaller than its own cpumask, which is 4096 or 8192 bits on distribution kernels}
   i, b  : integer;
   {$ENDIF}
 {$ENDIF}
@@ -283,9 +277,9 @@ end;
 
 procedure parallel_each_thread(proc: TRowProc; data: pointer);
 begin
-  if not pool_available then
+  if ((not pool_ready) or in_parallel or (cli_thread_count<=1)) then
   begin
-    proc(0, 0, data);
+    proc(0, 0, data); {no workers exist (and none are started just to touch their state), or called from inside a chunk}
     exit;
   end;
   run_chunks(cli_thread_count, 1, proc, data); {one row per thread, so every pool thread runs proc exactly once}
@@ -338,6 +332,11 @@ begin
   sh.ntasks:=ntasks;
   sh.proc:=proc;
   sh.data:=data;
+  if not pool_available then
+  begin
+    task_loop(0, 0, @sh); {serial}
+    exit;
+  end;
   parallel_each_thread(@task_loop, @sh); {one task_loop per thread}
 end;
 

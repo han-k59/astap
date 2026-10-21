@@ -2848,7 +2848,8 @@ var
   tiles       : array of Ptile;
   tile_index  : array of Ptile; {by area number, for a lookup without string compares. The name is checked on a hit}
   tile_lock   : TRTLCriticalSection; {guards tiles, tile_index, tile_bytes, refcount and last_used}
-  tile_open_lock : TRTLCriticalSection; {held while a tile file is opened, so threads that miss the cache at the same time wait for one open instead of each opening the file}
+  tile_open_lock : TRTLCriticalSection; {held while a tile file is opened, so threads that miss the cache at the same time wait for one open instead of each opening the file.
+                                         One lock for all tiles: opens happen only on first touch, take a millisecond, and a slow medium serialises them anyway}
   tile_gen    : integer = 1; {incremented by clear_tile_cache so readers holding a stale pointer reopen}
   tile_bytes  : int64 = 0;   {bytes held in blocks}
   tile_limit  : int64 = -1;  {cache budget, see tile_budget}
@@ -2856,7 +2857,8 @@ var
   tile_loading_marker : byte; {tile_loading points here}
   tile_loading        : Pbyte_block; {block pointer value while a reader loads the block. Set in initialization}
   tile_failed_marker  : byte; {tile_failed points here}
-  tile_failed         : Pbyte_block; {block pointer value after a load failed, so the other readers do not repeat the failing read. Cleared when the tile is evicted}
+  tile_failed         : Pbyte_block; {block pointer value after a load failed, so the other readers do not repeat the failing read.
+                                      Deliberately not retried: a read error ends the search with a clear message, as a serial read error would. Cleared when the tile is evicted}
 
 function tile_budget: int64; {bytes the tile cache may hold before evicting unused tiles. ASTAP_TILE_CACHE_MB in the environment overrides the default of 256 MB}
 var
@@ -3021,15 +3023,16 @@ begin
   until false;
 end;
 
-procedure detach_reader_task(startRow, endRow: integer; data: pointer); {detach the calling thread's reader, see detach_all_readers}
+procedure release_reader(r: Pdbreader); forward;
+
+procedure detach_reader_task(startRow, endRow: integer; data: pointer); {release the calling thread's reader, see detach_all_readers}
 begin
-  close_star_database(db_reader);
+  release_reader(db_reader);
 end;
 
-procedure detach_all_readers; {detach the readers of all pool threads so their tiles can be evicted. Call from the main thread when no search runs}
+procedure detach_all_readers; {detach the readers of all pool threads so their tiles can be evicted, and close their file handles. Call from the main thread when no search runs}
 begin
-  if cli_pool_running then parallel_each_thread(@detach_reader_task, nil)
-  else close_star_database(db_reader); {no workers were ever started, do not start them just for this}
+  parallel_each_thread(@detach_reader_task, nil); {runs on the main thread only when no pool exists}
 end;
 
 procedure clear_tile_cache; {free all loaded star database tiles. Only at finalization: it ignores refcount, so no reader may be attached}
@@ -3048,10 +3051,15 @@ begin
   end;
 end;
 
-procedure close_star_database(r: Pdbreader);{Detach the reader from its tile and close its file handle}
+procedure release_reader(r: Pdbreader); {detach the reader and close its file handle. For the end of a search; between areas the handle is kept, see tile_block}
 begin
+  close_star_database(r);
   FreeAndNil(r^.fstream); {else each thread keeps its last database file open (and share-denied on Windows) until the process exits}
   r^.fname:='';
+end;
+
+procedure close_star_database(r: Pdbreader);{Detach the reader from its tile. The file handle stays, a spiral alternating between two tiles would otherwise reopen the file at every step}
+begin
   if r^.tile<>nil then
   begin
     EnterCriticalSection(tile_lock);
