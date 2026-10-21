@@ -6,11 +6,13 @@ unit unit_cli_parallel;
 
  Thread count: the -threads option, else the ASTAP_THREADS environment variable,
  else the number of cores this process may run on (CPU affinity on Linux, so
- taskset and Docker --cpus are respected), capped at 16.
+ taskset, Docker --cpuset-cpus and cgroup cpusets are respected; a CFS quota such
+ as Docker --cpus does not change the mask, use -threads for that), capped at 16.
 
  Errors: an exception inside a worker is caught, the worker still signals
- completion, and the first message is re-raised on the calling thread after all
- chunks are done. So callers see the same exception they would see in serial code.
+ completion, and the first exception object is re-raised unchanged on the calling
+ thread after all chunks are done. So callers see the same exception class and
+ message they would see in serial code.
 
  The pool is not reentrant: parallel_rows called from inside a running chunk
  runs the range serially on the calling thread.
@@ -34,6 +36,7 @@ procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer); {run 
 function cli_thread_count: integer;
 procedure set_thread_count(n: integer); {from the -threads option; 0 = automatic}
 function cli_timing: boolean; {ASTAP_TIMING=1 in the environment prints phase timings to stderr}
+function cli_pool_running: boolean; {true once worker threads exist. Lets callers skip a parallel_rows call whose only purpose is to touch per-thread state}
 procedure cli_log_lock;   {serialise console/log output from worker threads}
 procedure cli_log_unlock;
 
@@ -45,7 +48,7 @@ type
     s, e      : integer;
     proc      : TRowProc;
     data      : pointer;
-    err       : string; {exception message of the last chunk, '' if none}
+    exc       : TObject; {exception object of the last chunk, nil if none. Owned until re-raised or freed by parallel_rows}
     handle    : TThreadID;
   end;
   Pworker = ^Tworker;
@@ -77,6 +80,11 @@ begin
   else thread_count:=min(16,n);
 end;
 
+function cli_pool_running: boolean;
+begin
+  result:=pool_ready;
+end;
+
 function cli_timing: boolean;
 begin
   if timing_state<0 then
@@ -105,18 +113,21 @@ var
 begin
   result:=TThread.ProcessorCount;
   {$IFDEF UNIX}
-  {_SC_NPROCESSORS_ONLN differs per libc: glibc/musl 84, bionic (Android) $61, Darwin and FreeBSD 58}
+  {_SC_NPROCESSORS_ONLN differs per libc: glibc/musl 84, bionic (Android) $61, Darwin and FreeBSD 58.
+   Other systems (OpenBSD 503, NetBSD 1002, Solaris 15) are not enumerated here and keep TThread.ProcessorCount}
   {$IF DEFINED(ANDROID)}
   n:=sysconf($61);
   {$ELSEIF DEFINED(DARWIN) OR DEFINED(FREEBSD)}
   n:=sysconf(58);
-  {$ELSE}
+  {$ELSEIF DEFINED(LINUX)}
   n:=sysconf(84);
+  {$ELSE}
+  n:=0;
   {$ENDIF}
   if n>0 then result:=n;
 
   {$IF DEFINED(LINUX) OR DEFINED(ANDROID)}
-  {honour the affinity mask (taskset, Docker --cpus, cgroup cpusets) when it is smaller than the online count}
+  {honour the affinity mask (taskset, Docker --cpuset-cpus, cgroup cpusets) when it is smaller than the online count}
   fillchar(mask, sizeof(mask), 0);
   if sched_getaffinity(0, sizeof(mask), @mask[0])=0 then
   begin
@@ -161,12 +172,11 @@ begin
   repeat
     RTLEventWaitFor(w^.go);
     RTLEventResetEvent(w^.go);
-    w^.err:='';
+    w^.exc:=nil;
     try
       w^.proc(w^.s, w^.e, w^.data);
     except
-      on E: Exception do w^.err:=E.ClassName+': '+E.Message
-      else w^.err:='unknown exception';
+      w^.exc:=TObject(AcquireExceptionObject); {keep the object alive past this handler, parallel_rows re-raises it on the calling thread}
     end;
     RTLEventSetEvent(w^.done); {always signal, else the caller waits forever}
   until false;
@@ -184,7 +194,7 @@ begin
   begin
     workers[started].go:=RTLEventCreate;
     workers[started].done:=RTLEventCreate;
-    workers[started].err:='';
+    workers[started].exc:=nil;
     workers[started].handle:=BeginThread(@worker_main, @workers[started]);
     if workers[started].handle<>TThreadID(0) then inc(started)
     else
@@ -201,7 +211,7 @@ end;
 procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer);
 var
   n, i, chunk, s, e : integer;
-  err               : string;
+  exc               : TObject;
 begin
   if nrows<=0 then exit;
   n:=cli_thread_count;
@@ -229,27 +239,31 @@ begin
     workers[i-1].e:=e;
     workers[i-1].proc:=proc;
     workers[i-1].data:=data;
-    workers[i-1].err:='';
+    workers[i-1].exc:=nil;
     if s<=e then RTLEventSetEvent(workers[i-1].go)
     else RTLEventSetEvent(workers[i-1].done); {nothing to do for this worker}
   end;
-  err:='';
+  exc:=nil;
   in_parallel:=true;
   try
     proc(0, min(nrows-1, chunk-1), data); {chunk 0 on the calling thread}
   except
-    on E: Exception do err:=E.ClassName+': '+E.Message
-    else err:='unknown exception';
+    exc:=TObject(AcquireExceptionObject);
   end;
   in_parallel:=false;
   for i:=0 to n-2 do {wait for all workers, also after an error, so the pool is consistent for the next call}
   begin
     RTLEventWaitFor(workers[i].done);
     RTLEventResetEvent(workers[i].done);
-    if ((err='') and (workers[i].err<>'')) then err:=workers[i].err;
+    if workers[i].exc<>nil then
+    begin
+      if exc=nil then exc:=workers[i].exc {the first exception wins, as the serial code would have stopped there}
+      else workers[i].exc.Free;
+      workers[i].exc:=nil;
+    end;
   end;
-  if err<>'' then
-    raise Exception.Create('Worker thread: '+err);
+  if exc<>nil then
+    raise exc; {the original object, so class and message are the same as in serial code. The RTL frees it when handled}
 end;
 
 type

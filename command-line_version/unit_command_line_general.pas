@@ -815,8 +815,8 @@ begin
       try
         nread:=f.Read(buf[0], nrows*d^.width*2);
       except
-        nread:=0;
         InterlockedExchange(d^.error, 1);
+        break; {load_fits discards the image, no point in raising once per block for the remaining rows}
       end;
       if nread<nrows*d^.width*2 then fillchar(buf[nread div 2], nrows*d^.width*2-nread, 0); {short file, keep going with zeros like the serial reader}
       for r:=0 to nrows-1 do

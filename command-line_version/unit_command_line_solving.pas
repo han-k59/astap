@@ -593,6 +593,7 @@ var
    QuadsX, QuadsY: PDouble;
 begin
   nrstars := Length(starlist[0]); //number of quads will lower
+  match_state^.bucket_overflows:=0; {before every exit below, else a count from an earlier call on this thread is reported again}
 
   if ((nrstars_image<15) and (nrstars>6)) then //base the quad groups size selection on the number of stars in the image and not on the number of database stars since the database field could be larger
   begin
@@ -639,7 +640,6 @@ begin
   for i := 0 to hash_table_len - 1 do  bucket_counts[i] := 0; // Initialize counts
   max_bucket_size := 0;
   overflow_count := 0;
-  match_state^.bucket_overflows:=0; {also when exiting early below}
 
   nrquads := 0;
   SetLength(quads, 8, nrstars); //will contain the six distances and the central position or if display is true then eight x,y positions and central position
@@ -1479,8 +1479,11 @@ var
             a:=pi; bidx:=0; k:=0;
             while ((a<npend) or (bidx<nnew)) do
             begin
-              if ((bidx>=nnew) or ((a<npend) and ((pend[a].y<batch[bidx].y) or ((pend[a].y=batch[bidx].y) and (pend[a].x<=batch[bidx].x))))) then
+              if ((bidx>=nnew) or ((a<npend) and ((pend[a].y<batch[bidx].y) or ((pend[a].y=batch[bidx].y) and (pend[a].x<batch[bidx].x))))) then
               begin pend2[k]:=pend[a]; inc(a); end
+              else
+              if ((a<npend) and (pend[a].y=batch[bidx].y) and (pend[a].x=batch[bidx].x)) then
+              begin pend2[k]:=pend[a]; inc(a); inc(bidx); end {already queued by an overlapping rejected candidate, test it once}
               else
               begin pend2[k]:=batch[bidx]; inc(bidx); end;
               inc(k);
@@ -1829,6 +1832,7 @@ var
 begin
   result:=false;{assume failure}
   r:=db_reader;
+  r^.read_error:=false; {set by readdatabase290 when a tile block can not be loaded}
   m2:=match_state^.mag2;
   nrstars:=0;{set counters at zero}
   ra2:=0; {define ra2 value. Prevent ra2 = -nan(0xffffffffffde9) run time failure when first header record is read}
@@ -1853,6 +1857,7 @@ begin
         equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
         inc(nrstars);
       end;
+      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
     end;
 
     if area2<>0 then {read 2th area}
@@ -1865,6 +1870,7 @@ begin
         equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
         inc(nrstars);
       end;
+      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
     end;
 
     if area3<>0 then {read 3th area}
@@ -1877,6 +1883,7 @@ begin
         equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
         inc(nrstars);
       end;
+      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
     end;
 
     if area4<>0 then {read 4th area}
@@ -1889,6 +1896,7 @@ begin
         equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
         inc(nrstars);
       end;
+      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
     end;
   end
   else

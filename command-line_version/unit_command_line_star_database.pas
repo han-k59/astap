@@ -51,6 +51,7 @@ type
     buf2              : array[1..11] of byte;  {read buffer stars}
     fstream           : TFileStream;{this reader's own handle on fname, opened when it has to load a block}
     fname             : string;
+    read_error        : boolean;{a tile block could not be loaded (disk error, out of memory). Distinguishes that from end of file, see read_stars}
   end;
   Pdbreader = ^Tdbreader;
 
@@ -2906,17 +2907,32 @@ begin
   end;
 end;
 
-function tile_get(area: integer; const fullname: string): Ptile; {find or open the tile. nil if the file can not be opened. Call under tile_lock}
+function tile_find(area: integer; const fullname: string): Ptile; {the cached tile, nil if not loaded. Call under tile_lock}
 var
   i  : integer;
   t  : Ptile;
-  fs : TFileStream;
 begin
   if area>=length(tile_index) then setlength(tile_index, area+1);
   t:=tile_index[area];
   if ((t<>nil) and (t^.name=fullname)) then exit(t);
   for i:=0 to high(tiles) do {other database with the same area number, rare}
     if tiles[i]^.name=fullname then begin tile_index[area]:=tiles[i]; exit(tiles[i]); end;
+  result:=nil;
+end;
+
+procedure tile_discard(t: Ptile); {drop a tile from tile_open that was never inserted, so it has no loaded blocks}
+begin
+  t^.blocks:=nil;
+  t^.name:='';
+  dispose(t);
+end;
+
+function tile_open(area: integer; const fullname: string): Ptile; {open the file and read its header. nil if the file can not be opened.
+  Runs without tile_lock so the other threads do not wait on disk I/O; the caller inserts the result under the lock with tile_insert}
+var
+  t  : Ptile;
+  fs : TFileStream;
+begin
   result:=nil;
   new(t);
   fillchar(t^, sizeof(Ttile), 0); {also nils the managed fields}
@@ -2939,10 +2955,15 @@ begin
     dispose(t);
     exit;
   end;
+  result:=t;
+end;
+
+procedure tile_insert(t: Ptile); {add an opened tile to the cache. Call under tile_lock}
+begin
+  if t^.area>=length(tile_index) then setlength(tile_index, t^.area+1);
   setlength(tiles, length(tiles)+1);
   tiles[high(tiles)]:=t;
-  tile_index[area]:=t;
-  result:=t;
+  tile_index[t^.area]:=t;
 end;
 
 function tile_block(r: Pdbreader; t: Ptile; b: integer): Pbyte_block; {the loaded block b of tile t, loading it if required. nil on a read error}
@@ -3005,7 +3026,8 @@ end;
 
 procedure detach_all_readers; {detach the readers of all pool threads so their tiles can be evicted. Call from the main thread when no search runs}
 begin
-  parallel_rows(cli_thread_count*16, @detach_reader_task, nil);
+  if cli_pool_running then parallel_rows(cli_thread_count*16, @detach_reader_task, nil)
+  else close_star_database(db_reader); {no workers were ever started, do not start them just for this}
 end;
 
 procedure clear_tile_cache; {free all loaded star database tiles. Call between solves, not while readers run}
@@ -3041,6 +3063,7 @@ end;
 function open_database(r: Pdbreader; telescope_dec: double; area290: integer): boolean; {open database file}
 var
   namefile : string;
+  t, tnew  : Ptile;
 begin
   result:=true;{assume succes}
   r^.cos_telescope_dec:=cos(telescope_dec);{here to save CPU time}
@@ -3055,22 +3078,33 @@ begin
       namefile:=name_database+'_'+filenames1476[area290]; {g17_0101.1476}
 
     EnterCriticalSection(tile_lock);
-    try
-      r^.tile:=tile_get(area290, database_path+namefile);
-      r^.tile_gen:=tile_gen;
-      if r^.tile<>nil then
+    t:=tile_find(area290, database_path+namefile);
+    LeaveCriticalSection(tile_lock);
+    tnew:=nil;
+    if t=nil then
+    begin
+      tnew:=tile_open(area290, database_path+namefile); {outside the lock, the file open and header read may take milliseconds on an SD card}
+      if tnew=nil then
       begin
-        inc(r^.tile^.refcount);
-        inc(tile_clock);
-        r^.tile^.last_used:=tile_clock;
+        result:=false;
+        exit;
       end;
+    end;
+    EnterCriticalSection(tile_lock);
+    try
+      if t=nil then
+      begin
+        t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile meanwhile}
+        if t=nil then begin tile_insert(tnew); t:=tnew; end
+        else tile_discard(tnew);
+      end;
+      r^.tile:=t;
+      r^.tile_gen:=tile_gen;
+      inc(t^.refcount);
+      inc(tile_clock);
+      t^.last_used:=tile_clock;
     finally
       LeaveCriticalSection(tile_lock);
-    end;
-    if r^.tile=nil then
-    begin
-      result:=false;
-      exit;
     end;
     r^.record_size:=r^.tile^.record_size;
     r^.old_area:=area290;
@@ -3136,7 +3170,8 @@ begin
       r^.cur_ptr:=tile_block(r, t, b);
       if r^.cur_ptr=nil then
       begin
-        readdatabase290:=false; {read error, treat as end of file}
+        r^.read_error:=true; {read_stars reports this as a failed read, not as end of file}
+        readdatabase290:=false;
         exit;
       end;
       r^.cur_block:=b;
@@ -3148,6 +3183,7 @@ begin
       p2:=tile_block(r, t, b+1);
       if p2=nil then
       begin
+        r^.read_error:=true;
         readdatabase290:=false;
         exit;
       end;
