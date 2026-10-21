@@ -1283,7 +1283,6 @@ type
     cands       : array of Tfscand;
     n           : integer;
     first, last : integer; {image rows scanned by this band}
-    used        : boolean;
   end;
   Tfsdata = record {parameters for the parallel star detection}
     img, img_sa                        : Timage_array;
@@ -1342,13 +1341,12 @@ var
 begin
   d:=Pfsdata(data);
   b:=@d^.bands[startRow];
-  SetLength(b^.cands,buffersize);
+  SetLength(b^.cands,256); {grows on demand. Most of the 13x13 sections of the last retry find only a few stars}
   nr:=0;
   row0:=startRow+d^.rowOffset;
   nrows:=endRow-startRow+1;
   b^.first:=row0;
   b^.last:=endRow+d^.rowOffset;
-  b^.used:=true;
   col0:=d^.startX;
   mw:=d^.endX-d^.startX+1;
   setlength(pmask, nrows*mw); {zeroed. Only the section columns: the last retry scans 13x13 sections and a full width mask per call would cost 13 image sized memsets.
@@ -1369,7 +1367,7 @@ begin
             xci:=round(xc);{star center as integer}
             yci:=round(yc);
             if nr>=length(b^.cands) then
-              SetLength(b^.cands,nr+buffersize);{adapt array size if required}
+              SetLength(b^.cands,min(2*length(b^.cands), nr+buffersize));{adapt array size if required}
             b^.cands[nr].xc:=xc;
             b^.cands[nr].yc:=yc;
             b^.cands[nr].snr:=snr;
@@ -1401,6 +1399,7 @@ begin
     end;
   end;
   b^.n:=nr;
+  if nr=0 then b^.cands:=nil; {collect_bands skips empty bands, release the buffer here}
 end;
 
 procedure collect_bands(var d: Tfsdata; var starlistI: Tstar_list; var nrstars: integer; var highest_snr: double);
@@ -1498,7 +1497,7 @@ var
 
 begin
   for band:=0 to high(d.bands) do
-    if d.bands[band].used then
+    if d.bands[band].n>0 then
     begin
       b:=@d.bands[band];
       rowfirst:=b^.first;
@@ -1526,7 +1525,6 @@ begin
       end;
       b^.cands:=nil;
       b^.n:=0;
-      b^.used:=false;
     end;
   pend:=nil;
 end;
@@ -1975,37 +1973,74 @@ type
   Pbindata = ^Tbindata;
 
 procedure bin_rows(startRow, endRow: integer; data: pointer);
+{Rows startRow..endRow of the binned mono image. The single precision sums are done in exactly the order and with the
+ same divisions as the serial bin_mono_and_crop of upstream ASTAP, so the result is bit identical also for pixel values
+ that are not whole numbers (BSCALE<>1, 32 bit float images). A reordered sum or a multiplication by 1/n rounds differently}
 var
-  d                         : Pbindata;
-  fitsY, fitsX, k, i, j, b  : integer;
-  val, norm                 : single;
-  row, dst                  : psingle;
+  d                          : Pbindata;
+  fitsY, fitsX, k, i, j, b, x, nc : integer;
+  val                        : single;
+  r0, r1, r2, r3, dst        : psingle;
+  rows                       : array of psingle; {rows[k*b+i]: row i of the bin block in colour k, from the crop start}
 begin
   d:=Pbindata(data);
   b:=d^.binning;
-  norm:=1/(d^.nrcolors*b*b);
+  nc:=d^.nrcolors;
+  setlength(rows, nc*b);
   for fitsY:=startRow to endRow do
   begin
     dst:=@d^.img2[0, fitsY, 0];
-    for fitsX:=0 to d^.w-1 do dst[fitsX]:=0;
-    for k:=0 to d^.nrcolors-1 do {all colors to mono}
+    for k:=0 to nc-1 do
       for i:=0 to b-1 do
-      begin
-        row:=@d^.img[k, d^.shiftY+fitsY*b+i, d^.shiftX];
-        if b=1 then
-          for fitsX:=0 to d^.w-1 do dst[fitsX]:=dst[fitsX]+row[fitsX]
+        rows[k*b+i]:=@d^.img[k, d^.shiftY+fitsY*b+i, d^.shiftX];
+    for fitsX:=0 to d^.w-1 do
+    begin
+      val:=0;
+      x:=fitsX*b;
+      case b of
+        1: begin
+             for k:=0 to nc-1 do val:=val+rows[k][x];
+             dst[fitsX]:=val/nc;
+           end;
+        2: begin {serial order: [y,x] [y+1,x] [y,x+1] [y+1,x+1]}
+             for k:=0 to nc-1 do
+             begin
+               r0:=rows[k*2]; r1:=rows[k*2+1];
+               val:=val+(r0[x]+r1[x]+r0[x+1]+r1[x+1])/4;
+             end;
+             dst[fitsX]:=val/nc;
+           end;
+        3: begin
+             for k:=0 to nc-1 do
+             begin
+               r0:=rows[k*3]; r1:=rows[k*3+1]; r2:=rows[k*3+2];
+               val:=val+(r0[x]+r0[x+1]+r0[x+2]+
+                         r1[x]+r1[x+1]+r1[x+2]+
+                         r2[x]+r2[x+1]+r2[x+2])/9;
+             end;
+             dst[fitsX]:=val/nc;
+           end;
+        4: begin
+             for k:=0 to nc-1 do
+             begin
+               r0:=rows[k*4]; r1:=rows[k*4+1]; r2:=rows[k*4+2]; r3:=rows[k*4+3];
+               val:=val+(r0[x]+r0[x+1]+r0[x+2]+r0[x+3]+
+                         r1[x]+r1[x+1]+r1[x+2]+r1[x+3]+
+                         r2[x]+r2[x+1]+r2[x+2]+r2[x+3]+
+                         r3[x]+r3[x+1]+r3[x+2]+r3[x+3])/16;
+             end;
+             dst[fitsX]:=val/nc;
+           end;
         else
-        if b=2 then
-          for fitsX:=0 to d^.w-1 do dst[fitsX]:=dst[fitsX]+row[fitsX*2]+row[fitsX*2+1]
-        else
-          for fitsX:=0 to d^.w-1 do
-          begin
-            val:=0;
-            for j:=0 to b-1 do val:=val+row[fitsX*b+j];
-            dst[fitsX]:=dst[fitsX]+val;
+          begin {any bin factor}
+            for k:=0 to nc-1 do
+              for i:=0 to b-1 do
+                for j:=0 to b-1 do
+                  val:=val+rows[k*b+i][x+j];
+            dst[fitsX]:=val/(nc*sqr(b));
           end;
       end;
-    for fitsX:=0 to d^.w-1 do dst[fitsX]:=dst[fitsX]*norm;
+    end;
   end;
 end;
 
@@ -2351,7 +2386,7 @@ type
     best                                              : integer; {lowest position index with a solution}
     first_error                                       : integer; {lowest position index where the database could not be read. Fatal only if lower than best, as in the serial search}
     read_failed                                       : boolean; {the error at first_error was a failed read of a tile (disk, memory), not a missing file}
-    bucket_warnings                                   : longint; {positions where find_quads overflowed a hash bucket}
+    bucket_flags                                      : array of byte; {1 where find_quads overflowed a hash bucket. Per position, so only positions the serial search reaches are reported}
     {result of the winning step}
     ra_database, dec_database, mag2                   : double;
     solution_vectorX, solution_vectorY                : solution_vector;
@@ -2412,7 +2447,7 @@ begin
   //mod 2025 ###################################################
 
   find_quads(c^.nrstars_image,starlist1,t^.quad_star_distances1);{find quads for reference image/database. Filter out too small quads for Earth based telescopes}
-  if t^.bucket_overflows>0 then InterlockedIncrement(c^.bucket_warnings);
+  if t^.bucket_overflows>0 then c^.bucket_flags[idx]:=1; {each position runs on one thread only}
 
   if solve_show_log then {serial search only, see solve_image}
     memo2_message('Search '+ inttostr(idx)+', position: '+ prepare_ra(ra_database,': ')+prepare_dec(dec_database,'d ')+#9+' Down to magn '+ floattostrF2(t^.mag2/10,0,1) +#9+' '+inttostr(length(starlist1[0]))+' database stars' +#9+' '+inttostr(length(t^.quad_star_distances1[0]))+' database quads to compare.');
@@ -2717,7 +2752,8 @@ begin
         ctx.best:=high(integer);
         ctx.first_error:=high(integer);
         ctx.read_failed:=false;
-        ctx.bucket_warnings:=0;
+        ctx.bucket_flags:=nil;
+        setlength(ctx.bucket_flags, npos); {zeroed}
 
         if database_type=001 then {wide field database. Load the global wide_field_stars array here on the main thread, so a missing database is reported before the search starts. read_stars guards the load with wide_lock as well}
           if wide_database<>name_database then
@@ -2754,7 +2790,10 @@ begin
         detach_all_readers; {idle worker readers must not pin tiles in the cache. Not in the finally: after a worker exception the pool is not used again}
         if cli_timing then writeln(stderr,'T search ',gettickcount64-dbg_t0,' ms, ',npos,' positions, pass ',match_nr+1,', ',cli_thread_count,' threads');
 
-        if ctx.bucket_warnings>0 then memo2_message('Warning, bucket size increased at '+inttostr(ctx.bucket_warnings)+' search position(s)!');
+        nr_quads:=0; {as a counter here}
+        for i:=0 to min(npos-1, min(ctx.best, ctx.first_error)) do {the positions the serial search runs. Workers that ran ahead are not counted}
+          inc(nr_quads, ctx.bucket_flags[i]);
+        if nr_quads>0 then memo2_message('Warning, bucket size increased at '+inttostr(nr_quads)+' search position(s)!');
 
         if ctx.first_error<ctx.best then {a read error before the solution. A worker that ran ahead into a missing tile beyond the solution is ignored, the serial search would never have reached it}
         begin

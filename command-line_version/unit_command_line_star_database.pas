@@ -40,7 +40,6 @@ type
   Tdbreader = record {state of one star database reader. One per thread, see db_reader, so the spiral search can run on all cores}
     cos_telescope_dec : double;{store here the cos(telescope_dec) value before and read series}
     tile              : Ptile;  {the shared tile this reader reads. nil: nothing open. Threadvars start zeroed}
-    tile_gen          : integer;{generation of the tile cache when tile was taken, see clear_tile_cache}
     old_area          : integer;{0 is never a valid area, so the first open_database on a thread opens the file}
     cache_position    : integer;{read position in the tile}
     cur_block         : integer;{block of cache_position, -1 if cur_ptr is not valid}
@@ -2850,7 +2849,6 @@ var
   tile_lock   : TRTLCriticalSection; {guards tiles, tile_index, tile_bytes, refcount and last_used}
   tile_open_lock : TRTLCriticalSection; {held while a tile file is opened, so threads that miss the cache at the same time wait for one open instead of each opening the file.
                                          One lock for all tiles: opens happen only on first touch, take a millisecond, and a slow medium serialises them anyway}
-  tile_gen    : integer = 1; {incremented by clear_tile_cache so readers holding a stale pointer reopen}
   tile_bytes  : int64 = 0;   {bytes held in blocks}
   tile_limit  : int64 = -1;  {cache budget, see tile_budget}
   tile_clock  : int64 = 0;   {use counter for least recently used}
@@ -2928,7 +2926,8 @@ begin
   result:=nil;
 end;
 
-function tile_open(area: integer; const fullname: string): Ptile; {open the file and read its header. nil if the file can not be opened.
+function tile_open(area: integer; const fullname: string; out read_failed: boolean): Ptile; {open the file and read its header. nil if the file can not be opened,
+  read_failed then tells a file that exists but can not be read (disk error) from a missing one.
   Runs without tile_lock so the other threads do not wait on disk I/O; the caller inserts the result under the lock with tile_insert}
 var
   t      : Ptile;
@@ -2936,6 +2935,7 @@ var
   header : array[0..(11*10)-1] of ansichar;{info star database, length 110 char equals 10x11 bytes. Only the record size byte is used}
 begin
   result:=nil;
+  read_failed:=false;
   new(t);
   fillchar(t^, sizeof(Ttile), 0); {also nils the managed fields}
   t^.name:=fullname;
@@ -2951,6 +2951,7 @@ begin
     setlength(t^.blocks, (t^.size+tile_blocksize-1) div tile_blocksize); {pointers only, blocks are loaded on demand}
     fs.free;
   except
+    read_failed:=(fs<>nil); {opened, so the file is there and the header read failed}
     fs.free;
     tile_discard(t);
     exit;
@@ -3045,7 +3046,6 @@ begin
       tile_free(tiles[i]);
     tiles:=nil;
     tile_index:=nil;
-    inc(tile_gen);
   finally
     LeaveCriticalSection(tile_lock);
   end;
@@ -3063,12 +3063,9 @@ begin
   if r^.tile<>nil then
   begin
     EnterCriticalSection(tile_lock);
-    if r^.tile_gen=tile_gen then {after clear_tile_cache the pointer is stale}
-    begin
-      dec(r^.tile^.refcount);
-      inc(tile_clock);
-      r^.tile^.last_used:=tile_clock; {least recently used means last read, not first attached}
-    end;
+    dec(r^.tile^.refcount);
+    inc(tile_clock);
+    r^.tile^.last_used:=tile_clock; {least recently used means last read, not first attached}
     LeaveCriticalSection(tile_lock);
     r^.tile:=nil;
   end;
@@ -3080,7 +3077,6 @@ end;
 procedure tile_attach(r: Pdbreader; t: Ptile); {attach the reader to a cached tile so it can not be evicted. Call under tile_lock}
 begin
   r^.tile:=t;
-  r^.tile_gen:=tile_gen;
   inc(t^.refcount);
   inc(tile_clock);
   t^.last_used:=tile_clock;
@@ -3088,13 +3084,14 @@ end;
 
 function open_database(r: Pdbreader; telescope_dec: double; area290: integer): boolean; {open database file}
 var
-  namefile : string;
-  t, tnew  : Ptile;
+  namefile    : string;
+  t, tnew     : Ptile;
+  read_failed : boolean;
 begin
   result:=true;{assume succes}
   r^.cos_telescope_dec:=cos(telescope_dec);{here to save CPU time}
 
-  if ((area290<>r^.old_area) or (r^.tile=nil) or (r^.tile_gen<>tile_gen)) then
+  if ((area290<>r^.old_area) or (r^.tile=nil)) then
   begin
     close_star_database(r);{detach the reader}
 
@@ -3104,34 +3101,46 @@ begin
       namefile:=name_database+'_'+filenames1476[area290]; {g17_0101.1476}
 
     {the refcount is taken in the same locked section as the lookup: a found tile with refcount 0 could be evicted by another thread in between}
+    {every tile_lock section is in try/finally: tile_find and tile_insert grow arrays and can raise out of memory, a lock left held would hang all readers}
     tnew:=nil;
+    read_failed:=false;
     EnterCriticalSection(tile_lock);
-    t:=tile_find(area290, database_path+namefile);
-    if t<>nil then tile_attach(r, t);
-    LeaveCriticalSection(tile_lock);
+    try
+      t:=tile_find(area290, database_path+namefile);
+      if t<>nil then tile_attach(r, t);
+    finally
+      LeaveCriticalSection(tile_lock);
+    end;
     if t=nil then
     begin
       EnterCriticalSection(tile_open_lock); {serialises the openers only; readers loading blocks or attaching cached tiles are not held up}
       try
         EnterCriticalSection(tile_lock);
-        t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile while we waited}
-        if t<>nil then tile_attach(r, t);
-        LeaveCriticalSection(tile_lock);
+        try
+          t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile while we waited}
+          if t<>nil then tile_attach(r, t);
+        finally
+          LeaveCriticalSection(tile_lock);
+        end;
         if t=nil then
         begin
-          tnew:=tile_open(area290, database_path+namefile); {outside tile_lock, the file open and header read may take milliseconds on an SD card}
+          tnew:=tile_open(area290, database_path+namefile, read_failed); {outside tile_lock, the file open and header read may take milliseconds on an SD card}
           if tnew<>nil then
           begin
             EnterCriticalSection(tile_lock);
-            tile_insert(tnew);
-            tile_attach(r, tnew);
-            LeaveCriticalSection(tile_lock);
+            try
+              tile_insert(tnew);
+              tile_attach(r, tnew);
+            finally
+              LeaveCriticalSection(tile_lock);
+            end;
             t:=tnew;
           end;
         end;
       finally
         LeaveCriticalSection(tile_open_lock);
       end;
+      if read_failed then r^.read_error:=true; {an installed tile that can not be read is reported as a read error, not as a missing database}
       if t=nil then
       begin
         result:=false;

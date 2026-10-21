@@ -33,7 +33,8 @@ type
 
 procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer); {run proc over [0..nrows-1] split in chunks on all threads; returns when all chunks are done}
 procedure parallel_each_thread(proc: TRowProc; data: pointer); {run proc(0,0,data) on the calling thread and proc(i,i,data) on worker i, once per pool thread, for per-thread (threadvar) state. Does not start the pool: with no workers only the calling thread runs it. Returns when all are done}
-procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer); {run proc(0..ntasks-1) on all threads in index order; a task returning true stops tasks with a higher index. Returns when all started tasks are done}
+procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer); {run proc(0..ntasks-1) on all threads in index order; a task returning true stops tasks with a higher index. Returns when all started tasks are done.
+  An exception in a task is re-raised only if the serial loop would have reached that task: the lowest raising task wins, and none is raised when a lower task returned true}
 function cli_thread_count: integer;
 procedure set_thread_count(n: integer); {from the -threads option; 0 = automatic}
 function cli_timing: boolean; {ASTAP_TIMING=1 in the environment prints phase timings to stderr}
@@ -287,7 +288,11 @@ end;
 
 type
   Ttaskshared = record
-    next, stop_at : longint;
+    next, stop_at : longint; {next task to hand out; no task at or above stop_at is started}
+    true_at       : longint; {lowest task that returned true}
+    exc           : TObject; {exception of the lowest task that raised, nil if none}
+    exc_idx       : longint; {its task index}
+    lock          : TRTLCriticalSection; {guards exc and exc_idx}
     ntasks        : integer;
     proc          : TTaskProc;
     data          : pointer;
@@ -299,14 +304,14 @@ var
   sh  : Ptaskshared;
   idx : longint;
 
-  procedure lower_stop(v: longint); {lower sh^.stop_at to v unless somebody stopped earlier}
+  procedure lower(var target: longint; v: longint); {lower target to v unless it is lower already}
   var
     old : longint;
   begin
     repeat
-      old:=sh^.stop_at;
+      old:=target;
       if v>=old then exit;
-    until InterlockedCompareExchange(sh^.stop_at, v, old)=old;
+    until InterlockedCompareExchange(target, v, old)=old;
   end;
 
 begin
@@ -315,10 +320,26 @@ begin
     idx:=InterlockedIncrement(sh^.next)-1;
     if ((idx>=sh^.ntasks) or (idx>=sh^.stop_at)) then break;
     try
-      if sh^.proc(idx, sh^.data) then lower_stop(idx);
+      if sh^.proc(idx, sh^.data) then
+      begin
+        lower(sh^.true_at, idx);
+        lower(sh^.stop_at, idx);
+      end;
     except
-      lower_stop(0); {the other threads stop taking tasks, as the serial loop would have stopped here. run_chunks re-raises on the caller}
-      raise;
+      {keep the exception of the lowest task. Lower tasks still run: if one of them returns true the serial loop would
+       have stopped there and never reached this task, so parallel_tasks then drops the exception}
+      EnterCriticalSection(sh^.lock);
+      try
+        if idx<sh^.exc_idx then
+        begin
+          if sh^.exc<>nil then sh^.exc.Free;
+          sh^.exc:=TObject(AcquireExceptionObject);
+          sh^.exc_idx:=idx;
+        end;
+      finally
+        LeaveCriticalSection(sh^.lock);
+      end;
+      lower(sh^.stop_at, idx);
     end;
   until false;
 end;
@@ -329,15 +350,26 @@ var
 begin
   sh.next:=0;
   sh.stop_at:=high(longint);
+  sh.true_at:=high(longint);
+  sh.exc:=nil;
+  sh.exc_idx:=high(longint);
   sh.ntasks:=ntasks;
   sh.proc:=proc;
   sh.data:=data;
-  if not pool_available then
-  begin
-    task_loop(0, 0, @sh); {serial}
-    exit;
+  InitCriticalSection(sh.lock);
+  try
+    if pool_available then
+      parallel_each_thread(@task_loop, @sh) {one task_loop per thread}
+    else
+      task_loop(0, 0, @sh); {serial}
+  finally
+    DoneCriticalSection(sh.lock);
   end;
-  parallel_each_thread(@task_loop, @sh); {one task_loop per thread}
+  if sh.exc<>nil then
+  begin
+    if sh.true_at<sh.exc_idx then sh.exc.Free {a lower task stopped the loop first, the serial code never ran the task that raised}
+    else raise sh.exc; {the same exception, from the same task, as in the serial loop}
+  end;
 end;
 
 initialization

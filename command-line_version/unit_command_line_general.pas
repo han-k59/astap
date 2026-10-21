@@ -786,19 +786,22 @@ const
   rows_per_read=64;
 var
   d        : Pconvert16;
-  j, i, r, nrows, nread, want, got : integer;
+  j, i, r, nrows, want, got : integer;
+  pos, fsize : int64;
   f        : TFileStream;
   buf      : array of word;
   src      : pword;
   dst      : psingle;
   word16   : word;
   mx            : single;
-  col_float     : double;
-  bscale, bzero : double; {double as in the serial reader, so unusual bscale/bzero values give the same pixels}
+  {the types of the serial reader in load_fits: single bscale, integer bzero, single result. In double the pixels differ by one ulp when bscale<>1 and the star list changes}
+  col_float     : single;
+  bscale        : single;
+  bzero         : integer;
 begin
   d:=Pconvert16(data);
   bscale:=d^.bscale;
-  bzero:=d^.bzero;
+  bzero:=round(d^.bzero); {load_fits holds bzero as an integer, so this is exact}
   setlength(buf, rows_per_read*d^.width);
   try
     f:=TFileStream.Create(d^.filen, fmOpenRead or fmShareDenyNone);
@@ -807,26 +810,24 @@ begin
     exit;
   end;
   try
-    f.Position:=d^.offset + int64(startRow)*d^.width*2;
+    fsize:=f.Size;
+    pos:=d^.offset + int64(startRow)*d^.width*2;
+    f.Position:=pos;
     j:=startRow;
     while j<=endRow do
     begin
       nrows:=min(rows_per_read, endRow-j+1);
       want:=nrows*d^.width*2;
-      got:=0;
-      repeat {one read may return less than asked on network or FUSE mounts, so read until full or end of file, like ReadBuffer}
-        nread:=f.Read(pbyte(@buf[0])[got], want-got); {THandleStream.Read never raises, a failed read returns 0}
-        got:=got+nread;
-      until ((got>=want) or (nread<=0));
-      if got<want then
-      begin
-        if f.Position<f.Size then {not at the end of the file, so a device error}
-        begin
-          InterlockedExchange(d^.error, 1); {load_fits discards the image}
-          break;
-        end;
-        fillchar(pbyte(@buf[0])[got], want-got, 0); {short file, keep going with zeros like the serial reader. Byte offsets, got may be odd}
+      got:=max(0, min(int64(want), fsize-pos)); {bytes the file has for this block. Less only for a truncated file}
+      if got>0 then
+      try
+        f.ReadBuffer(buf[0], got); {loops over short reads and raises on a real read error}
+      except
+        InterlockedExchange(d^.error, 1); {load_fits discards the image}
+        break;
       end;
+      pos:=pos+got;
+      if got<want then fillchar(pbyte(@buf[0])[got], want-got, 0); {only if the file shrank after load_fits checked its size, a truncated file takes the serial loop. Byte offset, got may be odd}
       for r:=0 to nrows-1 do
       begin
         src:=@buf[r*d^.width];
@@ -1857,6 +1858,24 @@ begin
       exit;
     end;
 
+    if ((head.bitpix=16) and (TheFile.Size<int64(reader_position)+int64(head.naxis3)*head.width*head.height*2)) then
+    for k:=0 to head.naxis3-1 do {truncated file: the serial loop of upstream ASTAP. At the end of the file its reader leaves
+                                  the buffer as it was, so the missing rows repeat the last data read. The parallel reader can not
+                                  reproduce that, and a truncated file is rare enough that speed does not matter}
+    begin
+      For j:=0 to head.height-1 do
+      begin
+        try reader.read(fitsbuffer,head.width*2);except; end; {read file info}
+        for i:=0 to head.width-1 do
+        begin
+          word16:=swap(fitsbuffer2[i]);{move data to wo and therefore sign_int}
+          col_float:=smallint(word16)*bscale + bzero; {save in col_float for measuring measured_max. Explicit signed cast, an absolute alias on a local breaks under -O3}
+          img_loaded2[k,j,i]:=col_float;
+          if col_float>measured_max then measured_max:=col_float;{find max value for image. For for images with 0..1 scale or for debayer}
+        end;
+      end;
+    end {colors head.naxis3 times}
+    else
     if head.bitpix=16 then
     for k:=0 to head.naxis3-1 do {do all colors}
     begin
