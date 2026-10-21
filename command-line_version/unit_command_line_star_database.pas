@@ -2848,6 +2848,7 @@ var
   tiles       : array of Ptile;
   tile_index  : array of Ptile; {by area number, for a lookup without string compares. The name is checked on a hit}
   tile_lock   : TRTLCriticalSection; {guards tiles, tile_index, tile_bytes, refcount and last_used}
+  tile_open_lock : TRTLCriticalSection; {held while a tile file is opened, so threads that miss the cache at the same time wait for one open instead of each opening the file}
   tile_gen    : integer = 1; {incremented by clear_tile_cache so readers holding a stale pointer reopen}
   tile_bytes  : int64 = 0;   {bytes held in blocks}
   tile_limit  : int64 = -1;  {cache budget, see tile_budget}
@@ -2965,15 +2966,18 @@ end;
 
 function tile_block(r: Pdbreader; t: Ptile; b: integer): Pbyte_block; {the loaded block b of tile t, loading it if required. nil on a read error}
 var
-  p  : Pbyte_block;
-  n  : integer;
+  p     : Pbyte_block;
+  n     : integer;
+  spins : integer;
 begin
+  spins:=0;
   repeat
     p:=t^.blocks[b];
     if ((p<>nil) and (p<>tile_loading)) then exit(p); {loaded. Reading the contents through this pointer is ordered after the pointer read on all supported CPUs}
     if p=tile_loading then
-    begin
-      ThreadSwitch; {another reader loads it, typically a few tens of microseconds}
+    begin {another reader loads it: tens of microseconds from the page cache, milliseconds from an SD card}
+      inc(spins);
+      if spins<64 then ThreadSwitch else Sleep(1); {yield first, then block rather than burn a core while the loader waits for the disk}
       continue;
     end;
     {claim the block}
@@ -3093,18 +3097,32 @@ begin
     LeaveCriticalSection(tile_lock);
     if t=nil then
     begin
-      tnew:=tile_open(area290, database_path+namefile); {outside the lock, the file open and header read may take milliseconds on an SD card}
-      if tnew=nil then
+      EnterCriticalSection(tile_open_lock); {serialises the openers only; readers loading blocks or attaching cached tiles are not held up}
+      try
+        EnterCriticalSection(tile_lock);
+        t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile while we waited}
+        if t<>nil then tile_attach(r, t);
+        LeaveCriticalSection(tile_lock);
+        if t=nil then
+        begin
+          tnew:=tile_open(area290, database_path+namefile); {outside tile_lock, the file open and header read may take milliseconds on an SD card}
+          if tnew<>nil then
+          begin
+            EnterCriticalSection(tile_lock);
+            tile_insert(tnew);
+            tile_attach(r, tnew);
+            LeaveCriticalSection(tile_lock);
+            t:=tnew;
+          end;
+        end;
+      finally
+        LeaveCriticalSection(tile_open_lock);
+      end;
+      if t=nil then
       begin
         result:=false;
         exit;
       end;
-      EnterCriticalSection(tile_lock);
-      t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile meanwhile}
-      if t=nil then begin tile_insert(tnew); t:=tnew; end
-      else tile_discard(tnew);
-      tile_attach(r, t);
-      LeaveCriticalSection(tile_lock);
     end;
     r^.record_size:=r^.tile^.record_size;
     r^.old_area:=area290;
@@ -3248,9 +3266,11 @@ end;
 
 initialization
   InitCriticalSection(tile_lock);
+  InitCriticalSection(tile_open_lock);
   tile_loading:=@tile_loading_marker;
 finalization
   clear_tile_cache;
   DoneCriticalSection(tile_lock);
+  DoneCriticalSection(tile_open_lock);
 end.
 

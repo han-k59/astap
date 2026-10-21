@@ -786,7 +786,7 @@ const
   rows_per_read=64;
 var
   d        : Pconvert16;
-  j, i, r, nrows, nread  : integer;
+  j, i, r, nrows, nread, want, got : integer;
   f        : TFileStream;
   buf      : array of word;
   src      : pword;
@@ -812,15 +812,20 @@ begin
     while j<=endRow do
     begin
       nrows:=min(rows_per_read, endRow-j+1);
-      nread:=f.Read(buf[0], nrows*d^.width*2); {THandleStream.Read never raises, a failed read returns 0}
-      if nread<nrows*d^.width*2 then
+      want:=nrows*d^.width*2;
+      got:=0;
+      repeat {one read may return less than asked on network or FUSE mounts, so read until full or end of file, like ReadBuffer}
+        nread:=f.Read(pbyte(@buf[0])[got], want-got); {THandleStream.Read never raises, a failed read returns 0}
+        got:=got+nread;
+      until ((got>=want) or (nread<=0));
+      if got<want then
       begin
         if f.Position<f.Size then {not at the end of the file, so a device error}
         begin
           InterlockedExchange(d^.error, 1); {load_fits discards the image}
           break;
         end;
-        fillchar(buf[nread div 2], nrows*d^.width*2-nread, 0); {short file, keep going with zeros like the serial reader}
+        fillchar(pbyte(@buf[0])[got], want-got, 0); {short file, keep going with zeros like the serial reader. Byte offsets, got may be odd}
       end;
       for r:=0 to nrows-1 do
       begin

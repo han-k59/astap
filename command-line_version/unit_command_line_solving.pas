@@ -1307,18 +1307,38 @@ type
       shared marks) are re-tested in scan order. This happens only for stars straddling a band border and costs a few
       pixel tests, so the result is bit identical to the serial scan while nearly all HFD work runs in parallel.}
 
+function star_candidate(const d: Tfsdata; fitsX, fitsY: integer; out hfd1, snr, xc, yc: double): boolean;
+{The star test of the serial find_stars for a pixel above level_star: at least two of the four neighbours above
+ level_cross (not a hot pixel), then the HFD, SNR and minimum HFD limits. The band scan and the replay both use this,
+ so the acceptance criteria live in one place and can not drift apart}
+var
+  starpixels      : integer;
+  star_fwhm, flux : double;
+begin
+  result:=false;
+  hfd1:=0; snr:=0; xc:=0; yc:=0;
+  starpixels:=0;
+  if d.img[0,fitsY,fitsX-1]>d.level_cross then inc(starpixels);
+  if d.img[0,fitsY,fitsX+1]>d.level_cross then inc(starpixels);
+  if d.img[0,fitsY-1,fitsX]>d.level_cross then inc(starpixels);
+  if d.img[0,fitsY+1,fitsX]>d.level_cross then inc(starpixels);
+  if starpixels<2 then exit; {at least 3 illuminated pixels, not a hot pixel}
+  HFD(d.img,fitsX,fitsY,14{annulus radius}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
+  result:=((hfd1<=30) and (snr>10) and (hfd1>d.hfd_min) {0.8 is two pixels minimum});
+end;
+
 procedure find_stars_band(startRow, endRow: integer; data: pointer);
 {Phase A. Scan rows startRow+rowOffset..endRow+rowOffset for star candidates. Runs on a worker thread}
 const
   buffersize=5000;
 var
   d                                         : Pfsdata;
-  fitsX, fitsY, m, n, i, j, radius, sqr_radius, xci, yci, starpixels, nr, nrows, row0 : integer;
-  hfd1, star_fwhm, snr, flux, xc, yc        : double;
+  fitsX, fitsY, m, n, i, j, radius, sqr_radius, xci, yci, nr, nrows, row0, mw, col0 : integer;
+  hfd1, snr, xc, yc                         : double;
   rowC, rowM, rowP, rowSA                   : PSingle;
   rowPM                                     : PByte;
   b                                         : ^Tfsband;
-  pmask                                     : array of byte; {private marks of this band, rows row0..row0+nrows-1}
+  pmask                                     : array of byte; {private marks of this band, rows row0..row0+nrows-1, columns col0..col0+mw-1}
 begin
   d:=Pfsdata(data);
   b:=@d^.bands[startRow];
@@ -1329,28 +1349,22 @@ begin
   b^.first:=row0;
   b^.last:=endRow+d^.rowOffset;
   b^.used:=true;
-  setlength(pmask, nrows*d^.width2); {zeroed}
+  col0:=d^.startX;
+  mw:=d^.endX-d^.startX+1;
+  setlength(pmask, nrows*mw); {zeroed. Only the section columns: the last retry scans 13x13 sections and a full width mask per call would cost 13 image sized memsets.
+    Marks outside the section are not kept; a candidate whose centroid lies there is stored as marked and the replay decides, see collect_bands}
   for fitsY:=row0 to endRow+d^.rowOffset do
   begin
     rowC :=@d^.img[0,fitsY,0];
     rowM :=@d^.img[0,fitsY-1,0];
     rowP :=@d^.img[0,fitsY+1,0];
     rowSA:=@d^.img_sa[0,fitsY,0];
-    rowPM:=@pmask[(fitsY-row0)*d^.width2];
+    rowPM:=@pmask[(fitsY-row0)*mw];
     for fitsX:=d^.startX to d^.endX do
     begin
-      if ((rowSA[fitsX]<>d^.retries){star free area for this retry} and (rowPM[fitsX]=0) and (rowC[fitsX]>d^.level_star){star}) then {new star above noise level}
+      if ((rowSA[fitsX]<>d^.retries){star free area for this retry} and (rowPM[fitsX-col0]=0) and (rowC[fitsX]>d^.level_star){star}) then {new star above noise level}
       begin
-        starpixels:=0;
-        //inspect in a cross around it. Should be above 4*noise level
-        if rowC[fitsX-1]>d^.level_cross then inc(starpixels);
-        if rowC[fitsX+1]>d^.level_cross then inc(starpixels);
-        if rowM[fitsX]  >d^.level_cross then inc(starpixels);
-        if rowP[fitsX]  >d^.level_cross then inc(starpixels);
-        if starpixels>=2 then //At least 3 illuminated pixels. Not a hot pixel
-        begin
-          HFD(d^.img,fitsX,fitsY,14{annulus radius}, hfd1,star_fwhm,snr,flux,xc,yc);{star HFD and FWHM}
-          if ((hfd1<=30) and (snr>10) and (hfd1>d^.hfd_min) {0.8 is two pixels minimum}) then
+        if star_candidate(d^, fitsX, fitsY, hfd1, snr, xc, yc) then
           begin
             xci:=round(xc);{star center as integer}
             yci:=round(yc);
@@ -1365,7 +1379,7 @@ begin
             b^.cands[nr].radius:=radius;
             {the centroid test of the serial code, here against the shared marks and this band's private marks}
             b^.cands[nr].marked:=((d^.img_sa[0,yci,xci]<>d^.retries) and
-                                  ((yci<row0) or (yci>=row0+nrows) or (pmask[(yci-row0)*d^.width2+xci]=0)));
+                                  ((yci<row0) or (yci>=row0+nrows) or (xci<col0) or (xci>=col0+mw) or (pmask[(yci-row0)*mw+xci-col0]=0)));
             if b^.cands[nr].marked then
             begin
               sqr_radius:=sqr(radius);
@@ -1376,14 +1390,13 @@ begin
                 for m:=-radius to +radius do
                 begin
                   i:=m+xci;
-                  if ((i>=0) and (i<d^.width2) and (sqr(m)+sqr(n)<=sqr_radius)) then
-                    pmask[(j-row0)*d^.width2+i]:=1;
+                  if ((i>=col0) and (i<col0+mw) and (sqr(m)+sqr(n)<=sqr_radius)) then
+                    pmask[(j-row0)*mw+i-col0]:=1;
                 end;
               end;
             end;
             inc(nr);
           end;
-        end;
       end;
     end;
   end;
@@ -1429,23 +1442,12 @@ var
 
           procedure test_pixel(fitsY, fitsX: integer); {the serial inner loop for one pixel}
           var
-            starpixels                         : integer;
-            hfd1, star_fwhm, snr, flux, xc, yc : double;
+            hfd1, snr, xc, yc : double;
           begin
             if ((d.img_sa[0,fitsY,fitsX]<>d.retries) and (d.img[0,fitsY,fitsX]>d.level_star)) then
-            begin
-              starpixels:=0;
-              if d.img[0,fitsY,fitsX-1]>d.level_cross then inc(starpixels);
-              if d.img[0,fitsY,fitsX+1]>d.level_cross then inc(starpixels);
-              if d.img[0,fitsY-1,fitsX]>d.level_cross then inc(starpixels);
-              if d.img[0,fitsY+1,fitsX]>d.level_cross then inc(starpixels);
-              if starpixels>=2 then
-              begin
-                HFD(d.img,fitsX,fitsY,14{annulus radius}, hfd1,star_fwhm,snr,flux,xc,yc);
-                if ((hfd1<=30) and (snr>10) and (hfd1>d.hfd_min) and (d.img_sa[0,round(yc),round(xc)]<>d.retries)) then
+              if star_candidate(d, fitsX, fitsY, hfd1, snr, xc, yc) then
+                if d.img_sa[0,round(yc),round(xc)]<>d.retries then {centroid not in an earlier star's area}
                   accept_star(xc,yc,snr,round(3.0*hfd1));
-              end;
-            end;
           end;
 
           procedure add_uncovered(const cd: Tfscand); {queue the pixels of a rejected candidate's private area that the scan still has to see}
@@ -1821,11 +1823,16 @@ end;
 //end;
 
 
+var
+  wide_lock : TRTLCriticalSection; {guards the one time load of the global wide_field_stars array, see read_stars}
+
 function read_stars(telescope_ra,telescope_dec,search_field : double; nrstars_required: integer; out starlist: Tstar_list): boolean;{read star from star database}
 var
    Bp_Rp, ra2,dec2,
    frac1,frac2,frac3,frac4,sep                      : double;
-   nrstars,area1,area2,area3,area4,nrstars_required2,count  : integer;
+   nrstars,area1,area2,area3,area4,nrstars_required2,count,a  : integer;
+   areas : array[1..4] of integer; {up to four database tiles under the field}
+   fracs : array[1..4] of double;  {cumulative share of the stars to take from each}
    r  : Pdbreader; {this thread's database reader}
    m2 : double;
 //   correctionX,correctionY : double;
@@ -1845,64 +1852,37 @@ begin
      There are 500 stars required. It will then retrieve 8% x 500, 15% x 500, 20% x 500, 57% x 500 stars from each tile under the condition these stars are within the green area.
      This will work assuming the star density within the green area is reasonable homogene.}
     find_areas( telescope_ra,telescope_dec, search_field,{var} area1,area2,area3,area4, frac1,frac2,frac3,frac4);{find up to four star database areas for the square image}
-
-    {read 1th area}
-    if area1<>0 then {read 1th area}
-    begin
-      if open_database(r,telescope_dec,area1)=false then
-        exit;{open database file or reset buffer}
-      nrstars_required2:=min(nrstars_required,trunc(nrstars_required * frac1));
-      while ((nrstars<nrstars_required2) and (readdatabase290(r,telescope_ra,telescope_dec, search_field, {var} ra2,dec2, m2,Bp_Rp)) ) do {star 290 file database read. Read up to nrstars_required}
-      begin {add star}
-        equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
-        inc(nrstars);
+    areas[1]:=area1; areas[2]:=area2; areas[3]:=area3; areas[4]:=area4;
+    fracs[1]:=frac1;
+    fracs[2]:=frac1+frac2; {cumulative, prevents round up errors resulting in error starlist}
+    fracs[3]:=frac1+frac2+frac3;
+    fracs[4]:=frac1+frac2+frac3+frac4;
+    for a:=1 to 4 do
+      if areas[a]<>0 then
+      begin
+        if open_database(r,telescope_dec,areas[a])=false then
+          exit;{open database file or reset buffer}
+        nrstars_required2:=min(nrstars_required,trunc(nrstars_required * fracs[a]));
+        while ((nrstars<nrstars_required2) and (readdatabase290(r,telescope_ra,telescope_dec, search_field, {var} ra2,dec2, m2,Bp_Rp)) ) do {star 290 file database read. Read up to nrstars_required}
+        begin {add star}
+          equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
+          inc(nrstars);
+        end;
+        if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
       end;
-      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
-    end;
-
-    if area2<>0 then {read 2th area}
-    begin
-      if open_database(r,telescope_dec,area2)=false then
-        exit; {open database file or reset buffer}
-      nrstars_required2:=min(nrstars_required,trunc(nrstars_required * (frac1+frac2)));{prevent round up errors resulting in error starlist}
-      while ((nrstars<nrstars_required2) and (readdatabase290(r,telescope_ra,telescope_dec, search_field, {var} ra2,dec2, m2,Bp_Rp)) ) do {star 290 file database read. Read up to nrstars_required}
-      begin {add star}
-        equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
-        inc(nrstars);
-      end;
-      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
-    end;
-
-    if area3<>0 then {read 3th area}
-    begin
-      if open_database(r,telescope_dec,area3)=false then
-        exit; {open database file or reset buffer}
-      nrstars_required2:=min(nrstars_required,trunc(nrstars_required * (frac1+frac2+frac3)));
-      while ((nrstars<nrstars_required2) and (readdatabase290(r,telescope_ra,telescope_dec, search_field, {var} ra2,dec2, m2,Bp_Rp)) ) do {star 290 file database read. Read up to nrstars_required}
-      begin {add star}
-        equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
-        inc(nrstars);
-      end;
-      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
-    end;
-
-    if area4<>0 then {read 4th area}
-    begin
-      if open_database(r,telescope_dec,area4)=false then
-       exit; {open database file}
-      nrstars_required2:=min(nrstars_required,trunc(nrstars_required * (frac1+frac2+frac3+frac4)));
-      while ((nrstars<nrstars_required2) and (readdatabase290(r,telescope_ra,telescope_dec, search_field, {var} ra2,dec2, m2,Bp_Rp)) ) do{star 290 file database read. Read up to nrstars_required}
-      begin {add star}
-        equatorial_standard(telescope_ra,telescope_dec,ra2,dec2,1,starlist[0,nrstars]{x},starlist[1,nrstars]{y});{store star CCD x,y position}
-        inc(nrstars);
-      end;
-      if r^.read_error then exit; {a truncated star list would give a different (or no) solution, report instead}
-    end;
   end
   else
   begin {wide field database}
     if wide_database<>name_database then
-      if read_stars_wide_field=false then exit;{load wide field stars array. 2026 fix: test the result. If the file is missing the routine returned true with an empty array and read below garbage at wide_field_stars[-3]}
+    begin
+      EnterCriticalSection(wide_lock); {load once. Without this every worker would reload the global array while the others index it}
+      try
+        if wide_database<>name_database then
+          if read_stars_wide_field=false then exit;{load wide field stars array. 2026 fix: test the result. If the file is missing the routine returned true with an empty array and read below garbage at wide_field_stars[-3]}
+      finally
+        LeaveCriticalSection(wide_lock);
+      end;
+    end;
     count:=0;
     r^.cos_telescope_dec:=cos(telescope_dec);
     while ((nrstars<nrstars_required) and  (count<length(wide_field_stars) div 3) ) do{star 290 file database read. Read up to nrstars_required}
@@ -2730,7 +2710,7 @@ begin
         ctx.first_error:=high(integer);
         ctx.bucket_warnings:=0;
 
-        if database_type=001 then {wide field database. Load the global wide_field_stars array once, here on the main thread, before the workers read it}
+        if database_type=001 then {wide field database. Load the global wide_field_stars array here on the main thread, so a missing database is reported before the search starts. read_stars guards the load with wide_lock as well}
           if wide_database<>name_database then
             if read_stars_wide_field=false then
             begin
@@ -2942,5 +2922,9 @@ begin
   if database_type=1 then wide_field_stars:=nil; {free wide_field_database}
 end;
 
+initialization
+  InitCriticalSection(wide_lock);
+finalization
+  DoneCriticalSection(wide_lock);
 end.
 

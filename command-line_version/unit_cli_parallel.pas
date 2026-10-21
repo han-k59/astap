@@ -32,7 +32,7 @@ type
   TTaskProc = function(idx: integer; data: pointer): boolean; {return true to stop handing out tasks with a higher index}
 
 procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer); {run proc over [0..nrows-1] split in chunks on all threads; returns when all chunks are done}
-procedure parallel_each_thread(proc: TRowProc; data: pointer); {run proc(0,0,data) once on the calling thread and once on every worker thread, for per-thread (threadvar) state. Returns when all are done}
+procedure parallel_each_thread(proc: TRowProc; data: pointer); {run proc(0,0,data) on the calling thread and proc(i,i,data) on worker i, once per pool thread, for per-thread (threadvar) state. Returns when all are done}
 procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer); {run proc(0..ntasks-1) on all threads in index order; a task returning true stops tasks with a higher index. Returns when all started tasks are done}
 function cli_thread_count: integer;
 procedure set_thread_count(n: integer); {from the -threads option; 0 = automatic}
@@ -209,29 +209,13 @@ begin
   pool_ready:=true;
 end;
 
-procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer);
+procedure run_chunks(nrows, chunk: integer; proc: TRowProc; data: pointer);
+{rows [i*chunk, min(nrows-1,(i+1)*chunk-1)] on thread i: chunk 0 on the calling thread, chunk i on worker i-1. The pool must be running}
 var
-  n, i, chunk, s, e : integer;
-  exc               : TObject;
+  n, i, s, e : integer;
+  exc        : TObject;
 begin
-  if nrows<=0 then exit;
   n:=cli_thread_count;
-  if ((n<=1) or (nrows<n*16) or in_parallel) then
-  begin
-    proc(0, nrows-1, data); {serial. Also when called from inside a chunk: the pool is not reentrant}
-    exit;
-  end;
-  if not pool_ready then
-  begin
-    start_pool(n);
-    n:=cli_thread_count; {may be smaller when threads could not be started}
-    if n<=1 then
-    begin
-      proc(0, nrows-1, data);
-      exit;
-    end;
-  end;
-  chunk:=(nrows+n-1) div n;
   for i:=1 to n-1 do {hand out chunks 1..n-1 to the workers}
   begin
     s:=i*chunk;
@@ -267,6 +251,45 @@ begin
     raise exc; {the original object, so class and message are the same as in serial code. The RTL frees it when handled}
 end;
 
+function pool_available: boolean; {start the pool on first use. False when the work has to run on the calling thread}
+var
+  n : integer;
+begin
+  n:=cli_thread_count;
+  if ((n<=1) or in_parallel) then exit(false); {no cores, or called from inside a chunk: the pool is not reentrant}
+  if not pool_ready then
+  begin
+    start_pool(n);
+    if cli_thread_count<=1 then exit(false); {no worker could be started}
+  end;
+  result:=true;
+end;
+
+procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer);
+var
+  n : integer;
+begin
+  if nrows<=0 then exit;
+  n:=cli_thread_count;
+  if ((nrows<n*16) or (not pool_available)) then
+  begin
+    proc(0, nrows-1, data); {serial}
+    exit;
+  end;
+  n:=cli_thread_count; {may be smaller after start_pool when threads could not be started}
+  run_chunks(nrows, (nrows+n-1) div n, proc, data);
+end;
+
+procedure parallel_each_thread(proc: TRowProc; data: pointer);
+begin
+  if not pool_available then
+  begin
+    proc(0, 0, data);
+    exit;
+  end;
+  run_chunks(cli_thread_count, 1, proc, data); {one row per thread, so every pool thread runs proc exactly once}
+end;
+
 type
   Ttaskshared = record
     next, stop_at : longint;
@@ -278,29 +301,31 @@ type
 
 procedure task_loop(startRow, endRow: integer; data: pointer);
 var
-  sh       : Ptaskshared;
-  idx, old : longint;
+  sh  : Ptaskshared;
+  idx : longint;
+
+  procedure lower_stop(v: longint); {lower sh^.stop_at to v unless somebody stopped earlier}
+  var
+    old : longint;
+  begin
+    repeat
+      old:=sh^.stop_at;
+      if v>=old then exit;
+    until InterlockedCompareExchange(sh^.stop_at, v, old)=old;
+  end;
+
 begin
   sh:=Ptaskshared(data);
   repeat
     idx:=InterlockedIncrement(sh^.next)-1;
     if ((idx>=sh^.ntasks) or (idx>=sh^.stop_at)) then break;
-    if sh^.proc(idx, sh^.data) then
-      repeat {lower stop_at to idx unless somebody stopped earlier}
-        old:=sh^.stop_at;
-        if idx>=old then break;
-      until InterlockedCompareExchange(sh^.stop_at, idx, old)=old;
+    try
+      if sh^.proc(idx, sh^.data) then lower_stop(idx);
+    except
+      lower_stop(0); {the other threads stop taking tasks, as the serial loop would have stopped here. run_chunks re-raises on the caller}
+      raise;
+    end;
   until false;
-end;
-
-procedure parallel_each_thread(proc: TRowProc; data: pointer);
-var
-  n : integer;
-begin
-  n:=cli_thread_count;
-  {nrows=n*16 gives chunk=16, so parallel_rows hands exactly one chunk to the caller and one to each of the n-1 workers.
-   Row numbers are meaningless here, each call gets its own 16 row chunk; that is the only contract parallel_rows must keep for this}
-  parallel_rows(n*16, proc, data);
 end;
 
 procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer);
