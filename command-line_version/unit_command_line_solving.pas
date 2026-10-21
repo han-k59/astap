@@ -1378,8 +1378,8 @@ begin
             radius:=round(3.0*hfd1);{for marking star area. A value between 2.5*hfd and 3.5*hfd gives same performance. Note in practice a star PSF has larger wings then predicted by a Gaussian function}
             b^.cands[nr].radius:=radius;
             {the centroid test of the serial code, here against the shared marks and this band's private marks}
-            b^.cands[nr].marked:=((d^.img_sa[0,yci,xci]<>d^.retries) and
-                                  ((yci<row0) or (yci>=row0+nrows) or (xci<col0) or (xci>=col0+mw) or (pmask[(yci-row0)*mw+xci-col0]=0)));
+            if d^.img_sa[0,yci,xci]=d^.retries then continue; {centroid in an earlier star's area: the serial scan rejects it, the shared marks only grow, so the replay would too. Not stored}
+            b^.cands[nr].marked:=((yci<row0) or (yci>=row0+nrows) or (xci<col0) or (xci>=col0+mw) or (pmask[(yci-row0)*mw+xci-col0]=0));
             if b^.cands[nr].marked then
             begin
               sqr_radius:=sqr(radius);
@@ -1411,7 +1411,7 @@ type
   Tpix = record y, x: integer; end;
 var
   band, ci, pi, npend                  : integer;
-  pend, pend2                          : array of Tpix; {pixels to re-test, in scan order}
+  pend                                 : array of Tpix; {pixels to re-test, in scan order}
   c                                    : ^Tfscand;
   b                                    : ^Tfsband;
   rowfirst, rowlast                    : integer; {image rows of the band being replayed}
@@ -1453,7 +1453,7 @@ var
           procedure add_uncovered(const cd: Tfscand); {queue the pixels of a rejected candidate's private area that the scan still has to see}
           var
             m, n, i, j, xci, yci, sqr_radius, k, a, bidx, nnew : integer;
-            batch : array of Tpix;
+            batch, pend2 : array of Tpix;
           begin
             sqr_radius:=sqr(cd.radius);
             xci:=round(cd.xc);
@@ -2353,6 +2353,7 @@ type
     lock                                              : TRTLCriticalSection;
     best                                              : integer; {lowest position index with a solution}
     first_error                                       : integer; {lowest position index where the database could not be read. Fatal only if lower than best, as in the serial search}
+    read_failed                                       : boolean; {the error at first_error was a failed read of a tile (disk, memory), not a missing file}
     bucket_warnings                                   : longint; {positions where find_quads overflowed a hash bucket}
     {result of the winning step}
     ra_database, dec_database, mag2                   : double;
@@ -2380,7 +2381,11 @@ begin
   if read_stars(ra_database,dec_database,c^.search_field2,c^.nrstars_required2,{out} starlist1)= false then
   begin
     EnterCriticalSection(c^.lock);
-    if idx<c^.first_error then c^.first_error:=idx;
+    if idx<c^.first_error then
+    begin
+      c^.first_error:=idx;
+      c^.read_failed:=db_reader^.read_error;
+    end;
     LeaveCriticalSection(c^.lock);
     exit(true); {stop handing out higher positions. Positions below idx still finish and can win}
   end;
@@ -2708,6 +2713,7 @@ begin
         ctx.cdelt2_arcsec:=cdelt2_arcsec;
         ctx.best:=high(integer);
         ctx.first_error:=high(integer);
+        ctx.read_failed:=false;
         ctx.bucket_warnings:=0;
 
         if database_type=001 then {wide field database. Load the global wide_field_stars array here on the main thread, so a missing database is reported before the search starts. read_stars guards the load with wide_lock as well}
@@ -2721,32 +2727,38 @@ begin
 
         InitCriticalSection(ctx.lock);
         dbg_t0:=gettickcount64;
-        if ((match_nr=0) and (cli_thread_count>1) and (solve_show_log=false)) then
-          parallel_tasks(npos, @solve_step, @ctx) {all cores, lowest position index wins so the result equals the serial search}
-        else
-        begin {serial, in spiral order. Used for the second pass (one step) and for -progress logging}
-          distance:=0; {required for reporting no too often}
-          i:=0;
-          while ((i<npos) and (ctx.best=high(integer)) and (ctx.first_error=high(integer))) do
-          begin
-            if pos_sep[i]*180/pi>distance+fov_org then {new distance reached. Update once in the square spiral, so not too often since it cost CPU time}
+        try
+          if ((match_nr=0) and (cli_thread_count>1) and (solve_show_log=false)) then
+            parallel_tasks(npos, @solve_step, @ctx) {all cores, lowest position index wins so the result equals the serial search}
+          else
+          begin {serial, in spiral order. Used for the second pass (one step) and for -progress logging}
+            distance:=0; {required for reporting no too often}
+            i:=0;
+            while ((i<npos) and (ctx.best=high(integer)) and (ctx.first_error=high(integer))) do
             begin
-              distance:=pos_sep[i]*180/pi;
-              write(inttostr(round(distance))+'d,');{show what's happening}
+              if pos_sep[i]*180/pi>distance+fov_org then {new distance reached. Update once in the square spiral, so not too often since it cost CPU time}
+              begin
+                distance:=pos_sep[i]*180/pi;
+                write(inttostr(round(distance))+'d,');{show what's happening}
+              end;
+              solve_step(i,@ctx);
+              inc(i);
             end;
-            solve_step(i,@ctx);
-            inc(i);
           end;
+        finally {also when a worker raised: the readers must not keep tiles and file handles, and the lock must not leak}
+          DoneCriticalSection(ctx.lock);
+          detach_all_readers; {idle worker readers must not pin tiles in the cache}
         end;
         if cli_timing then writeln(stderr,'T search ',gettickcount64-dbg_t0,' ms, ',npos,' positions, pass ',match_nr+1,', ',cli_thread_count,' threads');
-        DoneCriticalSection(ctx.lock);
-        detach_all_readers; {idle worker readers must not pin tiles in the cache}
 
         if ctx.bucket_warnings>0 then memo2_message('Warning, bucket size increased at '+inttostr(ctx.bucket_warnings)+' search position(s)!');
 
         if ctx.first_error<ctx.best then {a read error before the solution. A worker that ran ahead into a missing tile beyond the solution is ignored, the serial search would never have reached it}
         begin
-          memo2_message('Error, no star database found at '+database_path+' ! Download and install a star database.');
+          if ctx.read_failed then
+            memo2_message('Error, could not read the star database at '+database_path+' (disk read error or out of memory).')
+          else
+            memo2_message('Error, no star database found at '+database_path+' ! Download and install a star database.');
           errorlevel:=33;{read error star database}
           exit; {no stars}
         end;

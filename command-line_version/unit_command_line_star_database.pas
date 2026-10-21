@@ -2855,6 +2855,8 @@ var
   tile_clock  : int64 = 0;   {use counter for least recently used}
   tile_loading_marker : byte; {tile_loading points here}
   tile_loading        : Pbyte_block; {block pointer value while a reader loads the block. Set in initialization}
+  tile_failed_marker  : byte; {tile_failed points here}
+  tile_failed         : Pbyte_block; {block pointer value after a load failed, so the other readers do not repeat the failing read. Cleared when the tile is evicted}
 
 function tile_budget: int64; {bytes the tile cache may hold before evicting unused tiles. ASTAP_TILE_CACHE_MB in the environment overrides the default of 256 MB}
 var
@@ -2874,20 +2876,25 @@ begin
   result:=tile_limit;
 end;
 
+procedure tile_discard(t: Ptile); {dispose a Ttile record whose blocks are all released or were never loaded}
+begin
+  t^.blocks:=nil;
+  t^.name:='';
+  dispose(t);
+end;
+
 procedure tile_free(t: Ptile); {release the memory of a tile. Call under tile_lock, refcount must be 0 so nobody reads or loads it}
 var
   i : integer;
 begin
   if ((t^.area<length(tile_index)) and (tile_index[t^.area]=t)) then tile_index[t^.area]:=nil;
   for i:=0 to high(t^.blocks) do
-    if ((t^.blocks[i]<>nil) and (t^.blocks[i]<>tile_loading)) then
+    if ((t^.blocks[i]<>nil) and (t^.blocks[i]<>tile_loading) and (t^.blocks[i]<>tile_failed)) then
     begin
       freemem(t^.blocks[i]);
       tile_bytes:=tile_bytes-tile_blocksize;
     end;
-  t^.blocks:=nil;
-  t^.name:='';
-  dispose(t);
+  tile_discard(t);
 end;
 
 procedure tile_evict(needed: int64); {drop least recently used unattached tiles until needed bytes fit in the budget. Call under tile_lock}
@@ -2917,13 +2924,6 @@ begin
   for i:=0 to high(tiles) do {other database with the same area number, rare}
     if tiles[i]^.name=fullname then begin tile_index[area]:=tiles[i]; exit(tiles[i]); end;
   result:=nil;
-end;
-
-procedure tile_discard(t: Ptile); {drop a tile from tile_open that was never inserted, so it has no loaded blocks}
-begin
-  t^.blocks:=nil;
-  t^.name:='';
-  dispose(t);
 end;
 
 function tile_open(area: integer; const fullname: string): Ptile; {open the file and read its header. nil if the file can not be opened.
@@ -2973,6 +2973,7 @@ begin
   spins:=0;
   repeat
     p:=t^.blocks[b];
+    if p=tile_failed then exit(nil); {a reader already failed to load it, do not repeat the failing read on every thread}
     if ((p<>nil) and (p<>tile_loading)) then exit(p); {loaded. Reading the contents through this pointer is ordered after the pointer read on all supported CPUs}
     if p=tile_loading then
     begin {another reader loads it: tens of microseconds from the page cache, milliseconds from an SD card}
@@ -3002,7 +3003,7 @@ begin
       r^.fstream.position:=110+int64(b)*tile_blocksize;
       r^.fstream.ReadBuffer(p^[0], n);
     except
-      FreeAndNil(r^.fstream); {read error or out of memory. Release the claim, this reader reports end of file}
+      FreeAndNil(r^.fstream); {read error or out of memory. Mark the block failed so the waiting readers fail at once instead of each repeating the read}
       r^.fname:='';
       if p<>nil then
       begin
@@ -3011,7 +3012,7 @@ begin
         tile_bytes:=tile_bytes-tile_blocksize;
         LeaveCriticalSection(tile_lock);
       end;
-      InterlockedExchange(pointer(t^.blocks[b]), nil);
+      InterlockedExchange(pointer(t^.blocks[b]), pointer(tile_failed));
       exit(nil);
     end;
     WriteBarrier; {the block contents must be visible before the pointer. FPC's Interlocked* have no ordering on aarch64}
@@ -3054,7 +3055,12 @@ begin
   if r^.tile<>nil then
   begin
     EnterCriticalSection(tile_lock);
-    if r^.tile_gen=tile_gen then dec(r^.tile^.refcount); {after clear_tile_cache the pointer is stale}
+    if r^.tile_gen=tile_gen then {after clear_tile_cache the pointer is stale}
+    begin
+      dec(r^.tile^.refcount);
+      inc(tile_clock);
+      r^.tile^.last_used:=tile_clock; {least recently used means last read, not first attached}
+    end;
     LeaveCriticalSection(tile_lock);
     r^.tile:=nil;
   end;
@@ -3268,6 +3274,7 @@ initialization
   InitCriticalSection(tile_lock);
   InitCriticalSection(tile_open_lock);
   tile_loading:=@tile_loading_marker;
+  tile_failed:=@tile_failed_marker;
 finalization
   clear_tile_cache;
   DoneCriticalSection(tile_lock);

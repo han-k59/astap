@@ -204,7 +204,8 @@ begin
       RTLEventDestroy(workers[started].done);
     end;
   end;
-  setlength(workers, started);
+  {the array is not shrunk when a thread could not be started: the running workers hold @workers[i] pointers and a
+   memory manager may move a dynamic array on setlength. The unused tail slots are never signalled}
   thread_count:=started+1;
   pool_ready:=true;
 end;

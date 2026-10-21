@@ -3117,6 +3117,7 @@ begin
   valmax:=0;
   hfd1:=999;
   snr:=0;
+  r_aperture:=-1; {also the value when the try block below exits early, the HFD loops after it then run zero times}
 
   try
     counter:=0;
