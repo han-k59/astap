@@ -32,6 +32,7 @@ type
   TTaskProc = function(idx: integer; data: pointer): boolean; {return true to stop handing out tasks with a higher index}
 
 procedure parallel_rows(nrows: integer; proc: TRowProc; data: pointer); {run proc over [0..nrows-1] split in chunks on all threads; returns when all chunks are done}
+procedure parallel_each_thread(proc: TRowProc; data: pointer); {run proc(0,0,data) once on the calling thread and once on every worker thread, for per-thread (threadvar) state. Returns when all are done}
 procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer); {run proc(0..ntasks-1) on all threads in index order; a task returning true stops tasks with a higher index. Returns when all started tasks are done}
 function cli_thread_count: integer;
 procedure set_thread_count(n: integer); {from the -threads option; 0 = automatic}
@@ -292,6 +293,16 @@ begin
   until false;
 end;
 
+procedure parallel_each_thread(proc: TRowProc; data: pointer);
+var
+  n : integer;
+begin
+  n:=cli_thread_count;
+  {nrows=n*16 gives chunk=16, so parallel_rows hands exactly one chunk to the caller and one to each of the n-1 workers.
+   Row numbers are meaningless here, each call gets its own 16 row chunk; that is the only contract parallel_rows must keep for this}
+  parallel_rows(n*16, proc, data);
+end;
+
 procedure parallel_tasks(ntasks: integer; proc: TTaskProc; data: pointer);
 var
   sh : Ttaskshared;
@@ -301,7 +312,7 @@ begin
   sh.ntasks:=ntasks;
   sh.proc:=proc;
   sh.data:=data;
-  parallel_rows(cli_thread_count*16, @task_loop, @sh); {one task_loop per thread}
+  parallel_each_thread(@task_loop, @sh); {one task_loop per thread}
 end;
 
 initialization

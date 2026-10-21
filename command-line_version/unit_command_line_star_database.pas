@@ -31,7 +31,6 @@ type
     blocks        : array of Pbyte_block;{the file after the 110 byte header, in blocks. nil: not loaded, tile_loading: a reader is loading it, else the data. Only the first blocks are needed for a small field}
     size          : integer;   {bytes in the file after the header}
     record_size   : integer;   {5,6,7,9,10 or 11 bytes per record}
-    header        : array[0..(11*10)-1] of ansichar;{info star database, length 110 char equals 10x11 bytes}
     refcount      : integer;   {readers attached. Only tiles with refcount 0 are evicted. Under tile_lock}
     last_used     : int64;     {for least recently used eviction. Under tile_lock}
     area          : integer;   {area number, index in tile_index}
@@ -74,7 +73,6 @@ procedure find_areas(ra1,dec1,fov :double; out area1,area2,area3,area4 :integer;
 function readdatabase290(r: Pdbreader; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{star 290 file database search}
 procedure close_star_database(r: Pdbreader);{Detach the reader from its tile}
 function open_database(r: Pdbreader; telescope_dec: double; area290: integer): boolean; {open database file}
-procedure clear_tile_cache; {free all loaded star database tiles. Call between solves, not while readers run}
 procedure detach_all_readers; {detach the readers of all pool threads so their tiles can be evicted. Call from the main thread when no search runs}
 
 // The format of the 290 star databases is described in the HNSKY help file
@@ -2930,8 +2928,9 @@ end;
 function tile_open(area: integer; const fullname: string): Ptile; {open the file and read its header. nil if the file can not be opened.
   Runs without tile_lock so the other threads do not wait on disk I/O; the caller inserts the result under the lock with tile_insert}
 var
-  t  : Ptile;
-  fs : TFileStream;
+  t      : Ptile;
+  fs     : TFileStream;
+  header : array[0..(11*10)-1] of ansichar;{info star database, length 110 char equals 10x11 bytes. Only the record size byte is used}
 begin
   result:=nil;
   new(t);
@@ -2941,18 +2940,16 @@ begin
   fs:=nil;
   try
     fs:=TFileStream.Create(fullname, fmOpenRead or fmShareDenyWrite); {read but do not lock file}
-    fs.ReadBuffer(t^.header,110); {read header info, 10x11 is 110 bytes}
-    if t^.header[109]=' ' then t^.record_size:=11 {default}
+    fs.ReadBuffer(header,110); {read header info, 10x11 is 110 bytes}
+    if header[109]=' ' then t^.record_size:=11 {default}
     else
-    t^.record_size:=ord(t^.header[109]);{5,6,7,9,10 or 11 bytes record}
+    t^.record_size:=ord(header[109]);{5,6,7,9,10 or 11 bytes record}
     t^.size:=fs.size-110;
     setlength(t^.blocks, (t^.size+tile_blocksize-1) div tile_blocksize); {pointers only, blocks are loaded on demand}
     fs.free;
   except
     fs.free;
-    t^.blocks:=nil;
-    t^.name:='';
-    dispose(t);
+    tile_discard(t);
     exit;
   end;
   result:=t;
@@ -3026,11 +3023,11 @@ end;
 
 procedure detach_all_readers; {detach the readers of all pool threads so their tiles can be evicted. Call from the main thread when no search runs}
 begin
-  if cli_pool_running then parallel_rows(cli_thread_count*16, @detach_reader_task, nil)
+  if cli_pool_running then parallel_each_thread(@detach_reader_task, nil)
   else close_star_database(db_reader); {no workers were ever started, do not start them just for this}
 end;
 
-procedure clear_tile_cache; {free all loaded star database tiles. Call between solves, not while readers run}
+procedure clear_tile_cache; {free all loaded star database tiles. Only at finalization: it ignores refcount, so no reader may be attached}
 var
   i : integer;
 begin
@@ -3046,8 +3043,10 @@ begin
   end;
 end;
 
-procedure close_star_database(r: Pdbreader);{Detach the reader from its tile}
+procedure close_star_database(r: Pdbreader);{Detach the reader from its tile and close its file handle}
 begin
+  FreeAndNil(r^.fstream); {else each thread keeps its last database file open (and share-denied on Windows) until the process exits}
+  r^.fname:='';
   if r^.tile<>nil then
   begin
     EnterCriticalSection(tile_lock);
@@ -3059,6 +3058,15 @@ begin
   r^.old_area:=0;
 end;
 
+
+procedure tile_attach(r: Pdbreader; t: Ptile); {attach the reader to a cached tile so it can not be evicted. Call under tile_lock}
+begin
+  r^.tile:=t;
+  r^.tile_gen:=tile_gen;
+  inc(t^.refcount);
+  inc(tile_clock);
+  t^.last_used:=tile_clock;
+end;
 
 function open_database(r: Pdbreader; telescope_dec: double; area290: integer): boolean; {open database file}
 var
@@ -3077,10 +3085,12 @@ begin
     else
       namefile:=name_database+'_'+filenames1476[area290]; {g17_0101.1476}
 
+    {the refcount is taken in the same locked section as the lookup: a found tile with refcount 0 could be evicted by another thread in between}
+    tnew:=nil;
     EnterCriticalSection(tile_lock);
     t:=tile_find(area290, database_path+namefile);
+    if t<>nil then tile_attach(r, t);
     LeaveCriticalSection(tile_lock);
-    tnew:=nil;
     if t=nil then
     begin
       tnew:=tile_open(area290, database_path+namefile); {outside the lock, the file open and header read may take milliseconds on an SD card}
@@ -3089,21 +3099,11 @@ begin
         result:=false;
         exit;
       end;
-    end;
-    EnterCriticalSection(tile_lock);
-    try
-      if t=nil then
-      begin
-        t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile meanwhile}
-        if t=nil then begin tile_insert(tnew); t:=tnew; end
-        else tile_discard(tnew);
-      end;
-      r^.tile:=t;
-      r^.tile_gen:=tile_gen;
-      inc(t^.refcount);
-      inc(tile_clock);
-      t^.last_used:=tile_clock;
-    finally
+      EnterCriticalSection(tile_lock);
+      t:=tile_find(area290, database_path+namefile); {another thread may have opened the same tile meanwhile}
+      if t=nil then begin tile_insert(tnew); t:=tnew; end
+      else tile_discard(tnew);
+      tile_attach(r, t);
       LeaveCriticalSection(tile_lock);
     end;
     r^.record_size:=r^.tile^.record_size;

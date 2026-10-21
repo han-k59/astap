@@ -812,13 +812,16 @@ begin
     while j<=endRow do
     begin
       nrows:=min(rows_per_read, endRow-j+1);
-      try
-        nread:=f.Read(buf[0], nrows*d^.width*2);
-      except
-        InterlockedExchange(d^.error, 1);
-        break; {load_fits discards the image, no point in raising once per block for the remaining rows}
+      nread:=f.Read(buf[0], nrows*d^.width*2); {THandleStream.Read never raises, a failed read returns 0}
+      if nread<nrows*d^.width*2 then
+      begin
+        if f.Position<f.Size then {not at the end of the file, so a device error}
+        begin
+          InterlockedExchange(d^.error, 1); {load_fits discards the image}
+          break;
+        end;
+        fillchar(buf[nread div 2], nrows*d^.width*2-nread, 0); {short file, keep going with zeros like the serial reader}
       end;
-      if nread<nrows*d^.width*2 then fillchar(buf[nread div 2], nrows*d^.width*2-nread, 0); {short file, keep going with zeros like the serial reader}
       for r:=0 to nrows-1 do
       begin
         src:=@buf[r*d^.width];
