@@ -43,11 +43,11 @@ var
 
 function select_star_database(database:string;fov:double): boolean; {select a star database, report false if none is found}
 procedure find_areas(ra1,dec1,fov :double; out area1,area2,area3,area4 :integer; out frac1,frac2,frac3,frac4:double);{find up to four star database areas for the square image.  Maximum size is a little lesse the one database field 9.5x9.5 degrees for .290 files and 5.14 x 5.14 degrees for .1476 files}
-function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{star 290 file database search}
+function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2: double; var mag2: double; out Bp_Rp : double): boolean;{star 290 file database search}
 procedure close_star_database;{Detach the reader of this thread from its tile and close its file. Call at the end of a worker thread}
 function open_database(telescope_dec: double; area290: integer): boolean; {open database file}
 function star_database_reader: pointer;{the reader of the calling thread, for readdatabase290_reader}
-function readdatabase290_reader(reader: pointer; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{as readdatabase290 but for the reader of star_database_reader. Saves the thread variable lookup at every call}
+function readdatabase290_reader(reader: pointer; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2: double; var mag2: double; out Bp_Rp : double): boolean;{as readdatabase290 but for the reader of star_database_reader. Saves the thread variable lookup at every call}
 
 // The format of the 290 star databases is described in the HNSKY help file
 //
@@ -2835,6 +2835,7 @@ type
     refcount      : integer; {readers attached to this tile. Under tile_lock}
     last_used     : int64;   {for least recently used freeing. Under tile_lock}
     area          : integer; {area number}
+    bad           : boolean; {unknown record size: the tile gives no stars}
   end;
   Ptile = ^Ttile;
 
@@ -2953,7 +2954,7 @@ begin
 end;
 
 
-function tile_open(area: integer; const fullname: string; out read_failed: boolean): Ptile; {open the file and read the header. nil if the file can not be opened. read_failed tells a file that exists but can not be read from a missing file}
+function tile_open(r: Pdbreader; area: integer; const fullname: string; out read_failed: boolean): Ptile; {open the file and read the header. nil if the file can not be opened. read_failed tells a file that exists but can not be read from a missing file. The open file is kept by reader r for loading the blocks}
 var
   t  : Ptile;
   fs : TFileStream;
@@ -2966,6 +2967,7 @@ begin
   t^.area:=area;
   t^.refcount:=0;
   t^.last_used:=0;
+  t^.bad:=false;
   fs:=nil;
   try
     fs:=TFileStream.Create(fullname, fmOpenRead or fmShareDenyWrite); {read but do not lock file}
@@ -2973,9 +2975,13 @@ begin
     if t^.header[109]=' ' then t^.record_size:=11 {default}
     else
     t^.record_size:=ord(t^.header[109]);{5,6,7,9,10 or 11 bytes record}
-    t^.size:=fs.size-110;
+    if ((t^.record_size<5) or (t^.record_size>11)) then {not a star database file. Read no stars instead of overrunning the record buffer}
+    begin
+      t^.record_size:=5;
+      t^.bad:=true;
+    end;
+    if t^.bad then t^.size:=0 else t^.size:=fs.size-110;
     setlength(t^.blocks,(t^.size+tile_blocksize-1) div tile_blocksize); {pointers only, zeroed. Blocks are loaded on demand}
-    fs.free;
   except
     read_failed:=(fs<>nil); {the file was opened, so it exists and the header read failed}
     fs.free;
@@ -2984,6 +2990,9 @@ begin
     dispose(t);
     exit;
   end;
+  FreeAndNil(r^.fstream);{keep the file open in the reader, the first block is read next. Saves a second open of the file}
+  r^.fstream:=fs;
+  r^.fname:=fullname;
   result:=t;
 end;
 
@@ -3121,7 +3130,7 @@ begin
         end;
         if t=nil then
         begin
-          t:=tile_open(area290,fullname,read_failed);{outside tile_lock, the file open may take milliseconds}
+          t:=tile_open(r,area290,fullname,read_failed);{outside tile_lock, the file open may take milliseconds}
           if t<>nil then
           begin
             EnterCriticalSection(tile_lock);
@@ -3184,7 +3193,7 @@ end;
 //   cos_telescope_dec, double variable should contains the cos(telescope_dec) to detect if star read is within the FOV diameter}
 //
 {$INLINE ON}
-function read_star(r: Pdbreader; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean; inline;{star 290 file database search}
+function read_star(r: Pdbreader; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2: double; var mag2: double; out Bp_Rp : double): boolean; inline;{star 290 file database search}
             {searchmode=S screen update }
             {searchmode=M mouse click  search}
             {searchmode=T text search}
@@ -3320,7 +3329,7 @@ begin
 end;
 
 
-function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{star 290 file database search, reader of the calling thread}
+function readdatabase290(telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2: double; var mag2: double; out Bp_Rp : double): boolean;{star 290 file database search, reader of the calling thread}
 begin
   result:=read_star(@dbr,telescope_ra,telescope_dec,field_diameter,ra2,dec2,mag2,Bp_Rp);
 end;
@@ -3332,21 +3341,31 @@ begin
 end;
 
 
-function readdatabase290_reader(reader: pointer; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2, mag2,Bp_Rp : double): boolean;{as readdatabase290 for the reader of star_database_reader}
+function readdatabase290_reader(reader: pointer; telescope_ra,telescope_dec, field_diameter:double; out ra2,dec2: double; var mag2: double; out Bp_Rp : double): boolean;{as readdatabase290 for the reader of star_database_reader}
 begin
   result:=read_star(Pdbreader(reader),telescope_ra,telescope_dec,field_diameter,ra2,dec2,mag2,Bp_Rp);
 end;
 
 
-procedure clear_tile_cache; {free all tiles. Only at the end of the program, when no other thread reads}
+procedure clear_tile_cache; {free the tiles. Tiles that other threads are reading stay}
 var
   i : integer;
 begin
+  close_star_database;{detach the reader of the calling thread, else it would keep a pointer to a freed tile}
   EnterCriticalSection(tile_lock);
   try
-    for i:=0 to high(tiles) do
-      tile_free(tiles[i]);
-    tiles:=nil;
+    i:=0;
+    while i<=high(tiles) do
+    begin
+      if tiles[i]^.refcount=0 then
+      begin
+        tile_free(tiles[i]);
+        tiles[i]:=tiles[high(tiles)];
+        setlength(tiles,length(tiles)-1);
+      end
+      else
+        inc(i);
+    end;
   finally
     LeaveCriticalSection(tile_lock);
   end;

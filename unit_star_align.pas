@@ -20,12 +20,18 @@ type
                    x,y  : double;
                  end;
 
-var
+threadvar {State of one star match. Every thread of the multi-threaded spiral search (unit_astrometric_solving) has its own copy.
+           All other code runs in the main thread and uses the main thread copy, so for them nothing changes.
+           Do not use these variables in other threads (TThread.Execute), pass the values as parameters instead.}
    quad_star_distances1, quad_star_distances2: Tstar_list;
    A_XYpositions                          : Tstar_list;
    b_Xrefpositions,b_Yrefpositions        : array of double;
    nr_references,nr_references2           : integer;
-   solution_vectorX, solution_vectorY,solution_cblack   : Tsolution_vector ;
+   solution_vectorX, solution_vectorY     : Tsolution_vector ;
+   defer_quad_warning : boolean;{set during a parallel spiral search, in all its threads. find_quads then counts a bucket overflow in quad_warnings instead of reporting it, the main thread reports it in search order. Also no solve_show_log messages: a parallel search runs only if solve_show_log was false, but an action started by Application.ProcessMessages can set it}
+   quad_warnings      : integer;
+var
+   solution_cblack   : Tsolution_vector ;
 
    Savefile: file of Tsolution_vector;{to save solution if required for second and third step stacking}
    //starlistquadsDisplay : Tstar_list;
@@ -260,8 +266,281 @@ begin
   if Lo < iHi then QuickSort_starlist_onSNR(A, Lo, iHi) ;  {executes itself recursively}
 end;
 
-
 procedure find_many_quads(display: boolean; starlist: Tstar_list; out quads: Tstar_list; mode: integer {use 5, 6, 7 closest stars});
+var
+  i, j, k, q, nrstars, nrquads, num_closest, num_quads_per_group, insert_pos: integer;
+  distance, temp, xt, yt, dist1, dist2, dist3, dist4, dist5, dist6, dx, dy: double;
+  identical_quad: boolean;
+  closest_indices: array of integer;
+  closest_distances: array of double;
+  quad_indices: array[0..3] of integer;
+  x1, y1, x2, y2, x3, y3, x4, y4: double;
+  StarsX, StarsY: PDouble;// Direct pointers for faster array access
+  QuadsX, QuadsY: PDouble;// Direct pointers for faster array access
+  {hash grid for the duplicate check. Cells of 1x1 pixel. A quad centre within 1 pixel in x and y lies in the same or a neighbouring cell}
+  grid_head : array of integer; {first quad in a hash bucket, -1 is empty}
+  grid_next : array of integer; {next quad in the same bucket}
+  grid_mask, cx, cy, gx, gy, h : integer;
+begin
+  nrstars := Length(starlist[0]);
+  // Initialize direct pointers
+  StarsX := @starlist[0, 0]; //this give a tiny improvement in speed
+  StarsY := @starlist[1, 0];
+
+  case mode of // Configure based on mode
+    5: begin
+      num_closest := 5; //collect 5 close stars
+      num_quads_per_group := 5; // create 5 quads from the 5 stars
+       end;
+    6: begin
+         num_closest := 6;//collect 6 close stars
+         num_quads_per_group := 15;  // C(6,4) = 15
+       end;
+    7: begin
+         num_closest := 7; //collect 7 close stars
+         num_quads_per_group := 35;  // C(7,4) = 35
+       end;
+  end;
+
+  nrquads := 0;
+  SetLength(quads, 8, nrstars * num_quads_per_group);
+  SetLength(closest_indices, num_closest);
+  SetLength(closest_distances, num_closest);
+
+  grid_mask:=1023;{number of buckets minus one, a power of two at least twice the maximum number of quads}
+  while grid_mask+1<2*nrstars*num_quads_per_group do grid_mask:=grid_mask*2+1;
+  SetLength(grid_head, grid_mask+1);
+  for h:=0 to grid_mask do grid_head[h]:=-1;
+  SetLength(grid_next, nrstars * num_quads_per_group);
+
+  for i := 0 to nrstars - 1 do
+  begin
+    closest_distances[0] := 0; // Reference star distance is zero
+    closest_indices[0] := i;// Reference star
+    for j := 1 to num_closest - 1 do // Initialize closest distances to a very large value
+
+    begin
+      closest_indices[j] := -1;
+      closest_distances[j] := 1E99;
+    end;
+
+    x1 := StarsX[i]; // Reference star
+    y1 := StarsY[i];
+
+    for j := 0 to nrstars - 1 do
+    begin
+      if i <> j then
+      begin
+        dx := StarsX[j] - x1;
+        dy := StarsY[j] - y1;
+        distance := dx * dx + dy * dy;
+        if distance > 1 then
+        begin
+          // Fixed insertion sort: find position, then shift
+          insert_pos := -1;
+          for k := num_closest - 1 downto 1 do
+          begin
+            if distance < closest_distances[k] then
+              insert_pos := k
+            else
+              break;
+          end;
+          if insert_pos >= 0 then
+          begin
+            for k := num_closest - 1 downto insert_pos + 1 do
+            begin
+              closest_distances[k] := closest_distances[k - 1];
+              closest_indices[k] := closest_indices[k - 1];
+            end;
+            closest_distances[insert_pos] := distance;
+            closest_indices[insert_pos] := j;
+          end;
+        end;
+      end;
+    end;
+
+    if closest_indices[num_closest - 1] <> -1 then
+    begin
+      // Move pointer assignment outside the quad loop
+      QuadsX := @quads[6, 0];
+      QuadsY := @quads[7, 0];
+
+      for q := 0 to num_quads_per_group - 1 do
+      begin
+        case mode of
+          5: //5 quads from 5 closest stars
+            case q of
+                 0:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=3; end;//exclude 4
+                 1:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=4; end;//exclude 3
+                 2:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=3; quad_indices[3]:=4; end;//exclude 2
+                 3:  begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=4; end;//exclude 1
+                 4:  begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=4; end;//exclude 0
+            end;//case
+          6: //15 quads from 6 closest stars, all C(6,4)=15 combinations of 4 from indices 0..5
+              case q of
+                0:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=3; end;//exclude 4,5
+                1:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=4; end;//exclude 3,5
+                2:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=5; end;//exclude 3,4
+                3:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=3; quad_indices[3]:=4; end;//exclude 2,5
+                4:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=3; quad_indices[3]:=5; end;//exclude 2,4
+                5:  begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=4; quad_indices[3]:=5; end;//exclude 2,3
+                6:  begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=4; end;//exclude 1,5
+                7:  begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=5; end;//exclude 1,4
+                8:  begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=4; quad_indices[3]:=5; end;//exclude 1,3
+                9:  begin quad_indices[0]:=0; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=5; end;//exclude 1,2
+                10: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=4; end;//exclude 0,5
+                11: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=5; end;//exclude 0,4
+                12: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=4; quad_indices[3]:=5; end;//exclude 0,3
+                13: begin quad_indices[0]:=1; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=5; end;//exclude 0,2
+                14: begin quad_indices[0]:=2; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=5; end;//exclude 0,1
+              end;
+          7: // //35 quads from 7 closest stars, C(7,4)=35 combinations of 4 from indices 0..6
+            case q of
+               0: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=3; end; //exclude 4,5,6
+               1: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=4; end; //exclude 3,5,6
+               2: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=5; end; //exclude 3,4,6
+               3: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=2; quad_indices[3]:=6; end; //exclude 3,4,5
+               4: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=3; quad_indices[3]:=4; end; //exclude 2,5,6
+               5: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=3; quad_indices[3]:=5; end; //exclude 2,4,6
+               6: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=3; quad_indices[3]:=6; end; //exclude 2,4,5
+               7: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=4; quad_indices[3]:=5; end; //exclude 2,3,6
+               8: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=4; quad_indices[3]:=6; end; //exclude 2,3,5
+               9: begin quad_indices[0]:=0; quad_indices[1]:=1; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 2,3,4
+              10: begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=4; end; //exclude 1,5,6
+              11: begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=5; end; //exclude 1,4,6
+              12: begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=6; end; //exclude 1,4,5
+              13: begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=4; quad_indices[3]:=5; end; //exclude 1,3,6
+              14: begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=4; quad_indices[3]:=6; end; //exclude 1,3,5
+              15: begin quad_indices[0]:=0; quad_indices[1]:=2; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 1,3,4
+              16: begin quad_indices[0]:=0; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=5; end; //exclude 1,2,6
+              17: begin quad_indices[0]:=0; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=6; end; //exclude 1,2,5
+              18: begin quad_indices[0]:=0; quad_indices[1]:=3; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 1,2,4
+              19: begin quad_indices[0]:=0; quad_indices[1]:=4; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 1,2,3
+              20: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=4; end; //exclude 0,5,6
+              21: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=5; end; //exclude 0,4,6
+              22: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=3; quad_indices[3]:=6; end; //exclude 0,4,5
+              23: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=4; quad_indices[3]:=5; end; //exclude 0,3,6
+              24: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=4; quad_indices[3]:=6; end; //exclude 0,3,5
+              25: begin quad_indices[0]:=1; quad_indices[1]:=2; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 0,3,4
+              26: begin quad_indices[0]:=1; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=5; end; //exclude 0,2,6
+              27: begin quad_indices[0]:=1; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=6; end; //exclude 0,2,5
+              28: begin quad_indices[0]:=1; quad_indices[1]:=3; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 0,2,4
+              29: begin quad_indices[0]:=1; quad_indices[1]:=4; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 0,2,3
+              30: begin quad_indices[0]:=2; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=5; end; //exclude 0,1,6
+              31: begin quad_indices[0]:=2; quad_indices[1]:=3; quad_indices[2]:=4; quad_indices[3]:=6; end; //exclude 0,1,5
+              32: begin quad_indices[0]:=2; quad_indices[1]:=3; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 0,1,4
+              33: begin quad_indices[0]:=2; quad_indices[1]:=4; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 0,1,3
+              34: begin quad_indices[0]:=3; quad_indices[1]:=4; quad_indices[2]:=5; quad_indices[3]:=6; end; //exclude 0,1,2
+            end;
+        end; // case mode
+
+        // Get star positions for the quad
+        x1 := StarsX[closest_indices[quad_indices[0]]];
+        y1 := StarsY[closest_indices[quad_indices[0]]];
+        x2 := StarsX[closest_indices[quad_indices[1]]];
+        y2 := StarsY[closest_indices[quad_indices[1]]];
+        x3 := StarsX[closest_indices[quad_indices[2]]];
+        y3 := StarsY[closest_indices[quad_indices[2]]];
+        x4 := StarsX[closest_indices[quad_indices[3]]];
+        y4 := StarsY[closest_indices[quad_indices[3]]];
+
+        // Calculate quad center
+        xt := (x1 + x2 + x3 + x4) * 0.25;
+        yt := (y1 + y2 + y3 + y4) * 0.25;
+
+        // Check for duplicates. Same test as before (centres within 1 pixel in x and y), but only the quads in the 3x3 neighbouring cells are compared
+        identical_quad := false;
+        cx:=trunc(xt); if cx>xt then dec(cx); {floor, faster than math.floor}
+        cy:=trunc(yt); if cy>yt then dec(cy);
+        {$push}{$R-}{$Q-}
+        for gx:=cx-1 to cx+1 do
+        begin
+          for gy:=cy-1 to cy+1 do
+          begin
+            k:=grid_head[(cardinal(gx)*73856093 xor cardinal(gy)*19349663) and grid_mask];
+            while k>=0 do
+            begin
+              if (abs(xt - QuadsX[k]) < 1) and (abs(yt - QuadsY[k]) < 1) then
+              begin
+                identical_quad := true;
+                break;
+              end;
+              k:=grid_next[k];
+            end;
+            if identical_quad then break;
+          end;
+          if identical_quad then break;
+        end;
+        if not identical_quad then
+        begin {add to the grid}
+          h:=(cardinal(cx)*73856093 xor cardinal(cy)*19349663) and grid_mask;
+          grid_next[nrquads]:=grid_head[h];
+          grid_head[h]:=nrquads;
+        end;
+        {$pop}
+
+        if not identical_quad then
+        begin // Calculate pairwise distances
+          dx := x1-x2; dy := y1-y2; dist1 := sqrt(dx*dx + dy*dy);
+          dx := x1-x3; dy := y1-y3; dist2 := sqrt(dx*dx + dy*dy);
+          dx := x1-x4; dy := y1-y4; dist3 := sqrt(dx*dx + dy*dy);
+          dx := x2-x3; dy := y2-y3; dist4 := sqrt(dx*dx + dy*dy);
+          dx := x2-x4; dy := y2-y4; dist5 := sqrt(dx*dx + dy*dy);
+          dx := x3-x4; dy := y3-y4; dist6 := sqrt(dx*dx + dy*dy);
+
+          // Optimized bubble sort for 6 elements
+          if dist2 > dist1 then begin temp:=dist1; dist1:=dist2; dist2:=temp; end;
+          if dist3 > dist2 then begin temp:=dist2; dist2:=dist3; dist3:=temp; end;
+          if dist4 > dist3 then begin temp:=dist3; dist3:=dist4; dist4:=temp; end;
+          if dist5 > dist4 then begin temp:=dist4; dist4:=dist5; dist5:=temp; end;
+          if dist6 > dist5 then begin temp:=dist5; dist5:=dist6; dist6:=temp; end;
+          if dist2 > dist1 then begin temp:=dist1; dist1:=dist2; dist2:=temp; end;
+          if dist3 > dist2 then begin temp:=dist2; dist2:=dist3; dist3:=temp; end;
+          if dist4 > dist3 then begin temp:=dist3; dist3:=dist4; dist4:=temp; end;
+          if dist5 > dist4 then begin temp:=dist4; dist4:=dist5; dist5:=temp; end;
+          if dist2 > dist1 then begin temp:=dist1; dist1:=dist2; dist2:=temp; end;
+          if dist3 > dist2 then begin temp:=dist2; dist2:=dist3; dist3:=temp; end;
+          if dist4 > dist3 then begin temp:=dist3; dist3:=dist4; dist4:=temp; end;
+          if dist2 > dist1 then begin temp:=dist1; dist1:=dist2; dist2:=temp; end;
+          if dist3 > dist2 then begin temp:=dist2; dist2:=dist3; dist3:=temp; end;
+          if dist2 > dist1 then begin temp:=dist1; dist1:=dist2; dist2:=temp; end;
+          //end optimized bubble sort
+
+          // Store the quad
+          if display = false then
+          begin
+            quads[0, nrquads] := dist1;
+            quads[1, nrquads] := dist2 / dist1;
+            quads[2, nrquads] := dist3 / dist1;
+            quads[3, nrquads] := dist4 / dist1;
+            quads[4, nrquads] := dist5 / dist1;
+            quads[5, nrquads] := dist6 / dist1;
+            quads[6, nrquads] := xt;
+            quads[7, nrquads] := yt;
+          end
+          else
+          begin //for display purposes
+            quads[0, nrquads] := x1; {copy first star position to the quad array}
+            quads[1, nrquads] := y1;
+            quads[2, nrquads] := x2; {copy the second star position to the quad array}
+            quads[3, nrquads] := y2;
+            quads[4, nrquads] := x3;
+            quads[5, nrquads] := y3;
+            quads[6, nrquads] := x4;
+            quads[7, nrquads] := y4;
+          end;
+          inc(nrquads);
+        end;
+      end; // quad loop
+    end; // enough stars
+  end; // star loop
+
+  SetLength(quads, 8, nrquads);
+end;
+
+
+//Following procedure is not used but kept for further testing later.
+procedure find_many_quadsOLD(display: boolean; starlist: Tstar_list; out quads: Tstar_list; mode: integer {use 5, 6, 7 closest stars});
 var
   i, j, k, q, nrstars, nrquads, num_closest, num_quads_per_group, insert_pos: integer;
   distance, temp, xt, yt, dist1, dist2, dist3, dist4, dist5, dist6, dx, dy: double;
@@ -511,7 +790,7 @@ end;
 
 procedure find_quads(display: boolean;nrstars_image:integer; starlist :Tstar_list; out quads :Tstar_list); //build quads using closest stars, revised 2026
 const
-  bucket_capacity = 5; // Max quads per bucket, increase to 20 if overflows occur
+  bucket_capacity = 20; // Max quads per bucket, increase to 20 if overflows occur
   GRID_INV = 0.2; // Pre-calculated inverse of grid_size (1.0 / 5.0)
 var
    i, j, k, nrstars, j_index1, j_index2, j_index3, nrquads, Sstart, Send, bandw,
@@ -750,12 +1029,17 @@ begin
   SetLength(quads, 8, nrquads); //adapt to the number found
 
 
-  if solve_show_log then
+  if ((solve_show_log) and (defer_quad_warning=false)) then
   begin
     memo2_message('Find Quads, max bucket size: '+inttostr(max_bucket_size)+', bucket overflows: '+inttostr(overflow_count) );
   end;
   if overflow_count>0 then
-    memo2_message('Warning, bucket size increased!');
+  begin
+    if defer_quad_warning then
+      inc(quad_warnings) {thread of the spiral search. Reported later by the main thread in search order}
+    else
+      memo2_message('Warning, bucket size increased!');
+  end;
 
 end;
 
@@ -771,12 +1055,15 @@ var
    // body, so otherwise it re-fetches them from the global dynamic array on every j iteration.
    db_r1, db_r2, db_r3, db_r4, db_r5                                   : double;
    // 2026 perf: cache image-side row pointers (same pattern as StarsX/StarsY in find_quads).
-   // Turns quad_star_distances2[k, j] (3-level deref) into pImg_k[j] (single deref).
+   // Turns q2[k, j] (3-level deref) into pImg_k[j] (single deref).
    pImg1, pImg2, pImg3, pImg4, pImg5                                   : PDouble;
+   q1, q2 : Tstar_list; {local references to the threadvars quad_star_distances1 and quad_star_distances2. A threadvar costs a lookup at every access}
 begin
   result:=false; {assume failure}
-  nrquads1:=Length(quad_star_distances1[0]);
-  nrquads2:=Length(quad_star_distances2[0]);
+  q1:=quad_star_distances1;
+  q2:=quad_star_distances2;
+  nrquads1:=Length(q1[0]);
+  nrquads2:=Length(q2[0]);
 
   {minimum_count required, 6 for stacking, 3 for plate solving}
   if ((nrquads1<minimum_count) or (nrquads2< minimum_count)) then begin nr_references:=0; exit; end;{no solution abort before run time errors}
@@ -786,21 +1073,21 @@ begin
 
   // 2026 perf: cache image-side row pointers once. The base addresses of each row do not
   // change during the match loop (matchlist2 is the only thing resized in the inner body).
-  pImg1 := @quad_star_distances2[1, 0];
-  pImg2 := @quad_star_distances2[2, 0];
-  pImg3 := @quad_star_distances2[3, 0];
-  pImg4 := @quad_star_distances2[4, 0];
-  pImg5 := @quad_star_distances2[5, 0];
+  pImg1 := @q2[1, 0];
+  pImg2 := @q2[2, 0];
+  pImg3 := @q2[3, 0];
+  pImg4 := @q2[4, 0];
+  pImg5 := @q2[5, 0];
 
   nr_references2:=0;
   for i := 0 to nrquads1 - 1 do                                                  // 2026: was repeat..until, switched to for for clarity; same iteration
   begin
     // 2026 perf: load database-side ratios once per i, reused for all nrquads2 inner iterations
-    db_r1 := quad_star_distances1[1, i];
-    db_r2 := quad_star_distances1[2, i];
-    db_r3 := quad_star_distances1[3, i];
-    db_r4 := quad_star_distances1[4, i];
-    db_r5 := quad_star_distances1[5, i];
+    db_r1 := q1[1, i];
+    db_r2 := q1[2, i];
+    db_r3 := q1[3, i];
+    db_r4 := q1[4, i];
+    db_r5 := q1[5, i];
 
     for j := 0 to nrquads2 - 1 do                                                // 2026: was repeat..until, switched to for for clarity; same iteration
     begin
@@ -820,14 +1107,14 @@ begin
         if nr_references2>=length(matchlist2[0]) then
         begin
           setlength(matchlist2,2,nr_references2+1000);//get more space
-          // 2026 note: matchlist2 lives in a separate dynamic array from quad_star_distances2,
+          // 2026 note: matchlist2 lives in a separate dynamic array from q2,
           // so the resize cannot relocate pImg1..pImg5. No need to refresh the row pointers.
         end;
       end;
     end;//j loop
   end;//i loop
 
-  if solve_show_log then memo2_message('Found '+inttostr( nr_references2)+ ' references');
+  if ((solve_show_log) and (defer_quad_warning=false)) then memo2_message('Found '+inttostr( nr_references2)+ ' references');
 
   if nr_references2< minimum_count then begin nr_references:=0; exit; end;{no solution abort before run time errors}
 
@@ -835,7 +1122,7 @@ begin
   setlength(ratios,nr_references2);
   {calculate median of the longest lenght ratio for matching quads}
   for k:=0 to nr_references2-1 do
-    ratios[k]:=quad_star_distances1[0,matchlist2[0,k]]/quad_star_distances2[0,matchlist2[1,k]]; {ratio between largest length of found and reference quad}
+    ratios[k]:=q1[0,matchlist2[0,k]]/q2[0,matchlist2[1,k]]; {ratio between largest length of found and reference quad}
 
   ratios_sorted:=copy(ratios,0,nr_references2); // make a duplicate because SMedian sorts in place. Keep ratios in match order
   median_ratio:=smedian(ratios_sorted,nr_references2);// Warning array is sorted and therefore modified. In unit_star_align a copy has to be made first!!!
@@ -857,7 +1144,7 @@ begin
       inc(nr_references);
     end
     else
-    if solve_show_log then memo2_message('quad outlier removed due to abnormal size: '+floattostr6(100*ratios[k]/median_ratio)+'%');
+    if ((solve_show_log) and (defer_quad_warning=false)) then memo2_message('quad outlier removed due to abnormal size: '+floattostr6(100*ratios[k]/median_ratio)+'%');
   end;
 
   {outliers in largest length removed}
@@ -871,12 +1158,12 @@ begin
 
     for k:=0 to nr_references-1 do
     begin
-      A_XYpositions[0,k]:=quad_star_distances2[6,matchlist1[1,k]]; {average x position of quad}
-      A_XYpositions[1,k]:=quad_star_distances2[7,matchlist1[1,k]]; {average y position of quad}
+      A_XYpositions[0,k]:=q2[6,matchlist1[1,k]]; {average x position of quad}
+      A_XYpositions[1,k]:=q2[7,matchlist1[1,k]]; {average y position of quad}
       A_XYpositions[2,k]:=1;
 
-      b_Xrefpositions[k]:=quad_star_distances1[6,matchlist1[0,k]]; {x position of ref quad/database}
-      b_Yrefpositions[k]:=quad_star_distances1[7,matchlist1[0,k]]; {Y position of ref quad}
+      b_Xrefpositions[k]:=q1[6,matchlist1[0,k]]; {x position of ref quad/database}
+      b_Yrefpositions[k]:=q1[7,matchlist1[0,k]]; {Y position of ref quad}
 
       {in matrix calculations, b_refpositionX[0..2,0..nr_equations-1]:=solution_vectorX[0..2] * A_XYpositions[0..2,0..nr_equations-1]}
       {                        b_refpositionY[0..2,0..nr_equations-1]:=solution_matrixY[0..2] * A_XYpositions[0..2,0..nr_equations-1]}
@@ -901,11 +1188,13 @@ var
   hash_table1, hash_table2: array of array of integer; // Hash tables for quads
   hash_counts1, hash_counts2: array of integer; // Counts per bin
   max_hash_count: integer; // Debug: track largest bin size
-
+  q1, q2 : Tstar_list; {local references to the threadvars quad_star_distances1 and quad_star_distances2. A threadvar costs a lookup at every access}
 begin
   result := false; {assume failure}
-  nrquads1 := Length(quad_star_distances1[0]);
-  nrquads2 := Length(quad_star_distances2[0]);
+  q1:=quad_star_distances1;
+  q2:=quad_star_distances2;
+  nrquads1 := Length(q1[0]);
+  nrquads2 := Length(q2[0]);
 
   if (nrquads1 < minimum_count) or (nrquads2 < minimum_count) then
   begin
@@ -944,7 +1233,7 @@ begin
     // for ratios in (0..1]. Defensive clamp protects against unexpected ratio values
     // (numerical noise pushing a ratio fractionally above 1, or a future caller passing
     // ratios outside the expected range).
-    bin := Trunc(quad_star_distances1[1, i] / quad_tolerance);
+    bin := Trunc(q1[1, i] / quad_tolerance);
     if bin >= hash_bins then bin := hash_bins - 1;
 
     if hash_counts1[bin] >= MAX_QUADS_PER_BIN then //pre check to speedup.
@@ -959,7 +1248,7 @@ begin
   for j := 0 to nrquads2 - 1 do
   begin
     // 2026 fix: same as above - no mod, clamp defensively
-    bin := Trunc(quad_star_distances2[1, j] / quad_tolerance);
+    bin := Trunc(q2[1, j] / quad_tolerance);
     if bin < 0 then bin := 0;
     if bin >= hash_bins then bin := hash_bins - 1;
 
@@ -993,11 +1282,11 @@ begin
       begin
         for j := 0 to hash_counts2[adjusted_bin] - 1 do
         begin
-          if abs(quad_star_distances1[1, hash_table1[bin,i]] - quad_star_distances2[1, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
-          if abs(quad_star_distances1[2, hash_table1[bin,i]] - quad_star_distances2[2, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
-          if abs(quad_star_distances1[3, hash_table1[bin,i]] - quad_star_distances2[3, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
-          if abs(quad_star_distances1[4, hash_table1[bin,i]] - quad_star_distances2[4, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
-          if abs(quad_star_distances1[5, hash_table1[bin,i]] - quad_star_distances2[5, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
+          if abs(q1[1, hash_table1[bin,i]] - q2[1, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
+          if abs(q1[2, hash_table1[bin,i]] - q2[2, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
+          if abs(q1[3, hash_table1[bin,i]] - q2[3, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
+          if abs(q1[4, hash_table1[bin,i]] - q2[4, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
+          if abs(q1[5, hash_table1[bin,i]] - q2[5, hash_table2[adjusted_bin,j]]) <= quad_tolerance then
           begin
             matchlist2[0, nr_references2] := hash_table1[bin,i];
             matchlist2[1, nr_references2] := hash_table2[adjusted_bin,j];
@@ -1010,7 +1299,7 @@ begin
     end;
   end;
 
-  if solve_show_log then
+  if ((solve_show_log) and (defer_quad_warning=false)) then
     memo2_message('Found ' + IntToStr(nr_references2) + ' references, max hash bin size: ' + IntToStr(max_hash_count));
 
   if nr_references2 < minimum_count then
@@ -1022,7 +1311,7 @@ begin
   {Calculate median of the longest length ratio for matching quads}
   SetLength(ratios, nr_references2);
   for k := 0 to nr_references2 - 1 do
-    ratios[k] := quad_star_distances1[0, matchlist2[0, k]] / quad_star_distances2[0, matchlist2[1, k]];
+    ratios[k] := q1[0, matchlist2[0, k]] / q2[0, matchlist2[1, k]];
   ratios_sorted:=copy(ratios,0,nr_references2); // make a duplicate because SMedian sorts in place. Keep ratios in match order
   median_ratio := smedian(ratios_sorted, nr_references2);
 
@@ -1037,7 +1326,7 @@ begin
       matchlist1[1, nr_references] := matchlist2[1, k];
       Inc(nr_references);
     end
-    else if solve_show_log then
+    else if ((solve_show_log) and (defer_quad_warning=false)) then
       memo2_message('Quad outlier removed due to abnormal size: ' + FloatToStrF(100 * ratios[k] / median_ratio, ffFixed, 6, 2) + '%');
   end;
 
@@ -1050,12 +1339,12 @@ begin
 
     for k := 0 to nr_references - 1 do
     begin
-      A_XYpositions[0, k] := quad_star_distances2[6, matchlist1[1, k]];
-      A_XYpositions[1, k] := quad_star_distances2[7, matchlist1[1, k]];
+      A_XYpositions[0, k] := q2[6, matchlist1[1, k]];
+      A_XYpositions[1, k] := q2[7, matchlist1[1, k]];
       A_XYpositions[2, k] := 1;
 
-      b_Xrefpositions[k] := quad_star_distances1[6, matchlist1[0, k]];
-      b_Yrefpositions[k] := quad_star_distances1[7, matchlist1[0, k]];
+      b_Xrefpositions[k] := q1[6, matchlist1[0, k]];
+      b_Yrefpositions[k] := q1[7, matchlist1[0, k]];
     end;
     result := true;
   end;
@@ -1675,7 +1964,7 @@ begin
   setlength(b_Yrefpositions, nkeep);
   nr_references := nkeep;
 
-  if solve_show_log then
+  if ((solve_show_log) and (defer_quad_warning=false)) then
      memo2_message('Removed '+inttostr(n-nkeep)+' quad(s) with residual > '+floattostrF(max_error_px,ffFixed,0,2)+'px');
 
 
@@ -1740,7 +2029,7 @@ begin
 
   begin
     reset_solution_vectors(0.001);{nullify}
-    if solve_show_log then {global variable set in find stars} memo2_message('Solution skipped on XY ratio: '+ floattostr(xy_sqr_ratio));
+    if ((solve_show_log) and (defer_quad_warning=false)) then {global variable set in find stars} memo2_message('Solution skipped on XY ratio: '+ floattostr(xy_sqr_ratio));
   end
   else
     result:=true;
